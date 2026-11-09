@@ -1,0 +1,4 @@
+.scratch/
+.metrics/
+__pycache__/
+.DS_Store
