@@ -27,7 +27,7 @@ The flow:
 5. **Review** in parallel. Every reviewer is report-only and returns findings in one shared format.
 6. **Dedupe** across lenses. A finding several lenses agree on ranks higher.
 7. **Verify** every blocker and major against the code; false positives are dropped.
-8. **Report** to `.scratch/pr-review/<id>.md`. Re-runs mark findings fixed, still open or new, and never resurface rejected ones.
+8. **Report**: findings are rewritten in plain language and kept in `.scratch/pr-review/<id>.json`; a script renders them into a readable report (`<id>.md`) that opens with the verdict and groups smaller findings by theme, plus a private Artifact page with the same content. Re-runs mark findings fixed, still open or new, and never resurface rejected ones.
 9. **Approve** blockers and majors one by one, minors and nits as a batch.
 10. **Spec and tickets** for the approved findings, in `.scratch/pr-review-<id>/`, ready for `/implement-spec`.
 

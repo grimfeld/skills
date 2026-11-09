@@ -8,7 +8,7 @@ One file per ticket at `.scratch/pr-review-<id>/issues/NN-<slug>.md`, numbered f
 Status: ready-for-agent
 Blocked by: <NN, NN, or "none">
 Spec: ../spec.md
-Findings: <B1, M3>
+Findings: <F1, F4>
 
 ## What
 

@@ -15,8 +15,11 @@ Files in this skill, reached by path from `SKILL_DIR` (the directory holding thi
 
 - `lenses/*.md`: one brief per reviewer, with `source` and `upstream_hash` front matter.
 - `references/finding-format.md`: the finding schema, severity scale and dedupe rule every reviewer and you share.
-- `references/report-template.md`, `references/spec-template.md`, `references/ticket-template.md`.
-- `scripts/check-drift.py`, `scripts/find-preview-url.sh`.
+- `references/state-format.md`: the review state file, and how to rewrite findings for people.
+- `references/spec-template.md`, `references/ticket-template.md`.
+- `scripts/check-drift.py`, `scripts/find-preview-url.sh`, `scripts/render-report.py`.
+
+Run Python scripts with `uv run --no-project python <script>`.
 
 ## 1. Drift check
 
@@ -38,10 +41,10 @@ Parse the arguments: a PR number or URL, an optional `base=`, an optional `paths
 3. **Diff.** `git diff --shortstat <base>...<head>` and `git diff --name-status`. Over ~3000 changed lines, show the stats and ask: continue, or narrow to paths. Apply `paths=` if given.
 4. **Spec.** Look in order: issues referenced in commit messages or the PR body (fetch with `gh issue view`), a path the user passed, a file under `docs/`, `specs/` or `.scratch/` matching the branch or feature. Record the spec text, or "no spec available".
 5. **CI.** With a PR: `gh pr checks <n>`. Failing checks become blockers at the top of the report.
-6. **Previous report.** Read `.scratch/pr-review/<id>.md` if it exists. Collect its open findings and its **Rejected** list.
+6. **Previous state.** Read `.scratch/pr-review/<id>.json` if it exists: its open findings, decisions and `artifact_url`. If only a legacy `<id>.md` exists, seed state from it as `references/state-format.md` describes.
 7. **Scratch is untracked.** If `git check-ignore -q .scratch` fails, append `.scratch/` to `.git/info/exclude`.
 
-Done when you hold: base, head, `REVIEW_ROOT`, the diff command, the changed-file list, spec text or "no spec available", CI status, and the previous report's findings and rejections.
+Done when you hold: base, head, `REVIEW_ROOT`, the diff command, the changed-file list, spec text or "no spec available", CI status, and the previous state (or none).
 
 ## 3. Route the lenses
 
@@ -89,7 +92,7 @@ Done when every dispatched reviewer has returned. A reviewer that errors or retu
 
 ## 6. Dedupe
 
-Apply the dedupe rule in `references/finding-format.md` across all returned findings. Each merged finding keeps every `source_skill`; corroboration by two or more lenses raises its priority within its severity. Drop any finding that matches the previous report's **Rejected** list.
+Apply the dedupe rule in `references/finding-format.md` across all returned findings. Each merged finding keeps every `source_skill`; corroboration by two or more lenses raises its priority within its severity. Drop any finding that matches a previously rejected one.
 
 ## 7. Verify
 
@@ -97,27 +100,35 @@ Collect every `blocker` and `major` after dedupe. Dispatch **one** `general-purp
 
 ## 8. Report
 
-Write `.scratch/pr-review/<id>.md` from `references/report-template.md`. On a re-run, append a new dated run section above the previous ones and mark each finding **fixed**, **still open** or **new** against the previous run. Print a terminal summary: counts per severity, failing CI checks, skipped lenses, whether web-quality had live evidence, and the report path.
+1. **Write state.** Update `.scratch/pr-review/<id>.json` per `references/state-format.md`: append this run, match findings against the previous state (new / still open / fixed), and write each finding's human fields (`title`, `why`, `fix`, `theme`) by the writing rules there. Done when every finding has plain-language human fields, one issue each.
+2. **Render.** `uv run --no-project python SKILL_DIR/scripts/render-report.py .scratch/pr-review/<id>.json` writes `<id>.md` and `<id>.html`.
+3. **Publish the page** with the Artifact tool, `file_path` = the `.html`:
+   - No `artifact_url` in state: publish with `icon: "checklist"` and a one-sentence `description` (verdict and counts), then save the returned URL as `artifact_url` and re-render.
+   - `artifact_url` set, page not yet published in this conversation: `action: "read"` that URL first, then publish with `url` = `artifact_url`.
+   - Already published in this conversation: publish the same `file_path` again.
+4. **Summarise** in the terminal: the verdict line, the "fix before merge" titles, counts of smaller improvements, skipped reviewers, whether web-quality had live evidence, the report path and the page link.
 
 ## 9. Approval
 
-- **Blockers and majors, one by one.** `AskUserQuestion`, up to 4 findings per call, options Approve / Reject / Defer. A rejection carries a reason (the user types it via Other, or you ask).
-- **Minors and nits, as a batch.** List them numbered, then one question: approve all, reject all, or pick by number.
+Use the human `title` and `why` in every question.
 
-Record every decision in the report: rejected findings go to the **Rejected** list with the reason, deferred ones to **Deferred**. Done when every finding has a decision.
+- **Fix-before-merge findings, one by one.** `AskUserQuestion`, up to 4 findings per call, options Approve / Reject / Defer. A rejection carries a reason (the user types it via Other, or you ask).
+- **Smaller improvements, as a batch.** List them by theme with their ids, then one question: approve all, reject all, or pick by id.
+
+Record every decision in the state file, re-render, and republish the page. Done when every finding has a decision.
 
 ## 10. Spec and tickets
 
 With at least one approved finding, write into `.scratch/pr-review-<id>/`, the local-markdown tracker layout `/implement-spec` reads:
 
 - `spec.md` from `references/spec-template.md`.
-- `issues/NN-<slug>.md` from `references/ticket-template.md`, numbered from `01`. Group approved findings by root cause or area, one ticket per group. Order the tickets so a fix others depend on (a boundary type, a shared helper) comes first, and record that with `Blocked by:`. All nits go into one final `polish` ticket that blocks nothing. Every ticket names its check: a failing test to write first where an honest one exists, otherwise a concrete manual or CI check.
+- `issues/NN-<slug>.md` from `references/ticket-template.md`, numbered from `01`; record each finding's ticket number in state. Group approved findings by root cause or area, one ticket per group. Order the tickets so a fix others depend on (a boundary type, a shared helper) comes first, and record that with `Blocked by:`. All nits go into one final `polish` ticket that blocks nothing. Every ticket names its check: a failing test to write first where an honest one exists, otherwise a concrete manual or CI check.
 
 If `docs/agents/issue-tracker.md` names GitHub or GitLab, offer to publish the spec and tickets there; publish only on a yes.
 
 ## 11. Finish
 
-Remove the worktree if you created one (`git worktree remove .scratch/pr-review/wt-<id>`). End with the report path, the spec path, and the next command:
+Remove the worktree if you created one (`git worktree remove .scratch/pr-review/wt-<id>`). End with the report path, the page link, the spec path, and the next command:
 
 ```
 /implement-spec .scratch/pr-review-<id>/spec.md

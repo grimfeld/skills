@@ -6,7 +6,7 @@ Write to `.scratch/pr-review-<id>/spec.md`. Unlike a feature spec, this one name
 # Fix spec: review findings for <PR title or branch>
 
 Status: ready-for-agent
-Report: .scratch/pr-review/<id>.md
+Report: .scratch/pr-review/<id>.md (state: <id>.json)
 Base `<base>` · head `<short sha>` at review time
 
 ## Context
@@ -17,13 +17,14 @@ Base `<base>` · head `<short sha>` at review time
 
 | Id | Severity | Finding | Where | Ticket |
 |---|---|---|---|---|
-| B1 | blocker | <title> | `<file>:<line>` | 01 |
+| F1 | blocker | <human title> | `<file>:<line>` | 01 |
 
 For each finding, in id order:
 
-### B1 · <title>
+### F1 · <human title>
 
-- **Evidence:** <evidence from the report>
+- **Why it matters:** <why, from state>
+- **Evidence:** <evidence, from state>
 - **Fix approach:** <the agreed move; refine the reviewer's suggested_fix if verification or approval added detail>
 
 ## Testing
