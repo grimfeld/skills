@@ -74,6 +74,7 @@ The agent-facing detail (`evidence`, `verification`, `sources`, `confidence`) is
 | `severity` | From `references/finding-format.md`. |
 | `status` | `open` or `fixed`. Set `fixed` with `fixed_in` = the run date when a re-run no longer finds it. |
 | `decision.state` | `pending`, `approved`, `rejected` or `deferred`. Rejected findings are never resurfaced: on a re-run, a new finding matching a rejected one (same root cause, same place) is discarded. |
+| `origin` | Optional; `pre-existing` carried over from the finding format. The report tags it "already in base". |
 | `ticket` | The ticket number once tickets are written. |
 
 ## Re-runs

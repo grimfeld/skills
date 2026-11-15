@@ -2,7 +2,7 @@
 lens: security
 source: security-and-hardening
 upstream_path: ~/.claude/skills/security-and-hardening/SKILL.md
-upstream_hash: f9f5b22b97f1f0bfe47a30c0ac860c343e332a94
+upstream_hash: 165116cd1e9e99c64e4015f7257bdd130545e244
 ---
 
 # Lens: security
@@ -23,14 +23,14 @@ A boundary the diff adds or changes with no validation is where to dig first.
 
 - **Injection**: every SQL, NoSQL and shell call parameterized; no string building from input.
 - **XSS**: output through framework escaping; raw HTML only after an allowlist sanitizer; no `eval` or `innerHTML` with user data.
-- **Access control**: **authorization** on every request, not just authentication: the user owns or is permitted on the specific resource (IDOR).
-- **Auth and sessions**: passwords hashed with bcrypt (≥12), scrypt or argon2; session secret from env; cookies `httpOnly`, `secure`, `sameSite` lax/strict, bounded `maxAge`; no auth tokens in localStorage.
+- **Access control**: **authorization** on every request, not just authentication: the user owns or is permitted on the specific resource (IDOR). A missing record returns 404 before the ownership check reads it.
+- **Auth and sessions**: passwords hashed with bcrypt (≥12), scrypt or argon2; session secret from env, failing at startup when unset; cookies `httpOnly`, `secure`, `sameSite` lax/strict, bounded `maxAge`; no auth tokens in localStorage.
 - **Headers, CORS, responses**: security headers present; CSP from `default-src 'self'`; CORS from an explicit origin list, never `*` with credentials; sensitive fields stripped; generic error bodies, no stack traces.
 - **Input validation and uploads**: schema validation at the boundary, downstream uses the parsed value; uploads allowlist MIME, cap size, check magic bytes.
 - **SSRF**: any user-influenced URL fetched server-side has scheme and host allowlisted, all resolved IPs checked against private and reserved ranges (including `169.254.169.254` and IPv6), redirects forbidden.
 - **Destructive operations on derived paths**: a delete, move or overwrite whose target comes from input, config or another process needs: symlinks resolved, target under an allowlisted root, at least one level below it, ownership evidence read before the operation.
 - **Rate limiting**: auth endpoints strictly limited; a limiter with in-memory counters in front of more than one instance or on serverless is ineffective.
-- **Secrets**: none in code, config committed to the repo, logs or test fixtures; `.env*` gitignored. A secret already pushed needs rotation, not only removal: say so in `suggested_fix`.
+- **Secrets**: none in code, config committed to the repo, logs or test fixtures; `.env*` gitignored. A secret already pushed needs rotation, not only removal: say so in `suggested_fix`. Name the file and line of a found secret in `evidence`; leave the value itself out.
 - **Dependencies and supply chain**: for each added or changed dependency, check typosquat-like names, maintenance, release age, install scripts, and the lockfile diff's transitive changes. Run the detected package manager's audit read-only (`npm audit --json`, `pnpm audit --json`, `yarn npm audit --json`) when a lockfile changed; triage critical and high by reachability.
 - **Personal data**: new PII fields classified, collected against a purpose, with retention and a deletion path; no PII in telemetry or sent to third-party vendors without consent.
 - **LLM features**: model output treated as untrusted input (never into SQL, shell, DOM, `eval`, file paths); untrusted text in the prompt cannot grant permissions; no secrets, other tenants' data or the full system prompt in context; tool arguments validated and destructive tool actions confirmed; token, rate and recursion caps.

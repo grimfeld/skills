@@ -2,7 +2,7 @@
 lens: performance
 source: performance-optimization
 upstream_path: ~/.claude/skills/performance-optimization/SKILL.md
-upstream_hash: c924947ef20bdf80fe7a0af2267e02215ecea4b8
+upstream_hash: dcbfd29d22392c1e2476f7da337537025e30bc51
 ---
 
 # Lens: performance
