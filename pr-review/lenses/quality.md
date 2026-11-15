@@ -2,7 +2,7 @@
 lens: quality
 source: code-review-and-quality
 upstream_path: ~/.claude/skills/code-review-and-quality/SKILL.md
-upstream_hash: 2c0b966d411b0d64c4f44efdde30d5f6f3666f76
+upstream_hash: d887913952a310aa1c34e1ea7490b29b8ad41a4a
 ---
 
 # Lens: quality
@@ -43,6 +43,10 @@ Propose a named structural remedy, not just the problem: replace a conditional c
 
 **Presumptive `major`s**: a refactor that relocates complexity; a file pushed past ~1000 total lines with no decomposition; feature logic in a shared module; a near-duplicate of a canonical helper; a silent fallback hiding an unclear invariant.
 
+## Before reporting
+
+Check each finding against the callers, guards and tests that reach the changed code, and drop it if they rule it out. A defect already present in the base that this change neither introduces nor newly exposes gets `"origin": "pre-existing"`. An empty array is a valid result.
+
 ## 5. Change size
 
 - ~100 changed lines is good, ~300 acceptable for one logical change, ~1000 too large: report as a `(change)` finding with a split strategy (stack, by file group, horizontal, vertical).
@@ -56,4 +60,4 @@ Code made unreachable or unused by this change: list each item with where its re
 
 For each added or upgraded dependency: does the existing stack already solve this? Bundle size? Maintained? License compatible? A bulk bump of several packages, or a lockfile change with no manifest change, is a finding. (Vulnerabilities and supply-chain risk belong to the security lens.)
 
-Done when every changed file has been walked through steps 2–4, and steps 5–7 have been checked against the whole change.
+Done when every changed file has been walked through steps 2–4, steps 5–7 have been checked against the whole change, and every finding has passed the check under *Before reporting*.

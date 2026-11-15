@@ -37,6 +37,7 @@ Return exactly two things, nothing else:
 | `source_skill` | Your lens's `source` from its front matter. |
 | `confidence` | `high` (you traced it), `medium` (likely, one assumption unverified), `low` (a heuristic match). |
 | `lane` | `in` for your lens's scope; `out` for something outside it you noticed anyway. |
+| `origin` | Optional. `pre-existing` when the defect is already in the base and this change neither introduces nor newly exposes it. Omit for anything the change introduces. |
 
 Lenses may add `evidence_type` (`measured` or `source`) where their brief says so.
 
@@ -62,5 +63,6 @@ Merge duplicates into one finding:
 - `source_skill`: every distinct value, as an array.
 - `evidence` and `suggested_fix`: the most specific of the group; append any distinct detail from the others.
 - `lane`: `in` if any member was `in`.
+- `origin`: `pre-existing` only if every member was.
 
 **Corroboration**: a merged finding reported by two or more lenses ranks above single-lens findings of the same severity.

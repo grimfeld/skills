@@ -2,7 +2,7 @@
 lens: simplification
 source: code-simplification
 upstream_path: ~/.claude/skills/code-simplification/SKILL.md
-upstream_hash: 15b6e21924188ee46402a8c91963162fd9056c7d
+upstream_hash: 957272f55c03d2aacd8292ee6ee8e74ea33692bb
 ---
 
 # Lens: simplification

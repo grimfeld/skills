@@ -73,9 +73,12 @@ def build_view(state: dict) -> dict:
 
 
 def tag_for(view, f) -> str:
-    if view["first_run"]:
-        return ""
-    return "new" if f.get("first_seen") == view["run"]["date"] else "still open"
+    tags = []
+    if not view["first_run"]:
+        tags.append("new" if f.get("first_seen") == view["run"]["date"] else "still open")
+    if f.get("origin") == "pre-existing":
+        tags.append("already in base")
+    return " · ".join(tags)
 
 
 def decision_text(f) -> str:

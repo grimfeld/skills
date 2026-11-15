@@ -2,7 +2,7 @@
 lens: standards-and-spec
 source: code-review
 upstream_path: ~/.claude/skills/code-review/SKILL.md
-upstream_hash: fee7bb5fdddc069d58cbea09b2c36b5a859eac05
+upstream_hash: a8ef561571acbb611de8ff19ba6da75b197c63a8
 ---
 
 # Lens: standards and spec
