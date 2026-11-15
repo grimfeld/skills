@@ -7,7 +7,7 @@ argument-hint: "[PR number or URL] [base=<ref>] [paths=<glob,...>]"
 
 # PR review
 
-Seven **lens** reviewers read the same diff in parallel, each in its own lane. You orchestrate: prepare one shared context, dispatch, dedupe, verify, report, then walk the user through approval and write a fix spec with tickets. You stop after the tickets are written.
+Seven **lens** reviewers read the same diff in parallel, each in its own lane. You orchestrate: prepare one shared context, dispatch, dedupe, verify, report, then walk the user through approval and write a fix spec with tickets. You stop after the tickets are written and the PR is labelled `pr-reviewed`.
 
 Every reviewer is **report-only**: it reads code, runs read-only commands, and returns findings. Code changes happen later, through `/implement-spec`, after the user approves.
 
@@ -128,7 +128,9 @@ If `docs/agents/issue-tracker.md` names GitHub or GitLab, offer to publish the s
 
 ## 11. Finish
 
-Remove the worktree if you created one (`git worktree remove .scratch/pr-review/wt-<id>`). End with the report path, the page link, the spec path, and the next command:
+1. **Label the PR.** Only when the target is a PR, not a bare branch. Run `gh pr edit <n> --add-label pr-reviewed`. If it fails because the label does not exist, create it with `gh label create pr-reviewed --description "Reviewed with /pr-review" --color 0E8A16` and retry once. If it still fails (no permission, no `gh` auth), say so in the summary and carry on. Label the PR whatever the outcome of the review, including when no finding was approved.
+2. **Clean up.** Remove the worktree if you created one (`git worktree remove .scratch/pr-review/wt-<id>`).
+3. **Hand off.** End with whether the label was applied, the report path, the page link, the spec path, and the next command:
 
 ```
 /implement-spec .scratch/pr-review-<id>/spec.md
