@@ -96,7 +96,7 @@ Diff, already saved: <absolute path of .scratch/pr-review/<id>.diff>
 Changed files: <list>
 Spec: <spec text, or "no spec available">
 <web-quality only> Audit URL: <url, or "none: source-only">
-Stay close to the diff: read the saved diff once, then only the changed files and the code they directly call or are called by, using line ranges, never whole files outside the diff.
+Stay close to the diff: read the saved diff once, then the changed files and the code they directly call or are called by, using line ranges, never whole files outside the diff. Beyond that, run targeted greps for existing helpers, components or patterns the change could have reused, and read the files the spec references.
 Return the coverage line and the JSON findings array exactly as the finding format specifies.
 ```
 
