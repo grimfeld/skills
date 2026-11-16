@@ -22,9 +22,9 @@ The flow:
 
 1. **Drift check**: each lens records the hash of the skill it was adapted from. If that skill has changed since, the run pauses and offers to re-sync the lens.
 2. **Prepare**: resolves the diff (in a temporary worktree for PRs that aren't checked out), the spec, CI status and any previous report.
-3. **Route**: skips lenses with nothing to review (no front-end files: no web audit; docs-only: standards and spec only).
+3. **Route**: skips lenses with nothing to review, first by file type (no front-end files: no web audit; docs-only: standards and spec only), then by reading the hunks of smaller diffs (no data or loop changes: no performance review).
 4. **Find a preview URL** for the web audit: GitHub deployments, the Vercel bot comment, the Vercel MCP, then a local dev server already running. Never starts or deploys anything.
-5. **Review** in parallel. Every reviewer is report-only and returns findings in one shared format.
+5. **Review** in parallel, one lightweight `pr-lens-reviewer` agent per lens. Every reviewer is report-only and returns findings in one shared format.
 6. **Dedupe** across lenses. A finding several lenses agree on ranks higher.
 7. **Verify** every blocker and major against the code; false positives are dropped.
 8. **Report**: findings are rewritten in plain language and kept in `.scratch/pr-review/<id>.json`; a script renders them into a readable report (`<id>.md`) that opens with the verdict and groups smaller findings by theme, plus a private Artifact page with the same content. Re-runs mark findings fixed, still open or new, and never resurface rejected ones.
@@ -51,7 +51,22 @@ The flow:
 ```sh
 git clone https://github.com/grimfeld/skills.git
 ln -s "$PWD/skills/pr-review" ~/.claude/skills/pr-review
+mkdir -p ~/.claude/agents
+ln -s "$PWD/skills/pr-review/agents/pr-lens-reviewer.md" ~/.claude/agents/pr-lens-reviewer.md
 ```
+
+A running session can take a while to pick up a new agent; restart Claude Code if `pr-review` reports a fallback. The agent loads only four tools, so a reviewer starts at about 5k tokens of context against about 45k for a general-purpose agent (measured November 2026). Without it, `pr-review` falls back to the built-in `Explore` agent (about 30k) and says so in the report.
+
+### Cloud sessions
+
+Your laptop's `~/.claude/` doesn't reach Claude Code cloud sessions, so install from the cloud environment's setup script, which runs inside the session's VM. If the script already clones this repo and copies its skills into `~/.claude/skills/`, add the agents next to them, inside the same block:
+
+```sh
+mkdir -p "$HOME/.claude/agents"
+for a in "$CLONE"/*/agents/*.md; do [ -f "$a" ] && cp "$a" "$HOME/.claude/agents/"; done
+```
+
+`$CLONE` is wherever the script cloned this repo.
 
 ## Credits
 
