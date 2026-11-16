@@ -83,7 +83,9 @@ If the URL is a Vercel preview that answers 401 or redirects to a login, call th
 
 ## 5. Dispatch
 
-**Pick the reviewer agent.** Use `subagent_type: pr-lens-reviewer` when it is among the available agent types. Otherwise fall back to `Explore`, then `general-purpose`. Record the type in each lens's note in state (`agent: <type>`), and name any fallback in the terminal summary, so a missing install is visible. One exception: `web-quality` with a live audit URL runs as `general-purpose`, because it needs the browser MCP tools.
+**Pick the reviewer agent.** Use `subagent_type: pr-lens-reviewer` when it is among the available agent types. Otherwise use `Explore`; use `general-purpose` only when `Explore` is not listed either. The same choice applies to the verifier in step 7. Record the type in each lens's note in state (`agent: <type>`), and name any fallback in the terminal summary, so a missing install is visible. One exception: `web-quality` with a live audit URL runs as `general-purpose`, because it needs the browser MCP tools.
+
+When `pr-lens-reviewer` is missing, check `~/.claude/agents/pr-lens-reviewer.md` and say which case it is in the summary: the file exists (the session started before it was installed; a new session picks it up) or it does not (not installed; in a cloud session, the environment's setup script must copy it, and only a freshly built container runs that script, so start a new session after fixing it).
 
 In **one message**, send one `Agent` call per selected lens, with that `subagent_type` and the model from the routing table (omit `model` for default). Each prompt carries pointers and the shared context, never the lens text itself:
 
