@@ -1,0 +1,142 @@
+---
+name: setup-ship
+description: Set up a repository so reviewed PRs ship on their own. A `ship` label is the only human step; a required status, auto-merge or the project's own landing command, and a ruleset do the rest. Run once per project, or again to update it.
+disable-model-invocation: true
+argument-hint: "[owner/repo] (default: the current repository)"
+---
+
+# Setup ship
+
+After this runs, the only thing a person does to ship a PR is review it and add the **`ship`** label.
+The repository does the rest:
+
+- a required `ship` commit status keeps every unlabelled PR off the default branch
+- the PR then merges when CI is green, through GitHub auto-merge or the project's own landing command
+- labels track specs through the `ship` plugin's pipeline
+- `docs/agents/shipping.md` writes the rules down for people and for the other `ship` skills
+
+Deploying after a merge stays with the project's CD. This skill checks that one exists and says so if it doesn't, but never builds one.
+
+Files: `templates/ship.yml` (the workflow) and `templates/shipping.md` (the doc), both in `${CLAUDE_SKILL_DIR}`.
+
+Changes to GitHub settings reach outside the repository, so show them all first and apply them only after a yes.
+File changes go through a PR like any other change.
+
+## 1. Inspect
+
+Read only. Collect:
+
+1. **Repository.**
+   - `gh repo view --json nameWithOwner,visibility,isPrivate,defaultBranchRef,isInOrganization,mergeCommitAllowed,squashMergeAllowed,rebaseMergeAllowed`
+   - `gh api repos/{owner}/{repo} -q .allow_auto_merge`
+   - A private repository owned by a personal account on the free plan can create rulesets but doesn't enforce them: warn that the gate becomes advisory, and continue only if the user agrees.
+2. **Rulesets and protection.** `gh api repos/{owner}/{repo}/rulesets` and each one's rules. Also check the legacy branch protection on the default branch.
+3. **CI checks.** Take the check names from the last 10 merged PRs: `gh pr checks <n> --json name,workflow`. Required checks are the ones that ran on every PR whatever the change, typically lint, typecheck and unit tests. A job that runs only on some PRs must not be required, or PRs without it never merge. List the candidates.
+4. **CD.** Look for workflows triggered by `push` to the default branch, and for deployments on recent default-branch commits: `gh api repos/{owner}/{repo}/deployments?per_page=5`, plus Vercel, Netlify or Fly configs. Summarise what deploys and how. If nothing does, say so.
+5. **Project docs.** Read `CLAUDE.md`, `AGENTS.md`, `docs/agents/*` and the ADRs about merging. Look for:
+   - an existing landing process: a batching or integration script, a merge queue, an "always merge with X" rule
+   - the local check commands
+   - a screenshot or visual test command
+   - an existing `docs/agents/shipping.md`, which means this is a re-run: update it, don't overwrite it
+6. **Labels.** `gh label list`.
+
+Done when you hold every item above.
+
+## 2. Decide
+
+Ask the user the open choices in one `AskUserQuestion` round, giving your recommendation for each:
+
+- **Landing mode.**
+  - `auto-merge`, the default: GitHub merges each labelled PR once required checks pass.
+  - `command`: the project already lands work its own way, for example a batching script. Name the command.
+
+  The `command` contract:
+  - It takes the PR numbers to land as arguments.
+  - It brings them onto the default branch through a PR whose head branch starts with a fixed prefix.
+  - It does nothing harmful when such a PR is already open.
+
+  If the project's command doesn't meet this contract yet, record the gap as a follow-up issue in the project, not here.
+- **Merge method:** what the project's history uses (merge, squash or rebase). `command` mode uses the method its own docs require.
+- **Required checks:** from step 1.3.
+- **`command` mode only:**
+  - the cron schedule for the landing run (default every 2 hours: `17 */2 * * *`)
+  - the setup steps the command needs on a runner, for example install pnpm and run `pnpm install --frozen-lockfile`
+  - the head-branch prefix
+  - the email the landing commits use
+
+## 3. Show the plan
+
+Print every change, grouped, and ask for one yes.
+
+- **Files**, in one PR from a new branch:
+  - `.github/workflows/ship.yml` from the template.
+  - `docs/agents/shipping.md` from the template.
+  - `.claude/settings.json`:
+    - add `extraKnownMarketplaces.grimfeld` (`{"source": {"source": "github", "repo": "grimfeld/skills"}}`)
+    - add `enabledPlugins["ship@grimfeld"] = true`
+    - keep everything already there
+  - One line in `CLAUDE.md` (or `AGENTS.md`): "How work ships: `docs/agents/shipping.md`."
+- **Repository settings**, applied after the PR merges:
+  - Auto-merge on: `gh api -X PATCH repos/{owner}/{repo} -F allow_auto_merge=true`.
+  - Labels:
+    - `ship`: "Reviewed: lands on its own when green"
+    - `pr-reviewed`: "Reviewed by /ship:pr-review"
+    - `spec:draft`
+    - `spec:ready`
+    - `spec:building`
+    - `spec:in-review`
+    - `spec:stuck`
+
+    Create them with `gh label create --force`, which keeps a label's other PRs and issues.
+  - The ruleset on the default branch. Amend the existing ruleset that targets it; don't add a second one. It needs:
+    - `pull_request`, with no required approvals: one person can't approve their own PRs, and the `ship` label is the review
+    - `required_status_checks`: the chosen checks plus `ship`
+    - `non_fast_forward` and `deletion`, if missing
+
+    Use `gh api -X PUT repos/{owner}/{repo}/rulesets/<id> --input <file>`, with the full rule list (read, change, write).
+- **What only the user can do.** Never ask for a token's value or handle one.
+  - Create a fine-grained token for this repository with Contents and Pull requests read/write.
+  - Add it as the Actions secret `SHIP_TOKEN` (`gh secret set SHIP_TOKEN`) and the Dependabot secret `SHIP_TOKEN` (`gh secret set SHIP_TOKEN --app dependabot`).
+  - Why it's needed: without it, merges and landing PRs made by GitHub's default token don't start CI or deploys.
+  - Cloud sessions don't install plugins from `.claude/settings.json`. Point the user to the `grimfeld/skills` README's cloud setup script for their cloud environment.
+
+## 4. Write the files
+
+Work in a branch, through a worktree if the project's docs say so.
+
+1. **`ship.yml`:** copy the template.
+   - **`auto-merge` mode:** delete every `# >>> command mode` … `# <<< command mode` block, markers included. Set `__AUTOMERGE_CONDITION__` to `contains(github.event.pull_request.labels.*.name, 'ship')`.
+   - **`command` mode:** keep the blocks and drop only the marker lines. Set `__AUTOMERGE_CONDITION__` to `startsWith(github.head_ref, '<prefix>')`. Fill `__SETUP_STEPS__` as YAML steps indented six spaces, and `__LAND_COMMAND__`, `__LAND_CRON__`, `__LAND_BRANCH_PREFIX__` and `__COMMIT_EMAIL__`.
+   - **Both modes:** fill `__DEFAULT_BRANCH__` and `__MERGE_METHOD__`.
+   - Done when `grep -n '__[A-Z_]*__\|# >>>\|# <<<' ship.yml` prints nothing, and the file parses as YAML (`ruby -ryaml -e 'YAML.load_file(ARGV[0])'` or `python3 -c 'import yaml,sys; yaml.safe_load(open(sys.argv[1]))'`, whichever exists). If `actionlint` is installed, run it too.
+2. **`shipping.md`:** fill every placeholder from steps 1 and 2.
+   - `__LANDING_SUMMARY__`: one sentence.
+   - `__LAND_DETAILS__`: in `command` mode, the command, schedule, prefix and contract; in `auto-merge` mode, a single "Merged by GitHub auto-merge when the required checks pass."
+   - `__CD_SUMMARY__`: what deploys after a merge, or "Nothing deploys on merge."
+   - `__SCREENS__`: the command, or "none".
+
+   On a re-run, keep any section the project has added.
+3. **Settings and `CLAUDE.md`:** edit them in place.
+4. **Commit and open the PR.**
+   - Body: what each file does, the settings that follow the merge, and the user's to-do list from step 3.
+   - Open it as ready, not draft. It's the one PR that can't carry its own gate yet, so the user merges it themselves.
+
+## 5. Apply the settings
+
+After the user says the PR has merged, apply step 3's repository settings in the order listed: auto-merge, then labels, then the ruleset. Applying the ruleset last means a missing `ship` status can't block the setup PR.
+
+Re-read each setting to confirm it took:
+- `allow_auto_merge`
+- the labels
+- the ruleset's rules
+
+## 6. Verify and hand off
+
+1. Open any PR, or use the next one, and check its `ship` status reads "Waiting for review".
+   - If `SHIP_TOKEN` is set, adding `ship` turns it green and turns on auto-merge (`gh pr view <n> --json autoMergeRequest`).
+   - In `command` mode, it also starts the `land` job.
+2. Report:
+   - what changed
+   - what was verified
+   - what's still on the user's list (`SHIP_TOKEN` in both places, the cloud setup script, any follow-up issue for the landing command)
+   - the CD finding from step 1.4

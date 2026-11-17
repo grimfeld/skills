@@ -18,7 +18,7 @@ Files in this skill, reached by path from `${CLAUDE_SKILL_DIR}` (the directory h
 - `references/finding-format.md`: the finding schema, severity scale and dedupe rule every reviewer and you share.
 - `references/state-format.md`: the review state file, and how to rewrite findings for people.
 - `references/spec-template.md`, `references/ticket-template.md`.
-- `scripts/check-drift.py`, `scripts/find-preview-url.sh`, `scripts/render-report.py`.
+- `scripts/check-drift.py`, `scripts/find-preview-url.sh`, `scripts/render-report.py`, `scripts/update-pr-body.py`.
 
 Run Python scripts with `uv run --no-project python <script>`.
 
@@ -119,13 +119,20 @@ Done when every blocker and major is `confirmed` or `refuted` with a reason.
 
 ## 8. Report
 
-1. **Write state.** Update `.scratch/pr-review/<id>.json` per `references/state-format.md`: append this run, match findings against the previous state (new / still open / fixed), and write each finding's human fields (`title`, `why`, `fix`, `theme`) by the writing rules there. Done when every finding has plain-language human fields, one issue each.
-2. **Render.** `uv run --no-project python ${CLAUDE_SKILL_DIR}/scripts/render-report.py .scratch/pr-review/<id>.json` writes `<id>.md` and `<id>.html`.
-3. **Publish the page** with the Artifact tool, `file_path` = the `.html`:
+1. **Write the brief.** In state's `brief` (see `references/state-format.md`), for the person who reviews the PR without reading the diff:
+   - `changes`: what a user or maintainer will notice, one plain sentence each, grouped by `area` (the Module, App, package or surface the project's docs use). Behaviour first, internals only when they matter.
+   - `risks`: anything that is hard to undo or reaches beyond the code: database migrations, data removed or rewritten, auth or permission changes, new or major-bumped dependencies, CI, deploy or infra config, feature flags. Name the file. Empty when there are none.
+   - `preview_url`: from step 4, when found.
+   - `screens`: image URLs only when they already exist (a PR comment, CI artifact or the project's screenshot command named in `docs/agents/shipping.md`); never start the app for them.
+   Done when every changed area appears in `changes`.
+2. **Write state.** Update `.scratch/pr-review/<id>.json` per `references/state-format.md`: append this run, match findings against the previous state (new / still open / fixed), and write each finding's human fields (`title`, `why`, `fix`, `theme`) by the writing rules there. Done when every finding has plain-language human fields, one issue each.
+3. **Render.** `uv run --no-project python ${CLAUDE_SKILL_DIR}/scripts/render-report.py .scratch/pr-review/<id>.json` writes `<id>.md`, `<id>.html` and `<id>.pr.md`.
+4. **Publish the page** with the Artifact tool, `file_path` = the `.html`:
    - No `artifact_url` in state: publish with `icon: "checklist"` and a one-sentence `description` (verdict and counts), then save the returned URL as `artifact_url` and re-render.
    - `artifact_url` set, page not yet published in this conversation: `action: "read"` that URL first, then publish with `url` = `artifact_url`.
    - Already published in this conversation: publish the same `file_path` again.
-4. **Summarise** in the terminal: the verdict line, the "fix before merge" titles, counts of smaller improvements, skipped reviewers with their reasons, any fallback reviewer agent, whether web-quality had live evidence, the report path and the page link.
+5. **Update the PR description.** Only when the target is a PR: `uv run --no-project python ${CLAUDE_SKILL_DIR}/scripts/update-pr-body.py <n> .scratch/pr-review/<id>.pr.md`. It replaces the section between the `pr-review` markers and leaves the rest of the description alone. The description is where the reviewer decides whether to add the `ship` label, so it must match the page. If `gh` can't edit the PR (in a cloud session without `gh`, use the GitHub MCP's pull request update tool with the same spliced body), say so in the summary and carry on.
+6. **Summarise** in the terminal: the verdict line, the "fix before merge" titles, counts of smaller improvements, skipped reviewers with their reasons, any fallback reviewer agent, whether web-quality had live evidence, the report path and the page link.
 
 ## 9. Approval
 
@@ -134,7 +141,7 @@ Use the human `title` and `why` in every question.
 - **Fix-before-merge findings, one by one.** `AskUserQuestion`, up to 4 findings per call, options Approve / Reject / Defer. A rejection carries a reason (the user types it via Other, or you ask).
 - **Smaller improvements, as a batch.** List them by theme with their ids, then one question: approve all, reject all, or pick by id.
 
-Record every decision in the state file, re-render, and republish the page. Done when every finding has a decision.
+Record every decision in the state file, re-render, republish the page and update the PR description again. Done when every finding has a decision.
 
 ## 10. Spec and tickets
 
@@ -147,7 +154,7 @@ If `docs/agents/issue-tracker.md` names GitHub or GitLab, offer to publish the s
 
 ## 11. Finish
 
-1. **Label the PR.** Only when the target is a PR, not a bare branch. Run `gh pr edit <n> --add-label pr-reviewed`. If it fails because the label does not exist, create it with `gh label create pr-reviewed --description "Reviewed with /pr-review" --color 0E8A16` and retry once. If it still fails (no permission, no `gh` auth), say so in the summary and carry on. Label the PR whatever the outcome of the review, including when no finding was approved.
+1. **Label the PR.** Only when the target is a PR, not a bare branch. Run `gh api repos/{owner}/{repo}/issues/<n>/labels -f 'labels[]=pr-reviewed'` (REST: `gh pr edit` fails on some repositories). If it fails because the label does not exist, create it with `gh label create pr-reviewed --description "Reviewed with /pr-review" --color 0E8A16` and retry once. If it still fails (no permission, no `gh` auth), say so in the summary and carry on. Label the PR whatever the outcome of the review, including when no finding was approved.
 2. **Clean up.** Remove the worktree if you created one (`git worktree remove .scratch/pr-review/wt-<id>`).
 3. **Hand off.** End with whether the label was applied, the report path, the page link, the spec path, and the next command:
 

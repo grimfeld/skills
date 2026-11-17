@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Render a pr-review state file into the human report (<id>.md) and the page (<id>.html).
+"""Render a pr-review state file into the human report (<id>.md), the page (<id>.html)
+and the review section for the PR description (<id>.pr.md).
 
 usage: render-report.py .scratch/pr-review/<id>.json
 
-Writes both files next to the JSON. Stdlib only. Schema: references/state-format.md.
+Writes all three next to the JSON. Stdlib only. Schema: references/state-format.md.
 """
 import html
 import json
@@ -153,6 +154,65 @@ def render_md(view) -> str:
             out.append(f"- **Verification:** {f['verification']}")
         out += [f"- **Evidence:** {f.get('evidence', '')}", "", "</details>", ""]
     return "\n".join(out).rstrip() + "\n"
+
+
+# ---------- PR description section ----------
+
+PR_START = "<!-- pr-review:start -->"
+PR_END = "<!-- pr-review:end -->"
+
+
+def render_pr(view) -> str:
+    """The review page a person reads on the PR before adding the ship label."""
+    s, run = view["state"], view["run"]
+    brief = s.get("brief") or {}
+    out = [PR_START, "## Review", ""]
+    out += [f"**{view['verdict']}.** {view['headline']}", ""]
+    links = []
+    if brief.get("preview_url"):
+        links.append(f"[Preview]({brief['preview_url']})")
+    if s.get("artifact_url"):
+        links.append(f"[Full report]({s['artifact_url']})")
+    if links:
+        out += [" · ".join(links), ""]
+
+    if brief.get("changes"):
+        out += ["### What changes", ""]
+        areas: "OrderedDict[str, list]" = OrderedDict()
+        for c in brief["changes"]:
+            areas.setdefault(c.get("area") or "General", []).append(c["what"])
+        for area, items in areas.items():
+            out += [f"**{area}**", ""] + [f"- {w}" for w in items] + [""]
+
+    out += ["### Risks", ""]
+    risks = brief.get("risks") or []
+    out += ([f"- {r}" for r in risks] if risks else ["- None found: no migration, data removal, auth, dependency or deploy change."]) + [""]
+
+    if brief.get("screens"):
+        out += ["### Screens", ""]
+        out += [f"![{sc.get('caption', '')}]({sc['url']})" + (f"  \n_{sc['caption']}_" if sc.get("caption") else "") for sc in brief["screens"]] + [""]
+
+    ci = run.get("ci") or {}
+    if ci.get("status") == "failing":
+        out += ["### Failing CI", ""] + [f"- {c['name']}" for c in ci.get("failing") or []] + [""]
+
+    if view["must"]:
+        out += ["### Fix before merge", ""]
+        for f in view["must"]:
+            extra = decision_text(f)
+            out.append(f"- **{f['title']}** ({SEV_LABEL[f['severity']].lower()}{', ' + extra if extra else ''}): {f['why']}")
+        out.append("")
+
+    if view["themes"]:
+        total = sum(len(v) for v in view["themes"].values())
+        out += [f"<details><summary>Worth fixing later ({total})</summary>", ""]
+        for theme, items in view["themes"].items():
+            out += [f"- **{theme}:** " + "; ".join(f["title"] for f in items)]
+        out += ["", "</details>", ""]
+
+    ran = [l["lens"] for l in run.get("lenses") or [] if l.get("status") == "ran"]
+    out += [f"<sub>pr-review · head `{run.get('head', '?')}` · {run['date']} · reviewers: {', '.join(ran) or 'none'}</sub>", "", PR_END]
+    return "\n".join(out) + "\n"
 
 
 # ---------- html ----------
@@ -339,10 +399,11 @@ def main() -> int:
         sys.exit(__doc__)
     path = Path(sys.argv[1])
     view = build_view(json.loads(path.read_text()))
-    md, page = path.with_suffix(".md"), path.with_suffix(".html")
+    md, page, pr = path.with_suffix(".md"), path.with_suffix(".html"), path.with_suffix(".pr.md")
     md.write_text(render_md(view))
     page.write_text(render_html(view))
-    print(f"{md}\n{page}")
+    pr.write_text(render_pr(view))
+    print(f"{md}\n{page}\n{pr}")
     return 0
 
 
