@@ -49,6 +49,21 @@ The flow:
 - `/implement-spec` (from mattpocock/skills) to act on the generated tickets.
 - For the live web audit and the lens sources' extra references, the upstream skills under `~/.claude/skills/`; without them the lenses still run on their own briefs.
 
+### `/ship:setup-ship`
+
+Run once per project. Afterwards, adding the **`ship`** label to a reviewed PR is the only step a person takes; the repository lands it.
+
+- **Required `ship` status:** a commit status, required by the default branch's ruleset, that stays pending until the label is on, so nothing unreviewed merges.
+- **Landing:** GitHub auto-merge once CI is green (`auto-merge` mode), or the project's own landing command run on a schedule (`command` mode, for example a batching script).
+- **Dependabot:** patch updates and GitHub Actions updates are labelled `ship` automatically.
+- **Labels:** `ship`, `pr-reviewed`, and the `spec:*` labels the pipeline uses.
+- **`docs/agents/shipping.md`:** the rules, written down for people and for the other skills.
+- **The project's `.claude/settings.json`:** enables the plugin.
+
+GitHub settings are shown first and applied only after you approve them. You create the `SHIP_TOKEN` secret yourself: the skill never handles tokens. Deploys stay with the project's CD.
+
+`pr-review` writes its review into the PR description: what changes by area, risks, preview, screens, and what to fix before merge. That is the page you read before adding `ship`.
+
 ## Install
 
 ```sh
