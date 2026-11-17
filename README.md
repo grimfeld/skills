@@ -46,8 +46,35 @@ The flow:
 - [`uv`](https://docs.astral.sh/uv/) to run the drift check.
 - Optional: the Vercel MCP server (preview discovery and protected-preview access), Chrome DevTools MCP or `npx lighthouse` (live web audit), `crapper` and `dryer` (principles metrics).
 - The source skills installed under `~/.claude/skills/` for the drift check: `code-review` from [mattpocock/skills](https://github.com/mattpocock/skills); `code-review-and-quality`, `security-and-hardening`, `performance-optimization` and `code-simplification` from [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills); `web-quality-audit` from [addyosmani/web-quality-skills](https://github.com/addyosmani/web-quality-skills). `ub-mode` is a local skill; drop or rewrite `lenses/principles.md` if you don't have it.
-- `/implement-spec` (from mattpocock/skills) to act on the generated tickets.
+- From [mattpocock/skills](https://github.com/mattpocock/skills): `grilling` and `domain-modeling` (spec-me), `to-tickets` (slice), `implement-spec` (pr-review's fix tickets, and the night build). They're called by name; install them alongside.
 - For the live web audit and the lens sources' extra references, the upstream skills under `~/.claude/skills/`; without them the lenses still run on their own briefs.
+
+### `/ship:spec-me`
+
+Grills you about one idea, using `grilling` and, where the project keeps a glossary or ADRs, `domain-modeling`. It stops once the idea is **buildable**:
+
+- testable acceptance criteria
+- what's out of scope
+- what it touches
+- data and migrations
+- UI states
+- implementation decisions
+- test seams
+- docs to update
+- a size guess
+- no open questions
+
+The spec is a GitHub issue that's saved after every round:
+
+- `spec:ready` once every item is answered
+- `spec:draft` if you stop first, with its open questions listed, so `/ship:spec-me #<n>` resumes it later
+
+### `/ship:slice`
+
+Sizes each `spec:ready` spec against prior PRs in the same areas. The rule is one PR per spec, about ten minutes to review: by default about 500 reviewable lines and three behaviours in one area.
+
+- **Too big:** it proposes splitting into specs that ship on their own, split by behaviour and never by layer. It only splits once you approve.
+- **Tickets:** it then calls `to-tickets` for each spec. Tickets become commits on the spec's branch, not PRs.
 
 ### `/ship:setup-ship`
 
