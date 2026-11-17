@@ -11,9 +11,9 @@ Seven **lens** reviewers read the same diff in parallel, each in its own lane. Y
 
 Every reviewer is **report-only**: it reads code, runs read-only commands, and returns findings. Code changes happen later, through `/implement-spec`, after the user approves.
 
-Files in this skill, reached by path from `SKILL_DIR` (the directory holding this file):
+Files in this skill, reached by path from `${CLAUDE_SKILL_DIR}` (the directory holding this file):
 
-- `agents/pr-lens-reviewer.md`: the report-only agent every reviewer and the verifier run as. It loads only four tools, which keeps each reviewer's startup small. Installed into `~/.claude/agents/` (see the README).
+- The `pr-lens-reviewer` agent (`agents/pr-lens-reviewer.md` at the plugin root): the report-only agent every reviewer and the verifier run as. It loads only four tools, which keeps each reviewer's startup small. The `ship` plugin installs it as `ship:pr-lens-reviewer`.
 - `lenses/*.md`: one brief per reviewer, with `source` and `upstream_hash` front matter.
 - `references/finding-format.md`: the finding schema, severity scale and dedupe rule every reviewer and you share.
 - `references/state-format.md`: the review state file, and how to rewrite findings for people.
@@ -24,7 +24,7 @@ Run Python scripts with `uv run --no-project python <script>`.
 
 ## 1. Drift check
 
-Run `uv run --no-project python SKILL_DIR/scripts/check-drift.py`. It prints one `DRIFT` line per lens whose upstream skill changed since the lens was written.
+Run `uv run --no-project python ${CLAUDE_SKILL_DIR}/scripts/check-drift.py`. It prints one `DRIFT` line per lens whose upstream skill changed since the lens was written.
 
 On any drift, pause and ask the user, per drifted lens: **sync** or **skip**.
 
@@ -75,22 +75,22 @@ Done when every lens is selected or skipped with a reason, with `web-quality` le
 
 Only when `web-quality` runs.
 
-1. `SKILL_DIR/scripts/find-preview-url.sh gh <pr-number-or-branch>`: the PR's deployment statuses and Vercel bot comments.
+1. `${CLAUDE_SKILL_DIR}/scripts/find-preview-url.sh gh <pr-number-or-branch>`: the PR's deployment statuses and Vercel bot comments.
 2. Vercel MCP: `list_deployments` for the project, filtered to this branch, newest `READY` preview.
-3. `SKILL_DIR/scripts/find-preview-url.sh local`: a dev server already listening on 3000, 5173, 4321 or 8080.
+3. `${CLAUDE_SKILL_DIR}/scripts/find-preview-url.sh local`: a dev server already listening on 3000, 5173, 4321 or 8080.
 
 If the URL is a Vercel preview that answers 401 or redirects to a login, call the Vercel MCP `get_access_to_vercel_url` to get a shareable link. Never start a server or create a deployment. With no reachable URL, the lens runs source-only, and the report says so.
 
 ## 5. Dispatch
 
-**Pick the reviewer agent.** Use `subagent_type: pr-lens-reviewer` when it is among the available agent types. Otherwise fall back to `Explore`, then `general-purpose`. Record the type in each lens's note in state (`agent: <type>`), and name any fallback in the terminal summary, so a missing install is visible. One exception: `web-quality` with a live audit URL runs as `general-purpose`, because it needs the browser MCP tools.
+**Pick the reviewer agent.** Use `subagent_type: ship:pr-lens-reviewer` when it is among the available agent types (or `pr-lens-reviewer`, from an older symlinked install). Otherwise fall back to `Explore`, then `general-purpose`. Record the type in each lens's note in state (`agent: <type>`), and name any fallback in the terminal summary, so a missing install is visible. One exception: `web-quality` with a live audit URL runs as `general-purpose`, because it needs the browser MCP tools.
 
 In **one message**, send one `Agent` call per selected lens, with that `subagent_type` and the model from the routing table (omit `model` for default). Each prompt carries pointers and the shared context, never the lens text itself:
 
 ```
 You are the <lens> reviewer for a PR review. You are report-only: read code and run read-only commands; edit no file.
-Read your brief: <SKILL_DIR>/lenses/<lens>.md
-Read the finding format: <SKILL_DIR>/references/finding-format.md
+Read your brief: ${CLAUDE_SKILL_DIR}/lenses/<lens>.md
+Read the finding format: ${CLAUDE_SKILL_DIR}/references/finding-format.md
 Repository root to read: <REVIEW_ROOT>
 Diff, already saved: <absolute path of .scratch/pr-review/<id>.diff>
 Changed files: <list>
@@ -120,7 +120,7 @@ Done when every blocker and major is `confirmed` or `refuted` with a reason.
 ## 8. Report
 
 1. **Write state.** Update `.scratch/pr-review/<id>.json` per `references/state-format.md`: append this run, match findings against the previous state (new / still open / fixed), and write each finding's human fields (`title`, `why`, `fix`, `theme`) by the writing rules there. Done when every finding has plain-language human fields, one issue each.
-2. **Render.** `uv run --no-project python SKILL_DIR/scripts/render-report.py .scratch/pr-review/<id>.json` writes `<id>.md` and `<id>.html`.
+2. **Render.** `uv run --no-project python ${CLAUDE_SKILL_DIR}/scripts/render-report.py .scratch/pr-review/<id>.json` writes `<id>.md` and `<id>.html`.
 3. **Publish the page** with the Artifact tool, `file_path` = the `.html`:
    - No `artifact_url` in state: publish with `icon: "checklist"` and a one-sentence `description` (verdict and counts), then save the returned URL as `artifact_url` and re-render.
    - `artifact_url` set, page not yet published in this conversation: `action: "read"` that URL first, then publish with `url` = `artifact_url`.

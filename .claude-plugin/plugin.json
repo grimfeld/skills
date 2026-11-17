@@ -1,0 +1,9 @@
+{
+  "name": "ship",
+  "description": "Skills that take an idea to production: grill it into a spec, slice it, build it overnight, review it, ship it.",
+  "author": { "name": "grimfeld" },
+  "homepage": "https://github.com/grimfeld/skills",
+  "repository": "https://github.com/grimfeld/skills",
+  "license": "MIT",
+  "keywords": ["workflow", "spec", "review", "orchestration"]
+}

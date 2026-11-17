@@ -1,10 +1,12 @@
 # skills
 
-Custom [Claude Code](https://claude.com/claude-code) skills that orchestrate other installed skills to automate parts of a development workflow.
+`ship`, a [Claude Code](https://claude.com/claude-code) plugin whose skills orchestrate other installed skills to take an idea to production: grill it into a spec, slice it, build it, review it, ship it. This repo is also its own marketplace, `grimfeld`.
+
+Commands are namespaced by the plugin: `/ship:pr-review`, and the agent is `ship:pr-lens-reviewer`.
 
 ## Skills
 
-### `pr-review`
+### `/ship:pr-review`
 
 Reviews a PR or branch with seven parallel reviewers, each in its own lane:
 
@@ -45,32 +47,60 @@ The flow:
 - Optional: the Vercel MCP server (preview discovery and protected-preview access), Chrome DevTools MCP or `npx lighthouse` (live web audit), `crapper` and `dryer` (principles metrics).
 - The source skills installed under `~/.claude/skills/` for the drift check: `code-review` from [mattpocock/skills](https://github.com/mattpocock/skills); `code-review-and-quality`, `security-and-hardening`, `performance-optimization` and `code-simplification` from [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills); `web-quality-audit` from [addyosmani/web-quality-skills](https://github.com/addyosmani/web-quality-skills). `ub-mode` is a local skill; drop or rewrite `lenses/principles.md` if you don't have it.
 - `/implement-spec` (from mattpocock/skills) to act on the generated tickets.
+- For the live web audit and the lens sources' extra references, the upstream skills under `~/.claude/skills/`; without them the lenses still run on their own briefs.
 
 ## Install
 
 ```sh
-git clone https://github.com/grimfeld/skills.git
-ln -s "$PWD/skills/pr-review" ~/.claude/skills/pr-review
-mkdir -p ~/.claude/agents
-ln -s "$PWD/skills/pr-review/agents/pr-lens-reviewer.md" ~/.claude/agents/pr-lens-reviewer.md
+claude plugin marketplace add grimfeld/skills
+claude plugin install ship@grimfeld
 ```
 
-A running session can take a while to pick up a new agent; restart Claude Code if `pr-review` reports a fallback. The agent loads only four tools, so a reviewer starts at about 5k tokens of context against about 45k for a general-purpose agent (measured November 2026). Without it, `pr-review` falls back to the built-in `Explore` agent (about 30k) and says so in the report.
+or, inside Claude Code, `/plugin install ship --marketplace grimfeld/skills`.
+
+A project can suggest it to everyone who opens it, in its `.claude/settings.json`:
+
+```json
+{
+  "extraKnownMarketplaces": {
+    "grimfeld": { "source": { "source": "github", "repo": "grimfeld/skills" } }
+  },
+  "enabledPlugins": { "ship@grimfeld": true }
+}
+```
+
+`plugin.json` sets no `version`, so every commit on `main` is a new version and `claude plugin update ship@grimfeld` picks it up.
+
+If you installed the old way, remove the symlinks `~/.claude/skills/pr-review` and `~/.claude/agents/pr-lens-reviewer.md`, or you get the skill twice.
+
+### Developing
+
+```sh
+claude --plugin-dir /path/to/this/repo   # load the working copy; /reload-plugins after edits
+claude plugin validate .                 # manifest and marketplace checks
+```
+
+The two remaining warnings are deliberate: no `version` (see above) and no icon.
 
 ### Cloud sessions
 
-Your laptop's `~/.claude/` doesn't reach Claude Code cloud sessions, so install from the cloud environment's setup script, which runs inside the session's VM. If the script already clones this repo and copies its skills into `~/.claude/skills/`, add the agents next to them, inside the same block:
+Cloud sessions don't install the plugins a repository enables in `.claude/settings.json` (adding a marketplace needs the trust prompt, which they never show). Install from the cloud environment's setup script instead, which runs inside the session's VM:
 
 ```sh
-mkdir -p "$HOME/.claude/agents"
-for a in "$CLONE"/*/agents/*.md; do [ -f "$a" ] && cp "$a" "$HOME/.claude/agents/"; done
+if claude plugin marketplace add grimfeld/skills && claude plugin install ship@grimfeld; then :; else
+  # Fallback: copy the skills and agents in directly.
+  CLONE="$(mktemp -d)/skills" && git clone --depth 1 https://github.com/grimfeld/skills "$CLONE"
+  mkdir -p "$HOME/.claude/skills" "$HOME/.claude/agents"
+  cp -R "$CLONE"/skills/* "$HOME/.claude/skills/"
+  cp "$CLONE"/agents/*.md "$HOME/.claude/agents/"
+fi
 ```
 
-`$CLONE` is wherever the script cloned this repo.
+The plugin path is not documented for setup scripts yet; the fallback is the copy that worked before. Copied this way, the skill is `/pr-review` and the agent `pr-lens-reviewer`, which pr-review also accepts.
 
 ## Credits
 
-The lenses in `pr-review/lenses/` are condensed adaptations of MIT-licensed skills:
+The lenses in `skills/pr-review/lenses/` are condensed adaptations of MIT-licensed skills:
 
 - [mattpocock/skills](https://github.com/mattpocock/skills): Copyright (c) 2026 Matt Pocock
 - [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills): Copyright (c) 2025 Addy Osmani
