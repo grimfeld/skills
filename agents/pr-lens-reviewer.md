@@ -1,6 +1,6 @@
 ---
 name: pr-lens-reviewer
-description: Reviewer and verifier for the pr-review skill. Dispatched by pr-review only.
+description: Reviewer and verifier for the pr-review skill. Dispatched by the ship plugin's pr-review skill only.
 tools: Read, Grep, Glob, Bash
 ---
 

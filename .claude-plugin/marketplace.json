@@ -1,0 +1,14 @@
+{
+  "name": "grimfeld",
+  "owner": {
+    "name": "grimfeld"
+  },
+  "description": "grimfeld's Claude Code plugins.",
+  "plugins": [
+    {
+      "name": "ship",
+      "source": "./",
+      "description": "Skills that take an idea to production: grill it into a spec, slice it, build it overnight, review it, ship it."
+    }
+  ]
+}
