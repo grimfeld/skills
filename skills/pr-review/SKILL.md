@@ -2,7 +2,7 @@
 name: pr-review
 description: Review a PR or branch with seven parallel lens reviewers, dedupe and verify their findings, then turn the approved ones into a fix spec and tickets.
 disable-model-invocation: true
-argument-hint: "[PR number or URL] [base=<ref>] [paths=<glob,...>]"
+argument-hint: "[PR number or URL] [base=<ref>] [paths=<glob,...>] [unattended]"
 ---
 
 # PR review
@@ -21,6 +21,21 @@ Files in this skill, reached by path from `${CLAUDE_SKILL_DIR}` (the directory h
 - `scripts/check-drift.py`, `scripts/find-preview-url.sh`, `scripts/render-report.py`, `scripts/update-pr-body.py`.
 
 Run Python scripts with `uv run --no-project python <script>`.
+
+## Unattended mode
+
+The argument `unattended` means no person is present, for example during a night build (`/ship:build-spec`). Never ask anything. Where a step below would ask, do this instead:
+
+- **Drift (step 1):** skip every drifted lens's sync, and record it under "Lens drift".
+- **Large diff (step 2.3):** review the whole diff.
+- **Page (step 8.4):** publish it only if the Artifact tool is available. Otherwise the PR description is the review.
+- **Approval (step 9):**
+  - Every blocker and major is `approved`, with the reason "unattended: fix before merge".
+  - Minors and nits stay `pending`, for the person who reviews the PR.
+- **Spec and tickets (step 10):** skip it. The caller fixes approved findings on the branch itself.
+- **Hand off (step 11.3):** end with the approved findings as a list of ids, titles, locations and fixes. Don't suggest a next command.
+
+GitHub: `${CLAUDE_PLUGIN_ROOT}/references/github.md` says what to use when `gh` isn't available, as in some cloud sessions.
 
 ## 1. Drift check
 

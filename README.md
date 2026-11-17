@@ -76,6 +76,32 @@ Sizes each `spec:ready` spec against prior PRs in the same areas. The rule is on
 - **Too big:** it proposes splitting into specs that ship on their own, split by behaviour and never by layer. It only splits once you approve.
 - **Tickets:** it then calls `to-tickets` for each spec. Tickets become commits on the spec's branch, not PRs.
 
+### `/ship:night-shift`
+
+**Evening, with you.**
+1. It slices tonight's `spec:ready` specs.
+2. It compares their Touches, Data and decisions:
+   - Independent specs build in parallel.
+   - Specs that overlap but don't disagree are chained without asking: built in order in one session, each PR on top of the previous one.
+   - Conflicting decisions go to you, in one round.
+3. Once you approve the plan, it gives each session its prompt on a reused pool of builder routines (`ship-builder-<repo>-N`, since routines can't be deleted through the API) and starts them.
+
+**`/ship:night-shift morning`** gathers the results into one page:
+- PRs ready to review, smallest first, each with its verdict, risks and the decisions to check
+- stuck specs, and what each needs from you
+
+### `/ship:build-spec`
+
+What each cloud session runs, with nobody to ask.
+1. It builds the spec (`implement-spec`, tickets as commits on `spec/<n>-…`, draft PR).
+2. It runs the project's checks.
+3. It runs `pr-review <pr> unattended`, which approves the blockers and majors and leaves the rest for you.
+4. It fixes them in at most two rounds.
+
+Every choice the spec left open goes in the PR's Decisions section. The PR ends ready, or as a draft marked stuck with the reason. It never merges and never adds `ship`.
+
+`pr-review unattended` never asks: it skips lens syncs, reviews any size, and publishes the page only where the Artifact tool exists. `references/github.md` maps each `gh` call to the GitHub MCP tool to use in cloud sessions without `gh`.
+
 ### `/ship:setup-ship`
 
 Run once per project. Afterwards, adding the **`ship`** label to a reviewed PR is the only step a person takes; the repository lands it.
