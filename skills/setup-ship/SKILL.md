@@ -53,7 +53,7 @@ Ask the user the open choices in one `AskUserQuestion` round, giving your recomm
   The `command` contract:
   - It takes the PR numbers to land as arguments.
   - It brings them onto the default branch through a PR whose head branch starts with a fixed prefix.
-  - It does nothing harmful when such a PR is already open.
+  - It does nothing harmful when such a PR is already open. The `land` job also skips its run while one is open, so a command that can't tell which PRs are already batched still works.
 
   If the project's command doesn't meet this contract yet, record the gap as a follow-up issue in the project, not here.
 - **Merge method:** what the project's history uses (merge, squash or rebase). `command` mode uses the method its own docs require.
