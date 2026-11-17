@@ -1,0 +1,96 @@
+---
+name: build-spec
+description: Build one or more sliced specs end to end with nobody to ask (a night-shift cloud session), review each with pr-review in unattended mode, fix what it finds within two rounds, and leave each PR ready for review or marked stuck with the reason.
+disable-model-invocation: true
+argument-hint: "#<spec> [#<spec> ...]  (several = one chain, built in order, each on top of the previous)"
+---
+
+# Build spec
+
+You build one spec at night, or a chain of specs in order. Nobody can answer questions.
+Every choice the spec doesn't settle is yours. Make it, record it and keep going. Stop only where the rules below say a spec is **stuck**.
+
+You must never:
+- merge a PR
+- add the `ship` label
+- push to the default branch
+- force-push a branch you didn't create tonight
+- touch another spec's branch, except the one in your own chain you build on
+
+Read first:
+1. The project's `CLAUDE.md` (and `AGENTS.md`), `docs/agents/shipping.md`, `docs/agents/issue-tracker.md`. The project's rules apply to you: worktrees, commit email, migrations, docs to update.
+2. `${CLAUDE_PLUGIN_ROOT}/references/github.md`, for when `gh` isn't available.
+
+## For each spec, in the order given
+
+### 1. Start
+
+1. **Read the issue:** body, comments and labels. If it isn't `spec:building` or `spec:ready`, or it has no "Slicing" section, mark it stuck (step 6) with that reason and go to the next.
+2. **Relabel it:** `spec:ready` → `spec:building`.
+3. **Choose the base:**
+   - The spec's Depends on is in this chain: build on that spec's branch.
+   - The dependency is already merged: build on the default branch.
+   - The dependency is neither merged nor in this chain: stuck, "depends on #N, which isn't built".
+
+### 2. Build
+
+Call the Skill tool with `implement-spec`, passing the spec issue. Its tickets are the spec's sub-issues.
+
+- **The branch:** what `implement-spec` calls the integration branch is the spec's branch, `spec/<n>-<slug>`, made from the base above.
+- **The PR:** it's a **draft**, targeting the base branch. Its body opens with `Closes #<n>` and one paragraph on what it delivers. Below that is the decisions section:
+
+```
+<!-- build:decisions:start -->
+## Decisions made during the build
+- <Choice the spec left open>: <what you chose> — <why, in one line>.
+<!-- build:decisions:end -->
+```
+
+Append to that section every time you choose something the spec didn't say, and keep it up to date. It's what the reviewer reads to check your judgement.
+
+**A question the spec doesn't answer:** if the answer changes what a user sees or does, or changes data in a way that can't be undone, the spec is stuck. Otherwise, decide and record it.
+
+Done when every ticket is closed, or one can't be built, which makes the spec stuck.
+
+### 3. Check
+
+Run the local checks `docs/agents/shipping.md` lists, then the project's own pre-push checks.
+- Fix failures that are your change's fault.
+- If a failure is also present on the base branch, it isn't your change's fault. Record it under Decisions ("pre-existing failure: …") and go on.
+
+Push, then wait for CI on the PR. Wait with the shell's own blocking wait (`gh pr checks <n> --watch`, or a single `until` loop with a timeout). Don't use repeated `sleep` calls. The `ship` status stays pending until a person reviews the PR. That's expected, so never try to make it pass.
+
+### 4. Review
+
+Call the Skill tool with `ship:pr-review` (or `pr-review`), passing `<pr> unattended`. It writes the review section into the PR description and returns the approved findings: the blockers and majors.
+
+### 5. Fix rounds, at most two
+
+Round = fix every approved finding and every red CI check on the branch, push, wait for CI, and run `pr-review <pr> unattended` again.
+
+- A finding you think is wrong: record it in Decisions with your reason, and leave it.
+- After round 2, anything still blocking makes the spec stuck. Name each blocking item and what you tried.
+
+### 6. Finish the spec
+
+**Ready** (CI green apart from `ship`, and no blocker or major left open):
+- Mark the PR ready.
+- Relabel the spec issue `spec:building` → `spec:in-review`.
+
+**Stuck:**
+- Leave the PR as a draft, or open one with what exists, if anything was built.
+- Add a "Stuck" section to the PR body below Decisions: what blocks, what you tried, and what a person has to decide.
+- Relabel the issue `spec:stuck`.
+
+Either way, comment on the spec issue with one line for the morning page:
+
+```
+<!-- night-shift {"status":"ready|stuck","pr":<n or null>,"reason":"<stuck reason or empty>","decisions":<count>,"rounds":<0-2>} -->
+night-shift: <ready for review|stuck>: <PR link>. <one sentence>
+```
+
+A stuck spec ends the chain for the specs built on top of it. Mark each of those stuck too, "depends on #N, which is stuck", and stop.
+
+## 7. End
+
+Clean up the worktrees you made. Your last message lists, per spec: ready or stuck, the PR link, and the decision count.
