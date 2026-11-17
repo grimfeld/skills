@@ -131,7 +131,7 @@ Done when every blocker and major is `confirmed` or `refuted` with a reason.
    - No `artifact_url` in state: publish with `icon: "checklist"` and a one-sentence `description` (verdict and counts), then save the returned URL as `artifact_url` and re-render.
    - `artifact_url` set, page not yet published in this conversation: `action: "read"` that URL first, then publish with `url` = `artifact_url`.
    - Already published in this conversation: publish the same `file_path` again.
-5. **Update the PR description.** Only when the target is a PR: `uv run --no-project python ${CLAUDE_SKILL_DIR}/scripts/update-pr-body.py <n> .scratch/pr-review/<id>.pr.md`. It replaces the section between the `pr-review` markers and leaves the rest of the description alone. The description is where the reviewer decides whether to add the `ship` label, so it must match the page. If `gh` can't edit the PR, say so in the summary and carry on.
+5. **Update the PR description.** Only when the target is a PR: `uv run --no-project python ${CLAUDE_SKILL_DIR}/scripts/update-pr-body.py <n> .scratch/pr-review/<id>.pr.md`. It replaces the section between the `pr-review` markers and leaves the rest of the description alone. The description is where the reviewer decides whether to add the `ship` label, so it must match the page. If `gh` can't edit the PR (in a cloud session without `gh`, use the GitHub MCP's pull request update tool with the same spliced body), say so in the summary and carry on.
 6. **Summarise** in the terminal: the verdict line, the "fix before merge" titles, counts of smaller improvements, skipped reviewers with their reasons, any fallback reviewer agent, whether web-quality had live evidence, the report path and the page link.
 
 ## 9. Approval
@@ -154,7 +154,7 @@ If `docs/agents/issue-tracker.md` names GitHub or GitLab, offer to publish the s
 
 ## 11. Finish
 
-1. **Label the PR.** Only when the target is a PR, not a bare branch. Run `gh pr edit <n> --add-label pr-reviewed`. If it fails because the label does not exist, create it with `gh label create pr-reviewed --description "Reviewed with /pr-review" --color 0E8A16` and retry once. If it still fails (no permission, no `gh` auth), say so in the summary and carry on. Label the PR whatever the outcome of the review, including when no finding was approved.
+1. **Label the PR.** Only when the target is a PR, not a bare branch. Run `gh api repos/{owner}/{repo}/issues/<n>/labels -f 'labels[]=pr-reviewed'` (REST: `gh pr edit` fails on some repositories). If it fails because the label does not exist, create it with `gh label create pr-reviewed --description "Reviewed with /pr-review" --color 0E8A16` and retry once. If it still fails (no permission, no `gh` auth), say so in the summary and carry on. Label the PR whatever the outcome of the review, including when no finding was approved.
 2. **Clean up.** Remove the worktree if you created one (`git worktree remove .scratch/pr-review/wt-<id>`).
 3. **Hand off.** End with whether the label was applied, the report path, the page link, the spec path, and the next command:
 

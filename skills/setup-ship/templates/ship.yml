@@ -82,7 +82,7 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
         run: |
           [ -n "$GH_TOKEN" ] || { echo "::warning::Add SHIP_TOKEN as a Dependabot secret too; skipping the label."; exit 0; }
-          gh pr edit "$PR" --add-label "$SHIP_LABEL" --repo "$GITHUB_REPOSITORY"
+          gh api "repos/$GITHUB_REPOSITORY/issues/$PR/labels" -f "labels[]=$SHIP_LABEL" >/dev/null
 # >>> command mode
 
   land:
