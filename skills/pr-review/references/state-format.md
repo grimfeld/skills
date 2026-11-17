@@ -16,6 +16,10 @@ Reviewers return findings in agent terms. Before saving a finding to state, rewr
 
 The agent-facing detail (`evidence`, `verification`, `sources`, `confidence`) is kept verbatim; the report shows it collapsed.
 
+## The brief
+
+`brief` is what the PR description's review section opens with: what changes, by area, and what is risky. It is written for the person deciding whether to ship, who will not read the diff. Same writing rules as findings: plain words, one item each. A run rewrites it whole.
+
 ## Schema
 
 ```json
@@ -26,6 +30,14 @@ The agent-facing detail (`evidence`, `verification`, `sources`, `confidence`) is
   "url": "https://github.com/owner/repo/pull/435",
   "base": "9d6fe081",
   "artifact_url": null,
+  "brief": {
+    "changes": [
+      { "area": "Calendar", "what": "An Event is added and edited through one Form." }
+    ],
+    "risks": ["Migration pocketbase/pb_migrations/1763_places.js adds the places collection."],
+    "preview_url": null,
+    "screens": [{ "url": "https://…/hours.png", "caption": "The hours view on a phone" }]
+  },
   "runs": [
     {
       "date": "2026-11-09 15:34",
