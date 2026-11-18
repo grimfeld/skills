@@ -108,6 +108,7 @@ Work in a branch, through a worktree if the project's docs say so.
    - **`auto-merge` mode:** delete every `# >>> command mode` … `# <<< command mode` block, markers included. Set `__AUTOMERGE_CONDITION__` to `contains(github.event.pull_request.labels.*.name, 'ship')`.
    - **`command` mode:** keep the blocks and drop only the marker lines. Set `__AUTOMERGE_CONDITION__` to `startsWith(github.head_ref, '<prefix>')`. Fill `__SETUP_STEPS__` as YAML steps indented six spaces, and `__LAND_COMMAND__`, `__LAND_CRON__`, `__LAND_BRANCH_PREFIX__` and `__COMMIT_EMAIL__`.
    - **Both modes:** fill `__DEFAULT_BRANCH__` and `__MERGE_METHOD__`.
+   - Pin every `uses:` the way the repo's other workflows do. If they pin to commit SHAs, pin these too (`actions/checkout@<sha> # vX.Y.Z`): a repo that requires SHAs fails the whole workflow at startup over one tag.
    - Done when `grep -n '__[A-Z_]*__\|# >>>\|# <<<' ship.yml` prints nothing, and the file parses as YAML (`ruby -ryaml -e 'YAML.load_file(ARGV[0])'` or `python3 -c 'import yaml,sys; yaml.safe_load(open(sys.argv[1]))'`, whichever exists). If `actionlint` is installed, run it too.
 2. **`shipping.md`:** fill every placeholder from steps 1 and 2.
    - `__LANDING_SUMMARY__`: one sentence.
