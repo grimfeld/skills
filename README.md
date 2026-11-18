@@ -47,7 +47,7 @@ The flow:
 - [`uv`](https://docs.astral.sh/uv/) to run the drift check.
 - Optional: the Vercel MCP server (preview discovery and protected-preview access), Chrome DevTools MCP or `npx lighthouse` (live web audit), `crapper` and `dryer` (principles metrics).
 - The source skills installed under `~/.claude/skills/` for the drift check: `code-review` from [mattpocock/skills](https://github.com/mattpocock/skills); `code-review-and-quality`, `security-and-hardening`, `performance-optimization` and `code-simplification` from [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills); `web-quality-audit` from [addyosmani/web-quality-skills](https://github.com/addyosmani/web-quality-skills). `design-fidelity` has no upstream; it needs Playwright in the project (`scripts/design-capture.mjs` resolves it from there). `ub-mode` is a local skill; drop or rewrite `lenses/principles.md` if you don't have it.
-- From [mattpocock/skills](https://github.com/mattpocock/skills): `grilling` and `domain-modeling` (spec-me), `to-tickets` (slice), `implement-spec` (pr-review's fix tickets, and the night build). They're called by name; install them alongside.
+- From [mattpocock/skills](https://github.com/mattpocock/skills): `grilling` and `domain-modeling` (spec-me), `to-tickets` (slice), `implement-spec` (pr-review's fix tickets, and the night build), `retro` (retro-issues, which reads it). They're called by name; install them alongside.
 - For the live web audit and the lens sources' extra references, the upstream skills under `~/.claude/skills/`; without them the lenses still run on their own briefs.
 
 ### `/ship:spec-me`
@@ -152,6 +152,23 @@ Then:
 /ship:resolve-conflicts            # every open PR labelled `conflicts`
 /ship:resolve-conflicts 540 528    # these PRs
 ```
+
+### `/ship:retro-issues`
+
+Runs a retro on a session (mattpocock's `retro`: navigation, automated checks, coding standards, steering files, tool economy, information access) and files what isn't filed yet:
+
+1. **Route** each finding to the repo that owns the file it changes: this one, another (an installed skill's source), or local only (your global `CLAUDE.md`), which is listed but never filed.
+2. **Dedupe** against each target repo's open issues and PRs: **new**, **duplicate** (dropped, with a link) or **related** (a comment on that issue instead).
+3. **Pick** from one numbered list; merge items with "merge 1+5".
+4. **Grill** you, in one `grilling` round, on the decisions the picked findings need. The rest it settles itself.
+5. **File** after one yes on their acceptance criteria: specs labelled `retro` + `spec:ready` for tonight's night shift, `spec:draft` for any you stopped grilling before settling. Repos without the ship pipeline get a plain issue labelled `retro`.
+
+```
+/ship:retro-issues             # the current session
+/ship:retro-issues <session>   # another session on this machine
+```
+
+`retro` is user-invoked only, so the skill reads its `SKILL.md` rather than calling it; install it from [mattpocock/skills](https://github.com/mattpocock/skills).
 
 ## Install
 
