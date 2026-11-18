@@ -1,6 +1,6 @@
 # skills
 
-`ship`, a [Claude Code](https://claude.com/claude-code) plugin whose skills orchestrate other installed skills to take an idea to production: grill it into a spec, slice it, build it, review it, ship it. This repo is also its own marketplace, `grimfeld`.
+`ship`, a [Claude Code](https://claude.com/claude-code) plugin whose skills orchestrate other installed skills to take an idea to production: grill it (or a Claude Design design) into a spec, slice it, build it, review it, ship it. This repo is also its own marketplace, `grimfeld`.
 
 Commands are namespaced by the plugin: `/ship:pr-review`, and the agent is `ship:pr-lens-reviewer`.
 
@@ -71,6 +71,16 @@ The spec is a GitHub issue that's saved after every round:
 
 ADRs and glossary entries settled during the session go into the issue's Decision records, not a PR of their own. The build commits them in the spec's PR, so each spec ends in one PR.
 
+### `/ship:design-me`
+
+Turns a design made in Claude Design into specs, so the night shift builds it.
+
+1. **Mark it done:** when you like a version, open an issue labelled `design:ready` with the artifact link, or run `/ship:design-me <link>`, which opens it for you. To revise a design, relabel its issue `design:ready`.
+2. **Intake:** it reads the artifact's files: the page (the reference), `HANDOFF.md`, the stylesheet and the prototype's source, plus the page's feedback notes. If the handoff files are missing, it tells you what to ask Claude Design for. `skills/design-me/templates/handoff-brief.md` is the brief to paste into Claude Design so every handoff has the same shape.
+3. **Compare** with the handoff last built (`docs/design/<module>/`): only new or changed places get specs. Unbuilt specs for a changed place are replaced; a place with an open PR waits for it.
+4. **Grill** you only on the handoff's open decisions, its gaps against the brief, and unaddressed feedback. A design with nothing open asks for one yes.
+5. **Specs:** a foundation spec (looks, themes, Settings) when no ADR records the mechanism yet, a shell spec, then one per place, each `spec:ready` with a Design section pinning the handoff commit. The handoff is pushed on a `design/<module>-<version>` branch, and the first PR built from it commits it.
+
 ### `/ship:slice`
 
 Sizes each `spec:ready` spec against prior PRs in the same areas. The rule is one PR per spec, about ten minutes to review: by default about 500 reviewable lines and three behaviours in one area.
@@ -111,7 +121,7 @@ Run once per project. Afterwards, adding the **`ship`** label to a reviewed PR i
 - **Required `ship` status:** a commit status, required by the default branch's ruleset, that stays pending until the label is on, so nothing unreviewed merges.
 - **Landing:** GitHub auto-merge once CI is green (`auto-merge` mode), or the project's own landing command run on a schedule (`command` mode, for example a batching script).
 - **Dependabot:** patch updates and GitHub Actions updates are labelled `ship` automatically.
-- **Labels:** `ship`, `pr-reviewed`, and the `spec:*` labels the pipeline uses.
+- **Labels:** `ship`, `pr-reviewed`, and the `spec:*` and `design:*` labels the pipeline uses.
 - **`docs/agents/shipping.md`:** the rules, written down for people and for the other skills.
 - **The project's `.claude/settings.json`:** enables the plugin.
 
