@@ -86,6 +86,8 @@ Print every change, grouped, and ask for one yes.
     - `spec:building`
     - `spec:in-review`
     - `spec:stuck`
+    - `design:ready`: "A Claude Design artifact, marked done"
+    - `design:specced`: "Turned into specs by /ship:design-me"
 
     Create them with `gh label create --force`, which keeps a label's other PRs and issues.
   - The ruleset on the default branch. Amend the existing ruleset that targets it; don't add a second one. It needs:
