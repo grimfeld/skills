@@ -59,6 +59,7 @@ Ask for one yes, or for changes. A split happens only on a yes. Keeping a spec a
 1. Create one issue per part.
    - Copy the parent's template sections, narrowed to the part.
    - Each part gets its own acceptance criteria, Touches and Data.
+   - Each Decision record goes to the first part that relies on it, so it ships once.
    - Add a Depends on line where it applies.
    - Label each one `spec:ready`.
    - Link each one as a sub-issue of the parent, using the tracker doc's operation.

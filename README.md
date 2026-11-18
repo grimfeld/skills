@@ -69,6 +69,8 @@ The spec is a GitHub issue that's saved after every round:
 - `spec:ready` once every item is answered
 - `spec:draft` if you stop first, with its open questions listed, so `/ship:spec-me #<n>` resumes it later
 
+ADRs and glossary entries settled during the session go into the issue's Decision records, not a PR of their own. The build commits them in the spec's PR, so each spec ends in one PR.
+
 ### `/ship:slice`
 
 Sizes each `spec:ready` spec against prior PRs in the same areas. The rule is one PR per spec, about ten minutes to review: by default about 500 reviewable lines and three behaviours in one area.
