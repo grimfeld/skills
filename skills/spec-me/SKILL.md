@@ -32,6 +32,8 @@ Read these before the first question, and don't ask the user anything they alrea
 
 Call the Skill tool with `grilling`. If the project keeps a glossary or ADRs, also call it with `domain-modeling`, so terms and decisions are written down as they settle.
 
+The ADRs and glossary entries `domain-modeling` writes belong to the spec, not to a PR of their own. Copy the full text of each one into the issue's "Decision records" section at the next save. Never commit them or open a PR for them: the build commits them in the spec's one PR, next to the code they describe.
+
 The design tree must reach every item of the buildable bar. Use the bar to compute the frontier: an item nobody has answered yet is an open branch.
 Facts come from the code, through subagents, not from the user. Decisions come from the user.
 
@@ -45,7 +47,7 @@ Facts come from the code, through subagents, not from the user. Decisions come f
 6. **UI states**, for anything a person sees: empty, loading, error, the longest content, phone width. Write "No UI" if there is none.
 7. **Implementation decisions:** interfaces, contracts, schema shapes and architecture choices. No file paths.
 8. **Test seams:** where behaviour is tested, preferring existing seams and the highest one possible, plus the prior art to copy.
-9. **Docs to update:** the user guide, ADRs, glossary, README, the project's own extras.
+9. **Docs to update:** the user guide, ADRs, glossary, README, the project's own extras. ADRs and glossary entries settled in the session go in full under Decision records.
 10. **Size:** a rough guess of the change ("one screen and a field", "a new Module") and of the number of PRs. `slice` decides properly later; this guess only flags a spec that is clearly too big while the user is still here to split it.
 11. **Open questions:** none left.
 
@@ -70,5 +72,5 @@ When the frontier is empty, check every bar item against the issue body. Then:
 3. Report:
    - the issue link
    - the size guess
-   - any ADR or glossary change made during the session (commit those to a branch and open a PR as the project's docs describe, or say which files changed)
+   - any ADR or glossary change made during the session: it is in the issue's Decision records and ships with the build. Name the local files `domain-modeling` wrote, and say they can be discarded, since the build PR adds them.
    - the next step: the spec waits for the evening's `/ship:night-shift`, or `/ship:slice #<n>` sooner

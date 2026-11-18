@@ -39,6 +39,10 @@
 
 - <Guide pages, ADRs, glossary, README, project extras.>
 
+## Decision records
+
+<The full text of each ADR and glossary entry settled while specifying, each under its target file (`docs/adr/NNNN-<slug>.md`, `CONTEXT.md`). The build commits them in this spec's PR. Or "None".>
+
 ## Size
 
 <Rough size, and expected number of PRs. `slice` writes the real estimate below.>

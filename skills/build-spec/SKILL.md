@@ -36,6 +36,7 @@ Read first:
 
 Call the Skill tool with `implement-spec`, passing the spec issue. Its tickets are the spec's sub-issues.
 
+- **Decision records first:** if the spec has a "Decision records" section other than "None", commit its ADRs and glossary entries before the first ticket, as the spec's first commit. Give each ADR the next free number on the base branch, and fix references to it in the text. They ship in this PR, never in one of their own.
 - **The branch:** what `implement-spec` calls the integration branch is the spec's branch, `spec/<n>-<slug>`, made from the base above.
 - **The PR:** it's a **draft**, targeting the base branch. Its body opens with `Closes #<n>` and one paragraph on what it delivers. Below that is the decisions section:
 
