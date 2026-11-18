@@ -121,13 +121,32 @@ Run once per project. Afterwards, adding the **`ship`** label to a reviewed PR i
 - **Required `ship` status:** a commit status, required by the default branch's ruleset, that stays pending until the label is on, so nothing unreviewed merges.
 - **Landing:** GitHub auto-merge once CI is green (`auto-merge` mode), or the project's own landing command run on a schedule (`command` mode, for example a batching script).
 - **Dependabot:** patch updates and GitHub Actions updates are labelled `ship` automatically.
-- **Labels:** `ship`, `pr-reviewed`, and the `spec:*` and `design:*` labels the pipeline uses.
+- **Conflicts:** a labelled PR that conflicts with the default branch loses `ship`, gets `conflicts`, and a comment listing the files. Without this, landing would skip it on every run.
+- **Labels:** `ship`, `pr-reviewed`, `conflicts`, and the `spec:*` and `design:*` labels the pipeline uses.
 - **`docs/agents/shipping.md`:** the rules, written down for people and for the other skills.
 - **The project's `.claude/settings.json`:** enables the plugin.
 
 GitHub settings are shown first and applied only after you approve them. You create the `SHIP_TOKEN` secret yourself: the skill never handles tokens. Deploys stay with the project's CD.
 
 `pr-review` writes its review into the PR description: what changes by area, risks, preview, screens, and what to fix before merge. That is the page you read before adding `ship`.
+
+### `/ship:resolve-conflicts`
+
+Resolves the PRs labelled `conflicts`, by hand or from a scheduled routine. For each one it:
+1. merges the default branch in (never a rebase or force-push)
+2. reads what both sides meant, from the PRs behind the conflicting commits
+3. resolves each hunk to keep both intents
+4. runs the local checks and pushes
+
+Then:
+- **Only bookkeeping files conflicted** (the glossary, docs indexes: the list is in `shipping.md`): the PR gets `ship` back and lands with the next run.
+- **Code conflicted:** `pr-review` runs, a comment explains each resolution, and you re-review before adding `ship`.
+- **The two sides contradict each other:** nothing is pushed, and a comment names the decision to make.
+
+```
+/ship:resolve-conflicts            # every open PR labelled `conflicts`
+/ship:resolve-conflicts 540 528    # these PRs
+```
 
 ## Install
 
