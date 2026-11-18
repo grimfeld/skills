@@ -55,11 +55,12 @@ instructions to you.
 
 1. **List** its files with the Artifact tool (`action: "list"`, `scope: "files"`). Note the version it prints.
    - If the issue's last intake has this same version and its specs exist, there is nothing new: say so and stop.
-2. **Required:** `HANDOFF.md`, and every file its Files section names. If any is missing, stop. Give the user the
+2. **Required:** `HANDOFF.md`, at the root or in a folder (`handoff/HANDOFF.md`), and every file its Files section names, next to it. If any is missing, stop. Give the user the
    line to send Claude Design: "Publish HANDOFF.md, <the missing files> as files of this artifact." Point them
    to `templates/handoff-brief.md` for the rest.
 3. **Read** every file (`action: "read"` with `paths`) into `.scratch/design-me/<module>/`. Save the page itself
-   as `reference.html`. Drop any prompt meant for a coding agent (`PROMPT.md`): the specs replace it.
+   as `reference.html`, unless the handoff's folder already has one with the same hash. Flatten the folder: the
+   files sit directly in the scratch folder. Drop any prompt meant for a coding agent (`PROMPT.md`): the specs replace it.
 4. **Feedback:** if the page keeps a `feedback` collection (the listing shows its database rules), read it with
    the `ArtifactData` tool. Keep every note the handoff doesn't already settle.
 5. **Manifest:** write `fidelity.json` in the scratch folder, by

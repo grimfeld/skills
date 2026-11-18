@@ -93,15 +93,18 @@ Sizes each `spec:ready` spec against prior PRs in the same areas. The rule is on
 ### `/ship:night-shift`
 
 **Evening, with you.**
-1. It slices tonight's `spec:ready` specs.
+1. It runs `/ship:design-me` on every `design:ready` design, then slices tonight's `spec:ready` specs.
 2. It compares their Touches, Data and decisions:
    - Independent specs build in parallel.
    - Specs that overlap but don't disagree are chained without asking: built in order in one session, each PR on top of the previous one.
    - Conflicting decisions go to you, in one round.
+   - A design's place specs wait until its foundation and shell have merged.
 3. Once you approve the plan, it gives each session its prompt on a reused pool of builder routines (`ship-builder-<repo>-N`, since routines can't be deleted through the API) and starts them.
 
 **`/ship:night-shift morning`** gathers the results into one page:
 - PRs ready to review, smallest first, each with its verdict, risks and the decisions to check
+- for a PR built from a design, its fidelity grid: reference beside app in every look, theme and viewport, with the views the review flagged shown full size
+- designs whose specs have all merged are closed
 - stuck specs, and what each needs from you
 
 ### `/ship:build-spec`
