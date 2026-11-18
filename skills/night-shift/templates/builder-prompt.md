@@ -9,4 +9,4 @@ If that skill isn't available, the plugin isn't installed in this session. In th
 2. Read `/tmp/ship/skills/build-spec/SKILL.md` and follow it. Wherever a skill says `${CLAUDE_PLUGIN_ROOT}`, use `/tmp/ship`. Wherever it says `${CLAUDE_SKILL_DIR}`, use that skill's folder under `/tmp/ship/skills/`. Wherever it calls `ship:pr-review`, read and follow `/tmp/ship/skills/pr-review/SKILL.md` the same way.
 3. Record "plugin not installed; ran from a clone" in each PR's Decisions section.
 
-The skills `implement-spec` and `to-tickets` come from mattpocock/skills. If they're missing too, read them from `https://github.com/mattpocock/skills` the same way.
+`build-spec` runs `implement-spec` and `pr-review` by reading their `SKILL.md`, as `references/running-skills.md` says (in the clone, if you made one). `implement-spec` comes from mattpocock/skills; if it's missing too, that file says how to fetch it.

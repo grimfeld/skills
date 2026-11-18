@@ -68,7 +68,7 @@ Ask for one yes, or for changes. A split happens only on a yes. Keeping a spec a
 
 ## 5. Tickets
 
-For each spec that will be built, kept or new, call the Skill tool with `to-tickets` on its issue.
+For each spec that will be built, kept or new, run `to-tickets` on its issue, as `${CLAUDE_PLUGIN_ROOT}/references/running-skills.md` says. The Skill tool can't call it.
 
 - Tickets are tracer-bullet vertical slices with blocking edges, published as sub-issues. That's what `implement-spec` reads.
 - `to-tickets` asks the user to approve the breakdown, which is fine here: slicing happens while the user is present.

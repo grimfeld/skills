@@ -34,7 +34,7 @@ Read first:
 
 ### 2. Build
 
-Call the Skill tool with `implement-spec`, passing the spec issue. Its tickets are the spec's sub-issues.
+Run `implement-spec` on the spec issue, as `${CLAUDE_PLUGIN_ROOT}/references/running-skills.md` says. The Skill tool can't call it. Its tickets are the spec's sub-issues.
 
 - **The design handoff first:** if the spec has a "Design" section, bring its handoff into the tree before anything else: `git fetch origin <sha>`, then `git checkout <sha> -- docs/design/<module>`. Commit it ("Design handoff: <module>") unless the base already has it unchanged. Build against that copy and its `reference.html`. Keep its `fidelity.json` true for the places you build, as the spec's Fidelity line says: `pr-review`'s `design-fidelity` lens captures the app from it.
 - **Decision records first:** if the spec has a "Decision records" section other than "None", commit its ADRs and glossary entries before the first ticket, as the spec's first commit. Give each ADR the next free number on the base branch, and fix references to it in the text. They ship in this PR, never in one of their own.
@@ -64,7 +64,7 @@ Push, then wait for CI on the PR. Wait with the shell's own blocking wait (`gh p
 
 ### 4. Review
 
-Call the Skill tool with `ship:pr-review` (or `pr-review`), passing `<pr> unattended`. It writes the review section into the PR description and returns the approved findings: the blockers and majors.
+Run `pr-review` with `<pr> unattended`, as `${CLAUDE_PLUGIN_ROOT}/references/running-skills.md` says. The Skill tool can't call it. It writes the review section into the PR description and returns the approved findings: the blockers and majors.
 
 ### 5. Fix rounds, at most two
 
