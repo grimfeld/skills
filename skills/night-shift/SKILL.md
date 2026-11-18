@@ -18,10 +18,10 @@ Before each step, read `docs/agents/shipping.md`, `docs/agents/issue-tracker.md`
 
 ### 1. Tonight's specs
 
-1. **Designs first:** for each open issue labelled `design:ready`, call the Skill tool with `ship:design-me` and `#<n>`. It grills the user on the design's open decisions and writes its specs as `spec:ready`. A design the user leaves with questions open keeps `design:ready` and builds nothing tonight.
+1. **Designs first:** for each open issue labelled `design:ready`, run `design-me` with `#<n>`, as `${CLAUDE_PLUGIN_ROOT}/references/running-skills.md` says (the Skill tool can't call it). It grills the user on the design's open decisions and writes its specs as `spec:ready`. A design the user leaves with questions open keeps `design:ready` and builds nothing tonight.
 2. **List them:** open issues labelled `spec:ready`.
 3. **Check for leftovers:** list the `spec:building` and `spec:stuck` issues from earlier nights and show them. A `spec:building` issue whose builder's session has ended is a crashed build: say so. Never rebuild these without the user's say-so.
-4. **Slice:** if any spec lacks a "Slicing" section, call the Skill tool with `ship:slice` and `all`. Slicing asks the user about splits and tickets, so it belongs here, while they're present.
+4. **Slice:** if any spec lacks a "Slicing" section, run `slice` with `all`, the same way. Slicing asks the user about splits and tickets, so it belongs here, while they're present.
 
 Done when every spec to build has a "Slicing" section and tickets.
 

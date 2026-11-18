@@ -13,7 +13,7 @@ Read first: `docs/agents/issue-tracker.md` and `docs/agents/shipping.md` if the 
 
 ## 1. Retro
 
-`retro` (from mattpocock/skills) is user-invoked only, so the Skill tool can't call it. Read its `SKILL.md` (`find -L ~/.claude ~/.agents -path '*/retro/SKILL.md'`) and run its steps 1 to 3 on the session passed as the argument, or the current one. Its step 4 is replaced by step 4 below.
+`retro` (from mattpocock/skills) is user-invoked only, so the Skill tool can't call it. Run it as `${CLAUDE_PLUGIN_ROOT}/references/running-skills.md` says, but only its steps 1 to 3, on the session passed as the argument, or the current one. Its step 4 is replaced by step 4 below.
 
 Done when every finding has:
 - a title
