@@ -1,24 +1,25 @@
 ---
 name: pr-review
-description: Review a PR or branch with seven parallel lens reviewers, dedupe and verify their findings, then turn the approved ones into a fix spec and tickets.
+description: Review a PR or branch with up to eight parallel lens reviewers, dedupe and verify their findings, then turn the approved ones into a fix spec and tickets.
 disable-model-invocation: true
 argument-hint: "[PR number or URL] [base=<ref>] [paths=<glob,...>] [unattended]"
 ---
 
 # PR review
 
-Seven **lens** reviewers read the same diff in parallel, each in its own lane. You orchestrate: prepare one shared context, dispatch, dedupe, verify, report, then walk the user through approval and write a fix spec with tickets. You stop after the tickets are written and the PR is labelled `pr-reviewed`.
+Up to eight **lens** reviewers read the same diff in parallel, each in its own lane. You orchestrate: prepare one shared context, dispatch, dedupe, verify, report, then walk the user through approval and write a fix spec with tickets. You stop after the tickets are written and the PR is labelled `pr-reviewed`.
 
 Every reviewer is **report-only**: it reads code, runs read-only commands, and returns findings. Code changes happen later, through `/implement-spec`, after the user approves.
 
 Files in this skill, reached by path from `${CLAUDE_SKILL_DIR}` (the directory holding this file):
 
 - The `pr-lens-reviewer` agent (`agents/pr-lens-reviewer.md` at the plugin root): the report-only agent every reviewer and the verifier run as. It loads only four tools, which keeps each reviewer's startup small. The `ship` plugin installs it as `ship:pr-lens-reviewer`.
-- `lenses/*.md`: one brief per reviewer, with `source` and `upstream_hash` front matter.
+- `lenses/*.md`: one brief per reviewer, with `source` and `upstream_hash` front matter (`source: local` for a lens written here, with no upstream).
 - `references/finding-format.md`: the finding schema, severity scale and dedupe rule every reviewer and you share.
 - `references/state-format.md`: the review state file, and how to rewrite findings for people.
 - `references/spec-template.md`, `references/ticket-template.md`.
-- `scripts/check-drift.py`, `scripts/find-preview-url.sh`, `scripts/render-report.py`, `scripts/update-pr-body.py`.
+- `references/fidelity-manifest.md`: what `scripts/design-capture.mjs` reads, for the `design-fidelity` lens.
+- `scripts/check-drift.py`, `scripts/find-preview-url.sh`, `scripts/render-report.py`, `scripts/update-pr-body.py`, `scripts/design-capture.mjs`.
 
 Run Python scripts with `uv run --no-project python <script>`.
 
@@ -77,10 +78,11 @@ Two passes. Each lens runs as its own agent; never merge lenses into one agent.
 | `simplification` | any code file changed | `sonnet` |
 | `principles` | any code file changed | `sonnet` |
 | `web-quality` | front-end files changed (`.tsx .jsx .vue .svelte .astro .css .scss .html`, or under `pages/ app/ components/ public/ styles/`) | `sonnet` |
+| `design-fidelity` | front-end files changed and the spec has a "Design" section | default |
 
 A diff of only docs and config (Markdown, text, CI YAML, editor config) runs `standards-and-spec` alone. When a file's class is ambiguous, run the lens.
 
-**Pass 2: by content.** When fewer than ~40 code files changed, read the code hunks of the saved diff yourself. Skip any of `performance`, `simplification`, `principles` and `web-quality` that the hunks give clearly nothing to review: for example `performance` when no data access, query, loop over a collection or worker code changed, or `simplification` and `principles` when the code change is only renames, string or config values. Decide `web-quality` after step 4, and never skip it by content when a live URL was found. When in doubt, run the lens. `standards-and-spec`, `quality` and `security` follow pass 1 only; never skip them by judgment.
+**Pass 2: by content.** When fewer than ~40 code files changed, read the code hunks of the saved diff yourself. Skip any of `performance`, `simplification`, `principles` and `web-quality` that the hunks give clearly nothing to review: for example `performance` when no data access, query, loop over a collection or worker code changed, or `simplification` and `principles` when the code change is only renames, string or config values. `design-fidelity` follows pass 1 only. Decide `web-quality` after step 4, and never skip it by content when a live URL was found. When in doubt, run the lens. `standards-and-spec`, `quality` and `security` follow pass 1 only; never skip them by judgment.
 
 Record each skipped lens with a one-line reason, prefixed `by type:` or `by content:`.
 
@@ -88,7 +90,7 @@ Done when every lens is selected or skipped with a reason, with `web-quality` le
 
 ## 4. Find a URL for web-quality
 
-Only when `web-quality` runs.
+Only when `web-quality` or `design-fidelity` runs. `design-fidelity` uses the URL when one is found, and otherwise serves the app from its manifest.
 
 1. `${CLAUDE_SKILL_DIR}/scripts/find-preview-url.sh gh <pr-number-or-branch>`: the PR's deployment statuses and Vercel bot comments.
 2. Vercel MCP: `list_deployments` for the project, filtered to this branch, newest `READY` preview.
@@ -111,6 +113,7 @@ Diff, already saved: <absolute path of .scratch/pr-review/<id>.diff>
 Changed files: <list>
 Spec: <spec text, or "no spec available">
 <web-quality only> Audit URL: <url, or "none: source-only">
+<design-fidelity only> Skill dir: ${CLAUDE_SKILL_DIR}. Audit URL: <url, or "none">. Fidelity out: <absolute path of .scratch/pr-review/<id>-fidelity/>
 Stay close to the diff: read the saved diff once, then the changed files and the code they directly call or are called by, using line ranges, never whole files outside the diff. Beyond that, run targeted greps for existing helpers, components or patterns the change could have reused, and read the files the spec references.
 Return the coverage line and the JSON findings array exactly as the finding format specifies.
 ```
@@ -147,7 +150,7 @@ Done when every blocker and major is `confirmed` or `refuted` with a reason.
    - `artifact_url` set, page not yet published in this conversation: `action: "read"` that URL first, then publish with `url` = `artifact_url`.
    - Already published in this conversation: publish the same `file_path` again.
 5. **Update the PR description.** Only when the target is a PR: `uv run --no-project python ${CLAUDE_SKILL_DIR}/scripts/update-pr-body.py <n> .scratch/pr-review/<id>.pr.md`. It replaces the section between the `pr-review` markers and leaves the rest of the description alone. The description is where the reviewer decides whether to add the `ship` label, so it must match the page. If `gh` can't edit the PR (in a cloud session without `gh`, use the GitHub MCP's pull request update tool with the same spliced body), say so in the summary and carry on.
-6. **Summarise** in the terminal: the verdict line, the "fix before merge" titles, counts of smaller improvements, skipped reviewers with their reasons, any fallback reviewer agent, whether web-quality had live evidence, the report path and the page link.
+6. **Summarise** in the terminal: the verdict line, the "fix before merge" titles, counts of smaller improvements, skipped reviewers with their reasons, any fallback reviewer agent, whether web-quality and design-fidelity had live evidence, the report path and the page link.
 
 ## 9. Approval
 
