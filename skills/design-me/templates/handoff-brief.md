@@ -14,7 +14,13 @@ Publish these as files of this artifact, next to the page:
 - The prototype's source (for example `prototype.dc.html`): the exact behaviour and wording of every control.
 
 The page itself stays the working reference, with every look, theme and viewport reachable from its own
-controls.
+controls. It must also open any view straight from its URL, for screenshots taken by a script:
+
+- `#place=<place>&look=<look>&theme=<theme>` opens that place in that look and theme. Use the ids `HANDOFF.md`
+  uses, and `dark` / `light` for themes.
+- A page opened with a hash shows the view alone: no intro, tour, toast or feedback panel over it.
+- The page fills the window, so the window's width is the viewport.
+- List the place ids in `HANDOFF.md`'s Screens section, and the look ids in its Looks and themes section.
 
 `HANDOFF.md` sections:
 

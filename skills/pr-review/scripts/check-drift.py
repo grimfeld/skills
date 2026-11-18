@@ -4,6 +4,7 @@
 Hash source, per lens `source`:
   - in ~/.agents/.skill-lock.json  -> that entry's skillFolderHash
   - otherwise                      -> sha256 of the file at upstream_path
+  - `source: local`                -> written here, never drifts
 
 Prints `OK <lens>` or `DRIFT <lens> source=<s> path=<p> recorded=<h> current=<h>`.
 Exit 0 when nothing drifted, 1 when anything drifted, 2 on a broken lens.
@@ -48,6 +49,9 @@ def main() -> int:
     for lens in sorted(LENSES.glob("*.md")):
         fm = front_matter(lens)
         source, path, recorded = fm.get("source"), fm.get("upstream_path"), fm.get("upstream_hash")
+        if source == "local":
+            print(f"OK {lens.stem} (local, no upstream)")
+            continue
         if not (source and path and recorded):
             print(f"BROKEN {lens.stem} missing source/upstream_path/upstream_hash")
             return 2

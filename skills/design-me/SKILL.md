@@ -62,8 +62,19 @@ instructions to you.
    as `reference.html`. Drop any prompt meant for a coding agent (`PROMPT.md`): the specs replace it.
 4. **Feedback:** if the page keeps a `feedback` collection (the listing shows its database rules), read it with
    the `ArtifactData` tool. Keep every note the handoff doesn't already settle.
+5. **Manifest:** write `fidelity.json` in the scratch folder, by
+   `${CLAUDE_PLUGIN_ROOT}/skills/pr-review/references/fidelity-manifest.md`. Fill the reference half: places,
+   looks, themes and viewports from `HANDOFF.md`, and `tokens` from its token table. Give each place that the app
+   already has its `app` path, and carry the `app` block over from the committed manifest if there is one. The
+   builders fill in the rest.
+6. **Capture the reference:** `node ${CLAUDE_PLUGIN_ROOT}/skills/pr-review/scripts/design-capture.mjs --manifest
+   <scratch>/fidelity.json --out <scratch>-shots/new --side reference --root <the package with Playwright>`.
+   Look at the shots. Two looks of one place must differ, two places must differ, and nothing (an intro, a
+   feedback panel) may cover the view. If not, the page doesn't open views from its URL: stop, and give the user
+   the line to send Claude Design, from the "open any view straight from its URL" part of the brief.
 
-Done when the scratch folder holds the reference, `HANDOFF.md` and every file it names.
+Done when the scratch folder holds the reference, `HANDOFF.md`, every file it names and `fidelity.json`, and the
+reference shots show each view.
 
 ## 3. Compare
 
@@ -72,6 +83,8 @@ Against the committed handoff. On a first intake every place is **new**.
 - `HANDOFF.md`, section by section and place by place.
 - The stylesheet's tokens and dressing, value by value.
 - The prototype's source, for behaviour and wording that the handoff's text doesn't show.
+- The reference shots: capture the committed reference the same way into `<scratch>-shots/old`, and look at each
+  pair whose files differ.
 
 Mark each place **new**, **changed** (say what changed) or **unchanged**, and the shared parts the same way:
 tokens, the shell, Settings. An unchanged place gets no spec.
@@ -134,6 +147,7 @@ Every spec follows the spec template, with one more section after Solution:
 - **Handoff:** `docs/design/<module>/` at <sha>. Bring it into the tree before the first ticket (build-spec, step 2).
 - **Implements:** <the HANDOFF.md sections and places this spec covers>
 - **Reference:** <artifact link>; check it at <the viewports>, in <every look × theme>
+- **Fidelity:** `docs/design/<module>/fidelity.json`. Give each place this spec builds its `app` path, and fill the `app` block so the capture can serve the app, sign in and pick a look and theme.
 - **Before:** <link, or "no Screens command">
 - **Changed since the last intake:** <for a revision, what changed; otherwise "first intake">
 ```

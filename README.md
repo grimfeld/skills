@@ -8,7 +8,7 @@ Commands are namespaced by the plugin: `/ship:pr-review`, and the agent is `ship
 
 ### `/ship:pr-review`
 
-Reviews a PR or branch with seven parallel reviewers, each in its own lane:
+Reviews a PR or branch with up to eight parallel reviewers, each in its own lane:
 
 | Lens | Covers | Adapted from |
 |---|---|---|
@@ -19,6 +19,7 @@ Reviews a PR or branch with seven parallel reviewers, each in its own lane:
 | `simplification` | Readability and behaviour-preserving simplifications | `code-simplification` |
 | `principles` | A personal set of engineering principles, plus `crapper` / `dryer` metrics | `ub-mode` |
 | `web-quality` | Core Web Vitals, accessibility, SEO, best practices, agentic browsing, against a live preview when one is found | `web-quality-audit` |
+| `design-fidelity` | For specs built from a design: the app against the design's reference in every look, theme and viewport, with contrast and token values checked mechanically | written here |
 
 The flow:
 
@@ -45,7 +46,7 @@ The flow:
 - [`gh`](https://cli.github.com/), authenticated, for PRs, CI status and deployment lookup.
 - [`uv`](https://docs.astral.sh/uv/) to run the drift check.
 - Optional: the Vercel MCP server (preview discovery and protected-preview access), Chrome DevTools MCP or `npx lighthouse` (live web audit), `crapper` and `dryer` (principles metrics).
-- The source skills installed under `~/.claude/skills/` for the drift check: `code-review` from [mattpocock/skills](https://github.com/mattpocock/skills); `code-review-and-quality`, `security-and-hardening`, `performance-optimization` and `code-simplification` from [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills); `web-quality-audit` from [addyosmani/web-quality-skills](https://github.com/addyosmani/web-quality-skills). `ub-mode` is a local skill; drop or rewrite `lenses/principles.md` if you don't have it.
+- The source skills installed under `~/.claude/skills/` for the drift check: `code-review` from [mattpocock/skills](https://github.com/mattpocock/skills); `code-review-and-quality`, `security-and-hardening`, `performance-optimization` and `code-simplification` from [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills); `web-quality-audit` from [addyosmani/web-quality-skills](https://github.com/addyosmani/web-quality-skills). `design-fidelity` has no upstream; it needs Playwright in the project (`scripts/design-capture.mjs` resolves it from there). `ub-mode` is a local skill; drop or rewrite `lenses/principles.md` if you don't have it.
 - From [mattpocock/skills](https://github.com/mattpocock/skills): `grilling` and `domain-modeling` (spec-me), `to-tickets` (slice), `implement-spec` (pr-review's fix tickets, and the night build). They're called by name; install them alongside.
 - For the live web audit and the lens sources' extra references, the upstream skills under `~/.claude/skills/`; without them the lenses still run on their own briefs.
 
@@ -78,8 +79,9 @@ Turns a design made in Claude Design into specs, so the night shift builds it.
 1. **Mark it done:** when you like a version, open an issue labelled `design:ready` with the artifact link, or run `/ship:design-me <link>`, which opens it for you. To revise a design, relabel its issue `design:ready`.
 2. **Intake:** it reads the artifact's files: the page (the reference), `HANDOFF.md`, the stylesheet and the prototype's source, plus the page's feedback notes. If the handoff files are missing, it tells you what to ask Claude Design for. `skills/design-me/templates/handoff-brief.md` is the brief to paste into Claude Design so every handoff has the same shape.
 3. **Compare** with the handoff last built (`docs/design/<module>/`): only new or changed places get specs. Unbuilt specs for a changed place are replaced; a place with an open PR waits for it.
-4. **Grill** you only on the handoff's open decisions, its gaps against the brief, and unaddressed feedback. A design with nothing open asks for one yes.
-5. **Specs:** a foundation spec (looks, themes, Settings) when no ADR records the mechanism yet, a shell spec, then one per place, each `spec:ready` with a Design section pinning the handoff commit. The handoff is pushed on a `design/<module>-<version>` branch, and the first PR built from it commits it.
+4. **Fidelity:** it writes `fidelity.json`, which says how to open each view of the reference and of the app, and screenshots the reference to check that every view opens from its URL. The brief asks Claude Design for that.
+5. **Grill** you only on the handoff's open decisions, its gaps against the brief, and unaddressed feedback. A design with nothing open asks for one yes.
+6. **Specs:** a foundation spec (looks, themes, Settings) when no ADR records the mechanism yet, a shell spec, then one per place, each `spec:ready` with a Design section pinning the handoff commit. The handoff is pushed on a `design/<module>-<version>` branch, and the first PR built from it commits it.
 
 ### `/ship:slice`
 
