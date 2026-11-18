@@ -39,6 +39,7 @@ Read only. Collect:
    - a screenshot or visual test command
    - an existing `docs/agents/shipping.md`, which means this is a re-run: update it, don't overwrite it
 6. **Labels.** `gh label list`.
+7. **Bookkeeping files.** These are files most PRs touch, so they conflict often and need no review once merged together: glossaries, changelogs, docs indexes. Count how many of the last 30 merged PRs touch each file (`gh pr view <n> --json files`). Files touched by about 30% or more that are docs or indexes, not code or tests, are the candidates.
 
 Done when you hold every item above.
 
@@ -58,6 +59,7 @@ Ask the user the open choices in one `AskUserQuestion` round, giving your recomm
   If the project's command doesn't meet this contract yet, record the gap as a follow-up issue in the project, not here.
 - **Merge method:** what the project's history uses (merge, squash or rebase). `command` mode uses the method its own docs require.
 - **Required checks:** from step 1.3.
+- **Bookkeeping files:** the candidates from step 1.7, as globs. A conflict in only these files sends the PR back to the queue once resolved; any other file waits for a re-review.
 - **`command` mode only:**
   - the cron schedule for the landing run (default every 2 hours: `17 */2 * * *`)
   - the setup steps the command needs on a runner, for example install pnpm and run `pnpm install --frozen-lockfile`
@@ -88,6 +90,7 @@ Print every change, grouped, and ask for one yes.
     - `spec:stuck`
     - `design:ready`: "A Claude Design artifact, marked done"
     - `design:specced`: "Turned into specs by /ship:design-me"
+    - `conflicts`: "Conflicts with the default branch: resolve, then re-review"
 
     Create them with `gh label create --force`, which keeps a label's other PRs and issues.
   - The ruleset on the default branch. Amend the existing ruleset that targets it; don't add a second one. It needs:
@@ -101,6 +104,7 @@ Print every change, grouped, and ask for one yes.
   - Add it as the Actions secret `SHIP_TOKEN` (`gh secret set SHIP_TOKEN`) and the Dependabot secret `SHIP_TOKEN` (`gh secret set SHIP_TOKEN --app dependabot`).
   - Why it's needed: without it, merges and landing PRs made by GitHub's default token don't start CI or deploys.
   - Cloud sessions don't install plugins from `.claude/settings.json`. Point the user to the `grimfeld/skills` README's cloud setup script for their cloud environment.
+  - Optional: a routine that runs `/ship:resolve-conflicts` every hour (`/schedule`), so conflicting PRs get resolved without anyone starting it.
 
 ## 4. Write the files
 
@@ -117,6 +121,9 @@ Work in a branch, through a worktree if the project's docs say so.
    - `__LAND_DETAILS__`: in `command` mode, the command, schedule, prefix and contract; in `auto-merge` mode, a single "Merged by GitHub auto-merge when the required checks pass."
    - `__CD_SUMMARY__`: what deploys after a merge, or "Nothing deploys on merge."
    - `__SCREENS__`: the command, or "none".
+   - `__BOOKKEEPING_FILES__`: a Markdown list with one glob per item, each in backticks, or a single "none" item.
+
+   Done when `grep -n '__[A-Z_]*__' shipping.md` prints nothing.
 
    On a re-run, keep any section the project has added.
 3. **Settings and `CLAUDE.md`:** edit them in place.
@@ -138,8 +145,9 @@ Re-read each setting to confirm it took:
 1. Open any PR, or use the next one, and check its `ship` status reads "Waiting for review".
    - If `SHIP_TOKEN` is set, adding `ship` turns it green and turns on auto-merge (`gh pr view <n> --json autoMergeRequest`).
    - In `command` mode, it also starts the `land` job.
+   - It also starts the `conflicts` job. Check that it ran, and that it labelled any PR that already conflicts.
 2. Report:
    - what changed
    - what was verified
-   - what's still on the user's list (`SHIP_TOKEN` in both places, the cloud setup script, any follow-up issue for the landing command)
+   - what's still on the user's list (`SHIP_TOKEN` in both places, the cloud setup script, the optional `resolve-conflicts` routine, any follow-up issue for the landing command)
    - the CD finding from step 1.4

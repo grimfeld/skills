@@ -23,6 +23,26 @@ Dependabot patch updates and GitHub Actions updates get `ship` without review.
 - **Merge method:** __MERGE_METHOD__
 __LAND_DETAILS__
 
+## Conflicts
+
+A labelled PR that conflicts with `__DEFAULT_BRANCH__` can't land: a landing run would skip it again and again.
+The `conflicts` job in `ship.yml` checks the labelled PRs each time `__DEFAULT_BRANCH__` moves, and when a PR gets `ship`.
+For each one that conflicts, it removes `ship`, adds **`conflicts`**, and comments with the conflicting files.
+
+`/ship:resolve-conflicts [<pr>...]` merges `__DEFAULT_BRANCH__` into each such PR, keeping what both sides meant, runs
+the local checks and pushes. Then:
+
+- **Only bookkeeping files conflicted:** `ship` goes back on, and the PR lands with the next run.
+- **Anything else conflicted:** the resolution is new code. `/ship:pr-review` runs on it and a comment explains each
+  choice; re-review it and add `ship` again.
+- **The two sides contradict each other:** nothing is pushed, `conflicts` stays, and a comment names the decision to make.
+
+Resolving it yourself works too: merge `__DEFAULT_BRANCH__` into the branch, push, remove `conflicts` and add `ship`.
+
+Bookkeeping files (a conflict here needs no re-review):
+
+__BOOKKEEPING_FILES__
+
 ## Checks
 
 Required on `__DEFAULT_BRANCH__`: __REQUIRED_CHECKS__, and `ship`.
