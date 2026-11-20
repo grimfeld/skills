@@ -11,7 +11,10 @@ pending until the label is on.
 
 The label approves a PR; it doesn't land it. Landing is a separate step, so a morning's batch can be approved PR by
 PR and then land as one. Approval covers the commits that were reviewed: a push after it removes `ship`, unless the
-push is only a clean merge of `__DEFAULT_BRANCH__` into the branch.
+push is only a clean merge of `__DEFAULT_BRANCH__` into an approved head. Dependabot's rebases keep `ship`.
+
+The label approves the head at the moment it's added. Don't add it while someone may still push: a push that lands
+between your review and the label is approved with it.
 
 1. An agent opens the PR as a **draft** while it works.
 2. It marks the PR ready only when local checks pass, `/ship:pr-review` has run (label `pr-reviewed`) and the
@@ -32,7 +35,8 @@ When a PR merges, the `queue` job in `ship.yml` takes each PR stacked on it:
 
 1. retargets it to `__DEFAULT_BRANCH__` (GitHub does this itself when the merged branch is deleted)
 2. merges `__DEFAULT_BRANCH__` into it, never a rebase, and pushes, so its CI runs again
-3. lands it in the same run if it carries `ship`, or takes it out of the queue if the merge conflicts (see below)
+3. lands it if it carries `ship` (auto-merge mode: in the same run, once its CI passes; command mode: with the next
+   scheduled run), or takes it out of the queue if the merge conflicts (see below)
 
 A merge lands only the children it moved; every other approved PR waits for the next landing run.
 
