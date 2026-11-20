@@ -108,6 +108,23 @@ Sizes each `spec:ready` spec against prior PRs in the same areas. The rule is on
 - stuck specs, and what each needs from you
 - what each spec, each session and the whole night would have cost at API prices, counted by each builder from its own transcript (`scripts/token-usage.mjs`, prices in `scripts/prices.json`)
 
+### `/ship:land`
+
+Run after the morning review, to ship what you approved in one step.
+
+1. Checks `ship.yml` is version 2 or later; otherwise it stops and points at `/ship:setup-ship`.
+2. Sorts last night's PRs: the ones you named are **approved**; the others you commented on are **sent back**; the rest are **not reviewed yet** and left alone.
+3. Runs `resolve-conflicts` on the `conflicts` PRs in the batch first.
+4. Labels the approved PRs `ship`. A stacked PR is labelled too and lands once its parent is in; approving a child never approves its parent.
+5. Labels the sent-back PRs `changes-requested` and puts their specs back to `spec:ready`, so tonight's night shift rebuilds them.
+6. Starts one landing run of `ship.yml`, and lists what lands now, what lands after its parent, what waits, and what went back.
+
+```
+/ship:land 512 515 520   # these PRs
+/ship:land all           # every ready, reviewed PR from last night
+/ship:land               # just land the PRs already labelled `ship`
+```
+
 ### `/ship:build-spec`
 
 What each cloud session runs, with nobody to ask.
