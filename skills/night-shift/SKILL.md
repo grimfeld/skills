@@ -105,4 +105,4 @@ Tell the user:
    - **Next:** the command that ships what the user approves: `/ship:land <ready PRs, in review order>`, to cut down to the ones they approve. A PR left with a comment instead goes back to `spec:ready` for tonight's night shift.
 4. **Report in the terminal:** the page link, one line per PR in the order to review them (children under their parent), and the same `/ship:land` line.
 
-The user reviews each PR from its description, approving it or leaving a comment, then runs `/ship:land` with the PRs they approve. Adding `ship` by hand approves a PR but doesn't land it; `/ship:land` with no arguments, or the landing schedule, does.
+The user reviews each PR from its description, approving it or leaving a comment, then runs `/ship:land` with the PRs they approve. Adding `ship` by hand approves a PR but doesn't land it; `/ship:land` with no arguments does, or in `command` mode the landing schedule.
