@@ -121,13 +121,14 @@ Every choice the spec left open goes in the PR's Decisions section. The PR ends 
 
 ### `/ship:setup-ship`
 
-Run once per project. Afterwards, adding the **`ship`** label to a reviewed PR is the only step a person takes; the repository lands it.
+Run once per project. Afterwards, a person approves a reviewed PR with the **`ship`** label and starts landing; the repository does the rest. The label alone lands nothing, so a morning's batch can be approved PR by PR and land as one.
 
 - **Required `ship` status:** a commit status, required by the default branch's ruleset, that stays pending until the label is on, so nothing unreviewed merges.
-- **Landing:** GitHub auto-merge once CI is green (`auto-merge` mode), or the project's own landing command run on a schedule (`command` mode, for example a batching script).
-- **Dependabot:** patch updates and GitHub Actions updates are labelled `ship` automatically.
-- **Conflicts:** a labelled PR that conflicts with the default branch loses `ship`, gets `conflicts`, and a comment listing the files. Without this, landing would skip it on every run.
-- **Labels:** `ship`, `pr-reviewed`, `conflicts`, and the `spec:*` and `design:*` labels the pipeline uses.
+- **Landing:** a run of `ship.yml`, started by a dispatch (`/ship:land`), by the landing schedule in `command` mode, or by a merge. It lands the labelled PRs that target the default branch: GitHub auto-merge once CI is green (`auto-merge` mode), or the project's own landing command (`command` mode, for example a batching script).
+- **Stacked PRs:** a labelled PR built on another PR's branch waits. When its parent merges, it is retargeted to the default branch, has the default branch merged in, and lands in the same run.
+- **Dependabot:** patch updates and GitHub Actions updates are labelled `ship` and land without review.
+- **Conflicts:** before each landing run and whenever the default branch moves, a labelled PR that conflicts with it loses `ship`, gets `conflicts`, and a comment listing the files. Without this, landing would skip it on every run.
+- **Labels:** `ship`, `pr-reviewed`, `conflicts`, `changes-requested`, and the `spec:*` and `design:*` labels the pipeline uses.
 - **`docs/agents/shipping.md`:** the rules, written down for people and for the other skills.
 - **The project's `.claude/settings.json`:** enables the plugin.
 
@@ -144,7 +145,7 @@ Resolves the PRs labelled `conflicts`, by hand or from a scheduled routine. For 
 4. runs the local checks and pushes
 
 Then:
-- **Only bookkeeping files conflicted** (the glossary, docs indexes: the list is in `shipping.md`): the PR gets `ship` back and lands with the next run.
+- **Only bookkeeping files conflicted** (the glossary, docs indexes: the list is in `shipping.md`): the PR gets `ship` back and lands with the next landing run.
 - **Code conflicted:** `pr-review` runs, a comment explains each resolution, and you re-review before adding `ship`.
 - **The two sides contradict each other:** nothing is pushed, and a comment names the decision to make.
 
