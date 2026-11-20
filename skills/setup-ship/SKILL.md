@@ -101,7 +101,7 @@ Print every change, grouped, and ask for one yes.
     Create them with `gh label create --force`, which keeps a label's other PRs and issues.
   - The ruleset on the default branch. Amend the existing ruleset that targets it; don't add a second one. It needs:
     - `pull_request`, with no required approvals: one person can't approve their own PRs, and the `ship` label is the review
-    - `required_status_checks`: the chosen checks plus `ship`
+    - `required_status_checks`: the chosen checks plus `ship`. Pin `ship` to GitHub Actions (`"integration_id": 15368`), so only the `gate` job can set it, not anyone with push access calling the statuses API.
     - `non_fast_forward` and `deletion`, if missing
 
     Use `gh api -X PUT repos/{owner}/{repo}/rulesets/<id> --input <file>`, with the full rule list (read, change, write).

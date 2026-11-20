@@ -20,6 +20,10 @@
 name: Ship
 
 on:
+  # `gate` runs on pull_request_target: the default branch's copy of this file, so a PR can't edit its own gate.
+  # It only runs git plumbing on the PR's commits, never their code.
+  pull_request_target:
+    types: [opened, reopened, synchronize, labeled, unlabeled, ready_for_review]
   pull_request:
     types: [opened, reopened, synchronize, labeled, unlabeled, ready_for_review, closed]
   push:
@@ -45,8 +49,10 @@ permissions:
 
 jobs:
   gate:
-    if: github.event_name == 'pull_request' && github.event.action != 'closed'
+    if: github.event_name == 'pull_request_target'
     runs-on: ubuntu-latest
+    # One run at a time per PR, in event order, so a push can't race the withdrawal of an earlier one.
+    concurrency: { group: "ship-gate-${{ github.event.pull_request.number }}", cancel-in-progress: false }
     permissions:
       contents: read
       statuses: write
@@ -55,8 +61,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         # Only to inspect a push made after approval.
-        if: github.event.action == 'synchronize' && contains(github.event.pull_request.labels.*.name, 'ship')
-        with: { fetch-depth: 0, ref: "${{ github.event.pull_request.head.sha }}" }
+        if: github.event.action == 'synchronize'
+        with: { fetch-depth: 0, ref: "${{ github.event.pull_request.head.sha }}", persist-credentials: false }
       - name: Set the ship status
         env:
           GH_TOKEN: ${{ github.token }}
@@ -65,28 +71,34 @@ jobs:
           SHA: ${{ github.event.pull_request.head.sha }}
           BEFORE: ${{ github.event.before }}
           HEAD: ${{ github.head_ref }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
         run: |
           state=pending; desc="Waiting for review: add the '$SHIP_LABEL' label to approve it"
-          if echo "$LABELS" | jq -e --arg l "$SHIP_LABEL" 'index($l) != null' >/dev/null; then
+          # The live labels, not the event's snapshot: an earlier run may have withdrawn approval since.
+          if gh api "repos/$GITHUB_REPOSITORY/issues/$PR/labels" --jq '.[].name' | grep -qx "$SHIP_LABEL"; then
             state=success; desc="Reviewed"
           fi
-          # Approval covers the commits that were reviewed. A push after it withdraws it, unless the push is
-          # only a clean merge of __DEFAULT_BRANCH__ (the stacked-PR cascade, or the author catching up):
-          # one merge commit on top of the approved head, whose tree is exactly that merge's result.
-          if [ "$state" = success ] && [ "$ACTION" = synchronize ]; then
+          # Approval covers the commits that were reviewed. A push after it withdraws it, unless the previous
+          # head was itself approved (its own `ship` status is success) and the push is only a clean merge of
+          # __DEFAULT_BRANCH__ into it (the stacked-PR cascade, or the author catching up): one merge commit on
+          # top of that head, whose tree is exactly the merge's result. Dependabot rebases its own PRs; the
+          # `dependabot` job's patch-only rule is what approves those, so they keep `ship`.
+          if [ "$state" = success ] && [ "$ACTION" = synchronize ] && [ "$AUTHOR" != "dependabot[bot]" ]; then
             clean=false
+            before_ok=$(gh api "repos/$GITHUB_REPOSITORY/commits/$BEFORE/status" --jq '[.statuses[] | select(.context == "ship")][0].state // ""' 2>/dev/null || true)
             git fetch -q origin "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH" "$BEFORE" 2>/dev/null || true
             read -r _ p1 p2 extra <<< "$(git rev-list --parents -n 1 "$SHA")"
-            if [ "$p1" = "$BEFORE" ] && [ -n "$p2" ] && [ -z "$extra" ] &&
-               git merge-base --is-ancestor "$p2" "origin/$DEFAULT_BRANCH" &&
-               [ "$(git merge-tree --write-tree "$BEFORE" "$p2" 2>/dev/null | head -1)" = "$(git rev-parse "$SHA^{tree}")" ]; then
-              clean=true
+            if [ "$before_ok" = success ] && [ "$p1" = "$BEFORE" ] && [ -n "$p2" ] && [ -z "$extra" ] &&
+               git merge-base --is-ancestor "$p2" "origin/$DEFAULT_BRANCH"; then
+              # merge-tree exits 1 on a conflict, so a conflicted tree never counts as clean.
+              if mt=$(git merge-tree --write-tree "$BEFORE" "$p2" 2>/dev/null) && [ "${mt%%$'\n'*}" = "$(git rev-parse "$SHA^{tree}")" ]; then
+                clean=true
+              fi
             fi
             if [ "$clean" = false ]; then
               state=pending; desc="New commits since approval: review them and add '$SHIP_LABEL' again"
-              gh api -X DELETE "repos/$GITHUB_REPOSITORY/issues/$PR/labels/$SHIP_LABEL" >/dev/null || true
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/issues/$PR/labels/$SHIP_LABEL" >/dev/null
               gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -f body="New commits arrived after this PR was approved, so \`$SHIP_LABEL\` is off. Review them, then add \`$SHIP_LABEL\` again." >/dev/null || true
             fi
           fi
@@ -201,26 +213,30 @@ jobs:
               gh api -X PATCH "repos/$GITHUB_REPOSITORY/pulls/$n" -f base="$DEFAULT_BRANCH" >/dev/null ||
                 { echo "::warning::#$n: couldn't retarget it to $DEFAULT_BRANCH."; continue; }
             fi
-            moved="$moved $n"
-            # Without SHIP_TOKEN the push would start neither CI nor `gate`, and the child could never land.
+            # Without SHIP_TOKEN the push would start neither CI nor `gate`, so the child isn't landed this run.
             [ "$HAS_SHIP_TOKEN" = true ] || { echo "::warning::No SHIP_TOKEN secret: merge $DEFAULT_BRANCH into #$n by hand."; continue; }
-            git fetch -q origin "+refs/pull/$n/head:refs/remotes/pr/$n"
-            git checkout -q --detach "refs/remotes/pr/$n"
+            { git fetch -q origin "+refs/pull/$n/head:refs/remotes/pr/$n" && git checkout -q --detach "refs/remotes/pr/$n"; } ||
+              { echo "::warning::#$n: couldn't check it out; merge $DEFAULT_BRANCH into it by hand."; continue; }
             # A merge, never a rebase: the reviewed commits stay as they are and the push needs no force.
             if git merge -q --no-edit -m "Merge $DEFAULT_BRANCH into #$n after #$MERGED landed" "origin/$DEFAULT_BRANCH"; then
               # Fails if the merge brings in workflow files and SHIP_TOKEN lacks the Workflows permission.
               if git push -q origin "HEAD:refs/heads/$(echo "$pr" | jq -r .headRefName)"; then
+                moved="$moved $n"
                 echo "#$n: now on $DEFAULT_BRANCH, updated."
               else
                 echo "::warning::#$n: now on $DEFAULT_BRANCH, but the push failed; merge $DEFAULT_BRANCH into it by hand."
               fi
             else
               # Left as it is: the next step takes it out of the queue if it carries `ship`.
-              git merge --abort
+              git merge --abort || git reset -q --hard
               echo "#$n: now on $DEFAULT_BRANCH, conflicts with it."
             fi
           done
+# >>> auto-merge mode
+          # Auto-merge waits for the children's new CI. In command mode they land with the next scheduled run,
+          # once their CI is green, so a merge starts no landing run there.
           echo "moved=${moved# }" >> "$GITHUB_OUTPUT"
+# <<< auto-merge mode
       - name: Take conflicting PRs out of the queue
         env:
           # SHIP_TOKEN, so removing `ship` re-runs `gate` and the status goes back to pending.
