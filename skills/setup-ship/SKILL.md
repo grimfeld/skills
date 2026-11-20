@@ -106,9 +106,9 @@ Print every change, grouped, and ask for one yes.
 
     Use `gh api -X PUT repos/{owner}/{repo}/rulesets/<id> --input <file>`, with the full rule list (read, change, write).
 - **What only the user can do.** Never ask for a token's value or handle one.
-  - Create a fine-grained token for this repository with Contents and Pull requests read/write.
+  - Create a fine-grained token for this repository with Contents, Pull requests and Workflows read/write. Workflows lets the stacked-PR cascade push a merge that brings in workflow changes, `ship.yml` itself included.
   - Add it as the Actions secret `SHIP_TOKEN` (`gh secret set SHIP_TOKEN`) and the Dependabot secret `SHIP_TOKEN` (`gh secret set SHIP_TOKEN --app dependabot`).
-  - Why it's needed: without it, merges and landing PRs made by GitHub's default token don't start CI or deploys.
+  - Why it's needed: without it, merges, pushes and landing PRs made by GitHub's default token don't start CI, deploys or the stacked-PR cascade.
   - Cloud sessions don't install plugins from `.claude/settings.json`. Point the user to the `grimfeld/skills` README's cloud setup script for their cloud environment.
   - Optional: a routine that runs `/ship:resolve-conflicts` every hour (`/schedule`), so conflicting PRs get resolved without anyone starting it.
 
