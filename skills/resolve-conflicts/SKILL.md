@@ -7,7 +7,7 @@ argument-hint: "[#pr ...]  (default: every open PR labelled `conflicts`)"
 
 # Resolve conflicts
 
-The Ship workflow's `conflicts` job removes `ship` from a PR that conflicts with the default branch, adds `conflicts`, and comments with the conflicting files. You merge the default branch into each such PR, keeping what **both sides** meant, and hand it back:
+The Ship workflow's `queue` job removes `ship` from a PR that conflicts with the default branch, adds `conflicts`, and comments with the conflicting files. You merge the default branch into each such PR, keeping what **both sides** meant, and hand it back:
 
 - **Bookkeeping only:** every conflicted file is on the project's bookkeeping list. The PR goes straight back into the queue.
 - **Code:** a person re-reviews the resolution before it ships.

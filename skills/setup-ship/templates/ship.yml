@@ -13,7 +13,8 @@
 # - `automerge` turns on GitHub auto-merge for the landing command's batch PRs.
 # <<< command mode
 #
-# SHIP_TOKEN is a fine-grained token (contents, pull requests: read and write). Merges, labels,
+# SHIP_TOKEN is a fine-grained token (contents, pull requests, workflows: read and write; workflows so the
+# stacked-PR cascade can push a merge that brings in workflow changes). Merges, labels,
 # pushes and PRs made with the default GITHUB_TOKEN don't trigger other workflows (CI, deploys),
 # so every write that must trigger one uses it.
 name: Ship
@@ -46,17 +47,48 @@ jobs:
   gate:
     if: github.event_name == 'pull_request' && github.event.action != 'closed'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      statuses: write
+      pull-requests: write
+      issues: write
     steps:
+      - uses: actions/checkout@v4
+        # Only to inspect a push made after approval.
+        if: github.event.action == 'synchronize' && contains(github.event.pull_request.labels.*.name, 'ship')
+        with: { fetch-depth: 0, ref: "${{ github.event.pull_request.head.sha }}" }
       - name: Set the ship status
         env:
           GH_TOKEN: ${{ github.token }}
+          ACTION: ${{ github.event.action }}
+          PR: ${{ github.event.pull_request.number }}
           SHA: ${{ github.event.pull_request.head.sha }}
+          BEFORE: ${{ github.event.before }}
           HEAD: ${{ github.head_ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
         run: |
           state=pending; desc="Waiting for review: add the '$SHIP_LABEL' label to approve it"
           if echo "$LABELS" | jq -e --arg l "$SHIP_LABEL" 'index($l) != null' >/dev/null; then
             state=success; desc="Reviewed"
+          fi
+          # Approval covers the commits that were reviewed. A push after it withdraws it, unless the push is
+          # only a clean merge of __DEFAULT_BRANCH__ (the stacked-PR cascade, or the author catching up):
+          # one merge commit on top of the approved head, whose tree is exactly that merge's result.
+          if [ "$state" = success ] && [ "$ACTION" = synchronize ]; then
+            clean=false
+            git fetch -q origin "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH" "$BEFORE" 2>/dev/null || true
+            read -r _ p1 p2 extra <<< "$(git rev-list --parents -n 1 "$SHA")"
+            if [ "$p1" = "$BEFORE" ] && [ -n "$p2" ] && [ -z "$extra" ] &&
+               git merge-base --is-ancestor "$p2" "origin/$DEFAULT_BRANCH" &&
+               [ "$(git merge-tree --write-tree "$BEFORE" "$p2" 2>/dev/null | head -1)" = "$(git rev-parse "$SHA^{tree}")" ]; then
+              clean=true
+            fi
+            if [ "$clean" = false ]; then
+              state=pending; desc="New commits since approval: review them and add '$SHIP_LABEL' again"
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/issues/$PR/labels/$SHIP_LABEL" >/dev/null || true
+              gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -f body="New commits arrived after this PR was approved, so \`$SHIP_LABEL\` is off. Review them, then add \`$SHIP_LABEL\` again." >/dev/null || true
+            fi
           fi
 # >>> command mode
           case "$HEAD" in "$LAND_BRANCH_PREFIX"*) state=success; desc="Batch of reviewed PRs";; esac
@@ -117,6 +149,8 @@ jobs:
       github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' ||
       (github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged)
     runs-on: ubuntu-latest
+    outputs:
+      moved: ${{ steps.cascade.outputs.moved }}
     # Pushes queue behind each other; a dispatch or a merge never waits behind them, or a newer push could cancel it.
     concurrency: { group: "ship-queue-${{ github.event_name == 'push' && 'push' || github.run_id }}", cancel-in-progress: false }
     permissions:
@@ -127,10 +161,17 @@ jobs:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0, token: "${{ secrets.SHIP_TOKEN || github.token }}" }
       - name: Move the merged PR's stacked children onto __DEFAULT_BRANCH__
-        if: github.event_name == 'pull_request'
+        id: cascade
+        # A PR merged into __DEFAULT_BRANCH__ from this repository: a fork's branch has no children here, and a
+        # child merged into its parent's branch by hand leaves its own children where they are.
+        if: >-
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.base.ref == github.event.repository.default_branch &&
+          github.event.pull_request.head.repo.full_name == github.repository
         env:
-          # SHIP_TOKEN, so the push starts CI on each child.
+          # SHIP_TOKEN, so the push starts CI on each child and `gate` sees it.
           GH_TOKEN: ${{ secrets.SHIP_TOKEN || github.token }}
+          HAS_SHIP_TOKEN: ${{ secrets.SHIP_TOKEN != '' }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           MERGED: ${{ github.event.pull_request.number }}
           MERGED_REF: ${{ github.event.pull_request.head.ref }}
@@ -151,24 +192,35 @@ jobs:
             children="$children $n"
           done
           [ -n "${children// /}" ] || { echo "#$MERGED has no stacked children."; exit 0; }
+          moved=""
+          # Each child on its own: one that fails is reported and skipped, and the others still move.
           for n in $children; do
-            pr=$(gh pr view "$n" --json baseRefName,headRefName,isCrossRepository)
+            pr=$(gh pr view "$n" --json baseRefName,headRefName,isCrossRepository) || { echo "::warning::#$n: couldn't read it."; continue; }
             [ "$(echo "$pr" | jq -r .isCrossRepository)" = false ] || { echo "::warning::#$n is from a fork; retarget it by hand."; continue; }
             if [ "$(echo "$pr" | jq -r .baseRefName)" != "$DEFAULT_BRANCH" ]; then
-              gh api -X PATCH "repos/$GITHUB_REPOSITORY/pulls/$n" -f base="$DEFAULT_BRANCH" >/dev/null
+              gh api -X PATCH "repos/$GITHUB_REPOSITORY/pulls/$n" -f base="$DEFAULT_BRANCH" >/dev/null ||
+                { echo "::warning::#$n: couldn't retarget it to $DEFAULT_BRANCH."; continue; }
             fi
+            moved="$moved $n"
+            # Without SHIP_TOKEN the push would start neither CI nor `gate`, and the child could never land.
+            [ "$HAS_SHIP_TOKEN" = true ] || { echo "::warning::No SHIP_TOKEN secret: merge $DEFAULT_BRANCH into #$n by hand."; continue; }
             git fetch -q origin "+refs/pull/$n/head:refs/remotes/pr/$n"
             git checkout -q --detach "refs/remotes/pr/$n"
             # A merge, never a rebase: the reviewed commits stay as they are and the push needs no force.
             if git merge -q --no-edit -m "Merge $DEFAULT_BRANCH into #$n after #$MERGED landed" "origin/$DEFAULT_BRANCH"; then
-              git push -q origin "HEAD:refs/heads/$(echo "$pr" | jq -r .headRefName)"
-              echo "#$n: now on $DEFAULT_BRANCH, updated."
+              # Fails if the merge brings in workflow files and SHIP_TOKEN lacks the Workflows permission.
+              if git push -q origin "HEAD:refs/heads/$(echo "$pr" | jq -r .headRefName)"; then
+                echo "#$n: now on $DEFAULT_BRANCH, updated."
+              else
+                echo "::warning::#$n: now on $DEFAULT_BRANCH, but the push failed; merge $DEFAULT_BRANCH into it by hand."
+              fi
             else
               # Left as it is: the next step takes it out of the queue if it carries `ship`.
               git merge --abort
               echo "#$n: now on $DEFAULT_BRANCH, conflicts with it."
             fi
           done
+          echo "moved=${moved# }" >> "$GITHUB_OUTPUT"
       - name: Take conflicting PRs out of the queue
         env:
           # SHIP_TOKEN, so removing `ship` re-runs `gate` and the status goes back to pending.
@@ -212,10 +264,12 @@ jobs:
           done
 
   land:
-    # /ship:land's dispatch, the landing schedule, and a merge (its children were just queued).
-    # Never a push or a label: approving a PR doesn't land it.
+    # /ship:land's dispatch and the landing schedule land every approved PR. A merge lands only the stacked
+    # children it just moved. Never a push or a label: approving a PR doesn't land it.
     needs: queue
-    if: github.event_name != 'push'
+    if: >-
+      github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' ||
+      (github.event_name == 'pull_request' && needs.queue.outputs.moved != '')
     runs-on: ubuntu-latest
     concurrency: { group: ship-land, cancel-in-progress: false }
     steps:
@@ -229,17 +283,26 @@ __SETUP_STEPS__
           GH_TOKEN: ${{ secrets.SHIP_TOKEN || github.token }}
           HAS_SHIP_TOKEN: ${{ secrets.SHIP_TOKEN != '' }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          ONLY: ${{ needs.queue.outputs.moved }}
+          EVENT: ${{ github.event_name }}
         run: |
           [ "$HAS_SHIP_TOKEN" = true ] || echo "::warning::No SHIP_TOKEN secret: merges won't trigger workflows on $DEFAULT_BRANCH (deploys)."
 # >>> auto-merge mode
           # A `ship` PR based on another PR's branch is a stacked child: `queue` moves it here once its parent lands.
-          prs=$(gh pr list --label "$SHIP_LABEL" --state open --base "$DEFAULT_BRANCH" --limit 200 --json number,isDraft --jq '[.[] | select(.isDraft | not) | .number] | map(tostring) | join(" ")')
+          # shellcheck disable=SC2016 # a jq program, not shell
+          prs=$(gh pr list --label "$SHIP_LABEL" --state open --base "$DEFAULT_BRANCH" --limit 200 --json number,isDraft --jq '
+            [.[] | select(.isDraft | not) | .number | tostring
+                 | select(env.EVENT != "pull_request" or ((" " + env.ONLY + " ") | contains(" " + . + " ")))] | join(" ")')
           [ -n "$prs" ] || { echo "Nothing to land."; exit 0; }
           for n in $prs; do
-            # GitHub merges it once the required checks pass; a PR already green merges now.
-            gh pr merge "$n" --auto "--$MERGE_METHOD" --repo "$GITHUB_REPOSITORY" ||
-              gh pr merge "$n" "--$MERGE_METHOD" --repo "$GITHUB_REPOSITORY" ||
-              echo "::warning::#$n: couldn't turn on auto-merge or merge it."
+            # GitHub merges it once the required checks pass. Auto-merge can't be turned on for a PR that is
+            # already mergeable, so that one merges now; never a PR GitHub reports as blocked.
+            gh pr merge "$n" --auto "--$MERGE_METHOD" --repo "$GITHUB_REPOSITORY" && continue
+            if [ "$(gh pr view "$n" --json mergeStateStatus --jq .mergeStateStatus)" = CLEAN ]; then
+              gh pr merge "$n" "--$MERGE_METHOD" --repo "$GITHUB_REPOSITORY" || echo "::warning::#$n: couldn't merge it."
+            else
+              echo "::warning::#$n: couldn't turn on auto-merge."
+            fi
           done
 # <<< auto-merge mode
 # >>> command mode
@@ -251,6 +314,7 @@ __SETUP_STEPS__
           # shellcheck disable=SC2016 # a jq program, not shell
           prs=$(gh pr list --label "$SHIP_LABEL" --state open --base "$DEFAULT_BRANCH" --limit 200 --json number,isDraft,headRefName,statusCheckRollup --jq '
             [.[] | select(.isDraft | not) | select(.headRefName | startswith(env.LAND_BRANCH_PREFIX) | not)
+                 | select(env.EVENT != "pull_request" or ((" " + env.ONLY + " ") | contains(" " + (.number | tostring) + " ")))
                  | select(all(.statusCheckRollup[] | select(.workflowName != "Ship" and .context != "ship");
                              (.conclusion // .state) as $s | $s == "SUCCESS" or $s == "SKIPPED" or $s == "NEUTRAL"))
                  | .number] | map(tostring) | join(" ")')
