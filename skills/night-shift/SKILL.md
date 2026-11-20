@@ -92,16 +92,25 @@ Tell the user:
    - Read the spec's latest `night-shift` JSON comment, its PR, the PR's checks, and the PR's review and Decisions sections.
    - A spec still `spec:building` after its session ended crashed. Read the run log (`RemoteTrigger` `list_runs`, then `get_run_log`) for the cause, then label it `spec:stuck` and comment the cause.
    - **Designs:** close each `design:specced` issue whose sub-issue specs have all closed, with a comment listing their PRs. Name in the report the held place specs that the merges since last night have unblocked.
-2. **Fidelity grids,** for each ready PR whose spec has a "Design" section. The builders' screenshots stayed in their cloud sessions, so take them again here:
+2. **Cost:** what each spec would have cost at API prices. The builders counted their own tokens into their `night-shift` comments, by model (see `templates/builder-prompt.md`).
+   - Write one row per collected spec to `.scratch/night-shift/tokens.json`: `{"spec": <n>, "session": "<from its dispatched comment>", "tokens": <its tokens, or null when missing>, "session_shared": <if present>}`.
+   - Run `node ${CLAUDE_SKILL_DIR}/scripts/token-usage.mjs price < .scratch/night-shift/tokens.json`. It applies `scripts/prices.json` and returns, per spec, per session and for the night: `usd`, `out`, `fresh_in` (input + cache writes), `cache_read` and `unpriced` (models with no price, whose tokens are counted but not in `usd`). Sessions and the night also list `not_reported` specs. A spec that never reported is `null`. Use its numbers; don't price anything yourself.
+3. **Fidelity grids,** for each ready PR whose spec has a "Design" section. The builders' screenshots stayed in their cloud sessions, so take them again here:
    - Check the PR's head out in a worktree, install its dependencies the way `shipping.md` says, and run `node ${CLAUDE_PLUGIN_ROOT}/skills/pr-review/scripts/design-capture.mjs --manifest docs/design/<module>/fidelity.json --out .scratch/night-shift/<pr>-fidelity --places <the spec's places> --root <the package with Playwright>`.
    - Read the PR's `design-fidelity` findings from its review section. The views they name are **flagged**.
    - If a capture fails, say so on the PR's card and go on.
    - Remove the worktree.
-3. **Write the morning page** and publish it as an Artifact, following the Artifact tool's own design guidance. Keep it plain: a list to work through, not a dashboard. On later mornings, republish to the same URL; the URL is saved in `.scratch/night-shift/morning-url`.
+4. **Write the morning page** and publish it as an Artifact, following the Artifact tool's own design guidance. Keep it plain: a list to work through, not a dashboard. On later mornings, republish to the same URL; the URL is saved in `.scratch/night-shift/morning-url`.
    - **Ready:** the PRs to review, smallest first. Each card has the PR link, the verdict line, the risks, and the decisions to check.
    - **Design PRs** add their fidelity grid: per place, reference beside app for each look × theme × viewport. Flagged views are shown full size with their finding; the rest are thumbnails. Upload the PNGs as the page's assets (the `assets` capability) and reference each by the URL the upload returns.
    - **Stuck:** what each one needs from the user.
-   - **Totals:** what the night produced.
-4. **Report in the terminal:** the page link, plus one line per PR, in the order to review them.
+   - **Cost line:** every Ready and Stuck card ends with one line, "≈ $4.20 at API prices · 310k out · 1.2M in · 48M cache read".
+     - A spec that is `null` gets "cost not reported" instead, never a partial figure.
+     - A spec with `unpriced` models adds "+ <model> (no price)" after the dollar figure.
+   - **Totals:** what the night produced. Include the night's cost, and a small table with one row per session: its specs, the shared bucket and the session total.
+     - A session or night with `not_reported` specs reads "at least ≈ $X (N not reported: #…)", never a plain total.
+     - Name every model in the night's `unpriced`: its tokens are counted but not priced, and `scripts/prices.json` needs an entry for it.
+     - Footnote: the figures are API-price estimates, not a bill, and builder turns after the last count are missing.
+5. **Report in the terminal:** the page link, one line per PR in the order to review them, and one line with the night's cost, worded as on the page.
 
 The user reviews each PR from its description, and adds `ship` or comments. A comment can be answered with `/ship:build-spec #<n>` the next night, or now.

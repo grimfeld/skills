@@ -106,6 +106,7 @@ Sizes each `spec:ready` spec against prior PRs in the same areas. The rule is on
 - for a PR built from a design, its fidelity grid: reference beside app in every look, theme and viewport, with the views the review flagged shown full size
 - designs whose specs have all merged are closed
 - stuck specs, and what each needs from you
+- what each spec, each session and the whole night would have cost at API prices, counted by each builder from its own transcript (`scripts/token-usage.mjs`, prices in `scripts/prices.json`)
 
 ### `/ship:build-spec`
 
