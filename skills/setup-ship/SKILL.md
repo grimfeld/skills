@@ -21,7 +21,9 @@ The repository does the rest:
 
 Deploying after a merge stays with the project's CD. This skill checks that one exists and says so if it doesn't, but never builds one.
 
-Files: `templates/ship.yml` (the workflow) and `templates/shipping.md` (the doc), both in `${CLAUDE_SKILL_DIR}`.
+Files, in `${CLAUDE_SKILL_DIR}`:
+- `templates/ship.yml` (the workflow) and `templates/shipping.md` (the doc). The workflow's first line, `# ship.yml version: <n>`, is the template's version; `shipping.md` follows it.
+- `templates/history/ship.v<n>.yml` and `shipping.v<n>.md`: every earlier version, as released. An upgrade renders the installed version from them to tell the project's own edits from the template's.
 
 Changes to GitHub settings reach outside the repository, so show them all first and apply them only after a yes.
 File changes go through a PR like any other change.
@@ -30,6 +32,9 @@ File changes go through a PR like any other change.
 
 Read only. Collect:
 
+0. **Installed version.** Read the first line of `.github/workflows/ship.yml`. No file: a fresh install. A file without a `# ship.yml version:` line: version 1. Version 1 changed several times before it was numbered, so an install from an early commit merges against a base that's slightly off: expect more conflicts, and show them rather than guessing. Compare it with the template's version.
+   - **Older:** this run is an **upgrade**. Tell the user which version is installed and which is current, and what the newer one changes (the "Versions" list below). Go on only if they want it.
+   - **Current:** say so. Go on only if the user wants to change a setting (mode, checks, bookkeeping files); otherwise stop, changing nothing.
 1. **Repository.**
    - `gh repo view --json nameWithOwner,visibility,isPrivate,defaultBranchRef,isInOrganization,mergeCommitAllowed,squashMergeAllowed,rebaseMergeAllowed`
    - `gh api repos/{owner}/{repo} -q .allow_auto_merge`
@@ -49,7 +54,9 @@ Done when you hold every item above.
 
 ## 2. Decide
 
-Ask the user the open choices in one `AskUserQuestion` round, giving your recommendation for each:
+**Upgrade:** read every value back from the installed files instead of asking for it again: the mode (`command` if `ship.yml` has a `LAND_BRANCH_PREFIX`, `auto-merge` otherwise), the merge method, the default branch, and in `command` mode the cron, prefix, commit email, landing command and setup steps from `ship.yml`; and every placeholder value in `shipping.md`: landing mode, summary and details, required and local checks, CD summary, screens command and bookkeeping files. Ask only for values the newer template adds that can't be derived from those (the "Versions" list says which). With none, skip the question round.
+
+Otherwise, ask the user the open choices in one `AskUserQuestion` round, giving your recommendation for each:
 
 - **Landing mode.**
   - `auto-merge`, the default: GitHub merges each labelled PR once required checks pass.
@@ -72,7 +79,7 @@ Ask the user the open choices in one `AskUserQuestion` round, giving your recomm
 
 ## 3. Show the plan
 
-Print every change, grouped, and ask for one yes.
+Print every change, grouped, and ask for one yes. On an **upgrade**, run step 4.0's renders and `git merge-file -p` now, printing only, and settle any conflict with the user here. The files part is the diff of `ship.yml` and `shipping.md` against what's installed, with the project's own edits listed separately, each with whether it's kept; the user can drop any of them. The repository settings part is only what's missing: new labels and ruleset changes the "Versions" list gives for each version passed, plus ruleset changes if the checks changed. The user's part is the to-dos the "Versions" list gives for each version passed.
 
 - **Files**, in one PR from a new branch:
   - `.github/workflows/ship.yml` from the template.
@@ -116,6 +123,13 @@ Print every change, grouped, and ask for one yes.
 
 Work in a branch, through a worktree if the project's docs say so.
 
+0. **Upgrade only: keep the project's edits.** For each of `ship.yml` and `shipping.md`, take three copies:
+   - *base*: the installed version's template from `templates/history/`, rendered with the values from step 2, that version's rendering rules (the "Versions" list) and the same `uses:` pinning as the installed file
+   - *ours*: the installed file as it is
+   - *theirs*: the current template, rendered by steps 1 and 2 below
+
+   `git merge-file -p <theirs> <base> <ours>` gives the upgraded file with the project's edits carried over. The project's edits are the hunks of `diff <base> <ours>`; list them in step 3. A conflict in the merge is one of them clashing with the template: show both sides and let the user pick. A dropped edit is left out of the result. The files written below are these merged results, not plain renders.
+
 1. **`ship.yml`:** copy the template.
    - **`auto-merge` mode:** delete every `# >>> command mode` … `# <<< command mode` block, markers included, and drop only the marker lines of the `# >>> auto-merge mode` blocks.
    - **`command` mode:** delete every `# >>> auto-merge mode` … `# <<< auto-merge mode` block, markers included, and drop only the marker lines of the `command mode` blocks. Fill `__SETUP_STEPS__` as YAML steps indented six spaces, and `__LAND_COMMAND__`, `__LAND_CRON__`, `__LAND_BRANCH_PREFIX__` and `__COMMIT_EMAIL__`.
@@ -133,7 +147,7 @@ Work in a branch, through a worktree if the project's docs say so.
 
    Done when `grep -n '__[A-Z_]*__' shipping.md` prints nothing.
 
-   On a re-run, keep any section the project has added.
+   On a re-run, keep any section the project has added. On an upgrade, step 0's merge does this.
 3. **Settings and `CLAUDE.md`:** edit them in place.
 4. **Commit and open the PR.**
    - Body: what each file does, the settings that follow the merge, and the user's to-do list from step 3.
@@ -141,7 +155,7 @@ Work in a branch, through a worktree if the project's docs say so.
 
 ## 5. Apply the settings
 
-After the user says the PR has merged, apply step 3's repository settings in the order listed: auto-merge, then labels, then the ruleset. Applying the ruleset last means a missing `ship` status can't block the setup PR.
+After the user says the PR has merged, apply step 3's repository settings in the order listed: auto-merge, then labels, then the ruleset. Applying the ruleset last means a missing `ship` status can't block the setup PR. On an upgrade, apply only what step 3 listed as missing.
 
 Re-read each setting to confirm it took:
 - `allow_auto_merge`
@@ -158,3 +172,16 @@ Re-read each setting to confirm it took:
    - what was verified
    - what's still on the user's list (`SHIP_TOKEN` in both places, the cloud setup script, the optional `resolve-conflicts` routine, any follow-up issue for the landing command)
    - the CD finding from step 1.4
+
+## Versions
+
+When the template changes in a way an installed repo should pick up, raise the number on `ship.yml`'s first line, copy the released files to `templates/history/` under the old number first, and add a line here: what changed, and the values an upgrade has to ask for.
+
+Each entry also gives what rendering that version needs beyond the current rules, for an upgrade's *base*, and what the user has to do by hand.
+
+- **1:** the first release (no version line). Adding `ship` lands a PR at once.
+  - Rendering: it has no `# >>> auto-merge mode` blocks, and fills `__AUTOMERGE_CONDITION__`: `contains(github.event.pull_request.labels.*.name, 'ship')` in `auto-merge` mode, `startsWith(github.head_ref, '<prefix>')` in `command` mode.
+- **2:** `ship` approves; a landing run (`/ship:land`'s dispatch, the `command`-mode cron, or a merge) lands. Stacked PRs move onto the default branch when their parent merges. The label approves the PR, not a commit: pushes after it keep `ship`.
+  - New label `changes-requested`. Ruleset change: pin the `ship` status to GitHub Actions (`integration_id` 15368). Nothing new to ask: `__LAND_SCHEDULE__` comes from the cron.
+  - User to-do: add Workflows read/write to `SHIP_TOKEN`, in both the Actions and the Dependabot secret, so the cascade can push merges that bring in workflow changes.
+  - Upgrade step: in `auto-merge` mode, version 1 turned on GitHub auto-merge for every labelled PR, stacked ones included, and version 2 doesn't. List the open PRs with auto-merge on (`gh pr list --json number,autoMergeRequest`) and turn it off on each (`gh pr merge <n> --disable-auto`), so none lands outside a landing run.
