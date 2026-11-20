@@ -48,6 +48,9 @@ jobs:
     # Approval is the label, whatever commits arrive after it: see "What the label approves" in docs/agents/shipping.md.
     if: github.event_name == 'pull_request' && github.event.action != 'closed'
     runs-on: ubuntu-latest
+    permissions:
+      statuses: write
+      pull-requests: write
     steps:
       - name: Set the ship status
         env:
@@ -55,6 +58,9 @@ jobs:
           SHA: ${{ github.event.pull_request.head.sha }}
           HEAD: ${{ github.head_ref }}
           LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          ACTION: ${{ github.event.action }}
+          PR: ${{ github.event.pull_request.number }}
+          AUTO_MERGE: ${{ github.event.pull_request.auto_merge != null }}
         run: |
           state=pending; desc="Waiting for review: add the '$SHIP_LABEL' label to ship it"
           if echo "$LABELS" | jq -e --arg l "$SHIP_LABEL" 'index($l) != null' >/dev/null; then
@@ -65,6 +71,12 @@ jobs:
 # <<< command mode
           gh api "repos/$GITHUB_REPOSITORY/statuses/$SHA" -f state="$state" -f context=ship -f description="$desc" >/dev/null
           echo "ship: $state ($desc)"
+# >>> auto-merge mode
+          # `land` turned on auto-merge; without `ship` it goes off, so adding the label back doesn't land the PR by itself.
+          if [ "$ACTION" = unlabeled ] && [ "$state" = pending ] && [ "$AUTO_MERGE" = true ]; then
+            gh pr merge "$PR" --disable-auto --repo "$GITHUB_REPOSITORY" || echo "::warning::Couldn't turn auto-merge off."
+          fi
+# <<< auto-merge mode
 # >>> command mode
 
   automerge:
@@ -152,13 +164,22 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch -q origin "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH" "+refs/pull/$MERGED/head:refs/remotes/pr/$MERGED"
           # A child is a PR based on the merged PR's branch. When that branch is deleted on merge, GitHub
-          # retargets the children itself, so also take PRs on __DEFAULT_BRANCH__ that carry the merged
-          # PR's head but not the merge itself. Grandchildren stay on their own parent's branch.
+          # retargets the children itself, so also take PRs on __DEFAULT_BRANCH__ whose last base change came
+          # from the merged branch, or that carry the merged PR's head, and don't have the merge yet.
+          # Grandchildren stay on their own parent's branch.
           children=$(gh pr list --state open --base "$MERGED_REF" --limit 200 --json number --jq '.[].number')
+          # shellcheck disable=SC2016 # GraphQL variables, not shell
+          retargeted=$(gh api graphql -f owner="${GITHUB_REPOSITORY%/*}" -f name="${GITHUB_REPOSITORY#*/}" -f base="$DEFAULT_BRANCH" -f query='
+            query($owner: String!, $name: String!, $base: String!) { repository(owner: $owner, name: $name) {
+              pullRequests(states: OPEN, baseRefName: $base, first: 100) { nodes { number
+                timelineItems(itemTypes: [BASE_REF_CHANGED_EVENT], last: 1) { nodes { ... on BaseRefChangedEvent { previousRefName } } } } } } }' \
+            --jq '.data.repository.pullRequests.nodes[] | select(.timelineItems.nodes[0].previousRefName == env.MERGED_REF) | .number' ||
+            echo "::warning::Couldn't read base changes; finding children by their commits only." >&2)
           for n in $(gh pr list --state open --base "$DEFAULT_BRANCH" --limit 200 --json number --jq '.[].number'); do
-            git fetch -q origin "+refs/pull/$n/head:refs/remotes/pr/$n"
-            git merge-base --is-ancestor "$MERGED_SHA" "refs/remotes/pr/$n" || continue
+            git fetch -q origin "+refs/pull/$n/head:refs/remotes/pr/$n" || { echo "::warning::#$n: couldn't fetch it."; continue; }
             git merge-base --is-ancestor "$MERGE_SHA" "refs/remotes/pr/$n" && continue
+            # Its commits alone miss a child whose parent moved after it branched (the parent's own cascade merge).
+            echo " $retargeted " | tr '\n' ' ' | grep -q " $n " || git merge-base --is-ancestor "$MERGED_SHA" "refs/remotes/pr/$n" || continue
             children="$children $n"
           done
           [ -n "${children// /}" ] || { echo "#$MERGED has no stacked children."; exit 0; }
@@ -224,7 +245,9 @@ jobs:
             git fetch -q origin "+refs/pull/$n/head:refs/remotes/pr/$n"
             # shellcheck disable=SC2016 # Markdown backticks, not shell
             files=$(git merge-tree --write-tree --name-only "refs/remotes/origin/$DEFAULT_BRANCH" "refs/remotes/pr/$n" | sed -n '2,/^$/p' | sed '/^$/d;s/.*/- `&`/' || true)
-            gh api -X DELETE "repos/$GITHUB_REPOSITORY/issues/$n/labels/$SHIP_LABEL" >/dev/null
+            # A queue run for the same merge (its push and its `closed` event) can race this one: whichever removes
+            # the label first labels and comments, the other moves on.
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/issues/$n/labels/$SHIP_LABEL" >/dev/null 2>&1 || continue
             gh api "repos/$GITHUB_REPOSITORY/issues/$n/labels" -f "labels[]=$CONFLICTS_LABEL" >/dev/null
             gh api "repos/$GITHUB_REPOSITORY/issues/$n/comments" -f body="$(cat <<EOF
           This PR conflicts with \`$DEFAULT_BRANCH\`, so it has left the landing queue: \`$SHIP_LABEL\` is off and \`$CONFLICTS_LABEL\` is on.
