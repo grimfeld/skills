@@ -12,13 +12,6 @@ pending until the label is on.
 The label approves a PR; it doesn't land it. Landing is a separate step, so a morning's batch can be approved PR by
 PR and then land as one.
 
-### What the label approves
-
-The label approves the PR, not a commit: it stays on through later pushes, and those land with it unreviewed. That
-includes the stacked-PR cascade's merge of `__DEFAULT_BRANCH__` and any `/ship:resolve-conflicts` fix. So:
-- Don't add `ship` while someone may still push to the PR.
-- Remove `ship` before pushing more work to an approved PR, and review again before adding it back.
-
 1. An agent opens the PR as a **draft** while it works.
 2. It marks the PR ready only when local checks pass, `/ship:pr-review` has run (label `pr-reviewed`) and the
    review section is in the description.
@@ -28,6 +21,16 @@ includes the stacked-PR cascade's merge of `__DEFAULT_BRANCH__` and any `/ship:r
    that targets `__DEFAULT_BRANCH__`: __LANDING_SUMMARY__
 
 Dependabot patch updates and GitHub Actions updates get `ship` and land without review.
+
+## What the label approves
+
+The label approves the PR, not a commit: it stays on through later pushes, and those land with it unreviewed. That
+includes the stacked-PR cascade's merge of `__DEFAULT_BRANCH__` and any `/ship:resolve-conflicts` fix. So:
+- Don't add `ship` while someone may still push to the PR.
+- Remove `ship` before pushing more work to an approved PR, and review again before adding it back.
+
+Removing `ship` also turns off GitHub auto-merge if a landing run turned it on, so adding the label back lands
+nothing until the next landing run.
 
 ## Stacked PRs
 

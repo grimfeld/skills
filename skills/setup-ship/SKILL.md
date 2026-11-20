@@ -32,7 +32,7 @@ File changes go through a PR like any other change.
 
 Read only. Collect:
 
-0. **Installed version.** Read the first line of `.github/workflows/ship.yml`. No file: a fresh install. A file without a `# ship.yml version:` line: version 1. Compare it with the template's version.
+0. **Installed version.** Read the first line of `.github/workflows/ship.yml`. No file: a fresh install. A file without a `# ship.yml version:` line: version 1. Version 1 changed several times before it was numbered, so an install from an early commit merges against a base that's slightly off: expect more conflicts, and show them rather than guessing. Compare it with the template's version.
    - **Older:** this run is an **upgrade**. Tell the user which version is installed and which is current, and what the newer one changes (the "Versions" list below). Go on only if they want it.
    - **Current:** say so. Go on only if the user wants to change a setting (mode, checks, bookkeeping files); otherwise stop, changing nothing.
 1. **Repository.**
@@ -54,7 +54,7 @@ Done when you hold every item above.
 
 ## 2. Decide
 
-**Upgrade:** read every value back from the installed files instead of asking for it again: the mode (a `land` job that runs a command), the merge method, the default branch, and in `command` mode the cron, prefix, commit email, landing command and setup steps from `ship.yml`; and every placeholder value in `shipping.md`: landing mode, summary and details, required and local checks, CD summary, screens command and bookkeeping files. Ask only for values the newer template adds that can't be derived from those (the "Versions" list says which). With none, skip the question round.
+**Upgrade:** read every value back from the installed files instead of asking for it again: the mode (`command` if `ship.yml` has a `LAND_BRANCH_PREFIX`, `auto-merge` otherwise), the merge method, the default branch, and in `command` mode the cron, prefix, commit email, landing command and setup steps from `ship.yml`; and every placeholder value in `shipping.md`: landing mode, summary and details, required and local checks, CD summary, screens command and bookkeeping files. Ask only for values the newer template adds that can't be derived from those (the "Versions" list says which). With none, skip the question round.
 
 Otherwise, ask the user the open choices in one `AskUserQuestion` round, giving your recommendation for each:
 
@@ -184,3 +184,4 @@ Each entry also gives what rendering that version needs beyond the current rules
 - **2:** `ship` approves; a landing run (`/ship:land`'s dispatch, the `command`-mode cron, or a merge) lands. Stacked PRs move onto the default branch when their parent merges. The label approves the PR, not a commit: pushes after it keep `ship`.
   - New label `changes-requested`. Ruleset change: pin the `ship` status to GitHub Actions (`integration_id` 15368). Nothing new to ask: `__LAND_SCHEDULE__` comes from the cron.
   - User to-do: add Workflows read/write to `SHIP_TOKEN`, in both the Actions and the Dependabot secret, so the cascade can push merges that bring in workflow changes.
+  - Upgrade step: in `auto-merge` mode, version 1 turned on GitHub auto-merge for every labelled PR, stacked ones included, and version 2 doesn't. List the open PRs with auto-merge on (`gh pr list --json number,autoMergeRequest`) and turn it off on each (`gh pr merge <n> --disable-auto`), so none lands outside a landing run.
