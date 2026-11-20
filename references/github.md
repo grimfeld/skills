@@ -20,5 +20,8 @@ Some repositories fail on `gh pr edit` with a GraphQL error about Projects (clas
 | Edit a PR's body | `jq -Rs '{body: .}' body.md \| gh api -X PATCH repos/{owner}/{repo}/pulls/<n> --input -` | `update_pull_request` with `body` |
 | Mark a PR ready | `gh pr ready <n>` | `update_pull_request` with `draft: false` |
 | Label a PR | as for an issue: PRs share the issues API | as for an issue |
+| Start a workflow run | `gh workflow run <file> --ref <branch>` | `run_workflow` (actions toolset) |
+| A PR's timeline | `gh api repos/{owner}/{repo}/issues/<n>/timeline` | `pull_request_read` `get`, then `get_review_comments` and `get_comments` |
+| The authenticated user | `gh api user --jq .login` | `get_me` |
 
 `{owner}/{repo}` is filled in by `gh api` inside a clone. With MCP, pass `owner` and `repo` from `git remote get-url origin`.
