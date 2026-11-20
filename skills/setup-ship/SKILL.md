@@ -54,7 +54,7 @@ Done when you hold every item above.
 
 ## 2. Decide
 
-**Upgrade:** read every value back from the installed files instead of asking for it again: the mode (a `land` job that runs a command), the merge method, the default branch, and in `command` mode the cron, prefix, commit email, landing command and setup steps from `ship.yml`; the landing summary, CD summary, screens command, bookkeeping files and checks from `shipping.md`. Ask only for values the newer template adds that can't be derived from those (the "Versions" list says which). With none, skip the question round.
+**Upgrade:** read every value back from the installed files instead of asking for it again: the mode (a `land` job that runs a command), the merge method, the default branch, and in `command` mode the cron, prefix, commit email, landing command and setup steps from `ship.yml`; and every placeholder value in `shipping.md`: landing mode, summary and details, required and local checks, CD summary, screens command and bookkeeping files. Ask only for values the newer template adds that can't be derived from those (the "Versions" list says which). With none, skip the question round.
 
 Otherwise, ask the user the open choices in one `AskUserQuestion` round, giving your recommendation for each:
 
@@ -79,7 +79,7 @@ Otherwise, ask the user the open choices in one `AskUserQuestion` round, giving 
 
 ## 3. Show the plan
 
-Print every change, grouped, and ask for one yes. On an **upgrade**, the files part is the diff of `ship.yml` and `shipping.md` against what's installed (step 4.0 builds it), with the project's own edits listed separately, each with whether it's kept; the user can drop any of them. The repository settings part is only what's missing: new labels, and ruleset changes if the checks changed.
+Print every change, grouped, and ask for one yes. On an **upgrade**, the files part is the diff of `ship.yml` and `shipping.md` against what's installed (step 4.0 builds it), with the project's own edits listed separately, each with whether it's kept; the user can drop any of them. The repository settings part is only what's missing: new labels, and ruleset changes if the checks changed. The user's part is the to-dos the "Versions" list gives for each version passed.
 
 - **Files**, in one PR from a new branch:
   - `.github/workflows/ship.yml` from the template.
@@ -123,8 +123,8 @@ Print every change, grouped, and ask for one yes. On an **upgrade**, the files p
 
 Work in a branch, through a worktree if the project's docs say so.
 
-0. **Upgrade only: keep the project's edits.** For each of `ship.yml` and `shipping.md`, render three copies with the values from step 2:
-   - *base*: the installed version's template from `templates/history/`
+0. **Upgrade only: keep the project's edits.** For each of `ship.yml` and `shipping.md`, take three copies:
+   - *base*: the installed version's template from `templates/history/`, rendered with the values from step 2, that version's rendering rules (the "Versions" list) and the same `uses:` pinning as the installed file
    - *ours*: the installed file as it is
    - *theirs*: the current template, rendered by steps 1 and 2 below
 
@@ -177,5 +177,10 @@ Re-read each setting to confirm it took:
 
 When the template changes in a way an installed repo should pick up, raise the number on `ship.yml`'s first line, copy the released files to `templates/history/` under the old number first, and add a line here: what changed, and the values an upgrade has to ask for.
 
+Each entry also gives what rendering that version needs beyond the current rules, for an upgrade's *base*, and what the user has to do by hand.
+
 - **1:** the first release (no version line). Adding `ship` lands a PR at once.
-- **2:** `ship` approves; a landing run (`/ship:land`'s dispatch, the `command`-mode cron, or a merge) lands. Stacked PRs move onto the default branch when their parent merges. New label `changes-requested`. Nothing new to ask: `__LAND_SCHEDULE__` comes from the cron.
+  - Rendering: it has no `# >>> auto-merge mode` blocks, and fills `__AUTOMERGE_CONDITION__`: `contains(github.event.pull_request.labels.*.name, 'ship')` in `auto-merge` mode, `startsWith(github.head_ref, '<prefix>')` in `command` mode.
+- **2:** `ship` approves; a landing run (`/ship:land`'s dispatch, the `command`-mode cron, or a merge) lands. Stacked PRs move onto the default branch when their parent merges. A push after approval withdraws it, unless it's a clean merge of the default branch.
+  - New label `changes-requested`. Nothing new to ask: `__LAND_SCHEDULE__` comes from the cron.
+  - User to-do: add Workflows read/write to `SHIP_TOKEN`, in both the Actions and the Dependabot secret, so the cascade can push merges that bring in workflow changes.
