@@ -101,7 +101,7 @@ Tell the user:
    - If a capture fails, say so on the PR's card and go on.
    - Remove the worktree.
 4. **Write the morning page** and publish it as an Artifact, following the Artifact tool's own design guidance. Keep it plain: a list to work through, not a dashboard. On later mornings, republish to the same URL; the URL is saved in `.scratch/night-shift/morning-url`.
-   - **Ready:** the PRs to review, smallest first. Each card has the PR link, the verdict line, the risks, and the decisions to check.
+   - **Ready:** the PRs to review, smallest first. Each card has the PR link, the verdict line, the risks, and the decisions to check. A stacked PR (its base is another PR's branch) sits under its parent's card, whatever its size, marked "lands after #<parent>", so the order is visible before approving.
    - **Design PRs** add their fidelity grid: per place, reference beside app for each look × theme × viewport. Flagged views are shown full size with their finding; the rest are thumbnails. Upload the PNGs as the page's assets (the `assets` capability) and reference each by the URL the upload returns.
    - **Stuck:** what each one needs from the user.
    - **Cost line:** every Ready and Stuck card ends with one line, "≈ $4.20 at API prices · 310k out · 1.2M in · 48M cache read".
@@ -111,6 +111,7 @@ Tell the user:
      - A session or night with `not_reported` specs reads "at least ≈ $X (N not reported: #…)", never a plain total.
      - Name every model in the night's `unpriced`: its tokens are counted but not priced, and `scripts/prices.json` needs an entry for it.
      - Footnote: the figures are API-price estimates, not a bill, and builder turns after the last count are missing.
-5. **Report in the terminal:** the page link, one line per PR in the order to review them, and one line with the night's cost, worded as on the page.
+   - **Next:** the command that ships what the user approves: `/ship:land <ready PRs, in review order>`, to cut down to the ones they approve. A PR left with a comment instead goes back to `spec:ready` for tonight's night shift.
+5. **Report in the terminal:** the page link, one line per PR in the order to review them (children under their parent), one line with the night's cost, worded as on the page, and the same `/ship:land` line.
 
-The user reviews each PR from its description, and adds `ship` or comments. A comment can be answered with `/ship:build-spec #<n>` the next night, or now.
+The user reviews each PR from its description, approving it or leaving a comment, then runs `/ship:land` with the PRs they approve. Adding `ship` by hand approves a PR but doesn't land it; `/ship:land` with no arguments does, or in `command` mode the landing schedule.

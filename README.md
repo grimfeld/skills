@@ -107,6 +107,7 @@ Sizes each `spec:ready` spec against prior PRs in the same areas. The rule is on
 - designs whose specs have all merged are closed
 - stuck specs, and what each needs from you
 - what each spec, each session and the whole night would have cost at API prices, counted by each builder from its own transcript (`scripts/token-usage.mjs`, prices in `scripts/prices.json`)
+- the `/ship:land` command to run once you've reviewed: it ships the PRs you approve and sends the commented ones back for tonight
 
 ### `/ship:land`
 
