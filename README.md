@@ -132,6 +132,8 @@ Run once per project. Afterwards, a person approves a reviewed PR with the **`sh
 - **`docs/agents/shipping.md`:** the rules, written down for people and for the other skills.
 - **The project's `.claude/settings.json`:** enables the plugin.
 
+Run it again in a project set up by an older version and it offers an upgrade: it re-renders `ship.yml` and `shipping.md` with the values already installed, keeps your own edits to them, and shows the diff first.
+
 GitHub settings are shown first and applied only after you approve them. You create the `SHIP_TOKEN` secret yourself: the skill never handles tokens. Deploys stay with the project's CD.
 
 `pr-review` writes its review into the PR description: what changes by area, risks, preview, screens, and what to fix before merge. That is the page you read before adding `ship`.
