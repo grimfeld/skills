@@ -31,7 +31,7 @@ Read first:
 
 Read the first line of `.github/workflows/ship.yml` on the default branch (`git show origin/<default>:.github/workflows/ship.yml | head -1`).
 
-It must be `# ship.yml version: 2` or later. If the file is missing, or has an older version or no version line, stop before changing anything: in that version adding `ship` lands a PR at once and stacked PRs can merge into their parent's branch. Tell the user to run `/ship:setup-ship`, which offers the upgrade.
+It must be `# ship.yml version: 2` or later: 2 is the first version where the label approves and a landing run lands, which is all this skill relies on. A newer template doesn't make an installed version 2 unsafe, so don't block on it; mention that `/ship:setup-ship` offers the upgrade. If the file is missing, or has an older version or no version line, stop before changing anything: in that version adding `ship` lands a PR at once and stacked PRs can merge into their parent's branch. Tell the user to run `/ship:setup-ship`, which offers the upgrade.
 
 ## 2. Last night's PRs
 
@@ -45,22 +45,26 @@ Parse the arguments:
 
 - **PR numbers:** the approved PRs. They may include PRs from earlier nights.
 - **`all`:** every PR from step 2 that is ready (not a draft) and labelled `pr-reviewed`.
-- **Nothing:** approve nothing new; the batch is the PRs already labelled `ship`.
+- **Nothing:** approve nothing new, and send nothing back: skip the sort below and step 6. The batch is the PRs already labelled `ship`.
 
-Then sort last night's PRs that weren't approved:
+A PR that already carries `ship` is approved, whatever the arguments: the user labelled it by hand.
 
-- **Commented:** a review, review comment or PR comment by the user (`gh api user --jq .login`) made after the PR was marked ready (its `ready_for_review` timeline event, or its creation if it was never a draft). This is feedback, so it goes back to the night shift (step 6).
+With arguments, sort last night's PRs that are neither named nor labelled `ship`:
+
+- **Commented:** a review, review comment or PR comment by the user (`gh api user --jq .login`) made after the PR was marked ready (its `ready_for_review` timeline event, or its creation if it was never a draft). This is feedback, so it goes back to the night shift (step 6). The ship tooling posts under the user's login too, so skip its comments: any comment that holds an HTML marker comment (`<!-- … -->`), or that starts like the ones `ship.yml` and `resolve-conflicts` post ("This PR conflicts with", "New commits arrived after", "Resolved:", "## Conflict resolution").
 - **Not reviewed yet:** no such comment. Leave it alone and list it at the end.
 
 Refuse, with the reason, any approved PR that is a draft, lacks `pr-reviewed`, or is closed. Leave it out of the batch and go on.
 
 ## 4. Conflicts first
 
-Collect the open PRs labelled `conflicts` among the approved ones and the PRs already labelled `ship`. If there are any, run `resolve-conflicts` with them, as `${CLAUDE_PLUGIN_ROOT}/references/running-skills.md` says. It puts `ship` back on a PR whose resolution touched only bookkeeping files. A code resolution needs the user's re-review, so that PR stays out of this batch even if it was approved: report it.
+Collect every open PR labelled `conflicts`: `ship.yml` took `ship` off each when it added `conflicts`, so they can't be found by `ship`. If there are any, run `resolve-conflicts` with them, as `${CLAUDE_PLUGIN_ROOT}/references/running-skills.md` says. It puts `ship` back on a PR whose resolution touched only bookkeeping files, and that PR joins the batch.
+
+A PR that resolve-conflicts sent to re-review (a code resolution) or left stuck (still labelled `conflicts`) stays out of this batch, even if it was approved: the resolution is code nobody has reviewed. Step 5 skips it; report it under Waiting.
 
 ## 5. Approve
 
-Add `ship` to each approved PR that doesn't have it (`gh api repos/{owner}/{repo}/issues/<n>/labels -f 'labels[]=ship'`).
+Add `ship` to each approved PR that doesn't have it, except those step 4 held back (`gh api repos/{owner}/{repo}/issues/<n>/labels -f 'labels[]=ship'`).
 
 A child whose parent isn't approved still gets `ship`: it can't land until the parent merges, so the label is safe and records the user's approval. Report it as "waiting on #<parent>, not approved".
 

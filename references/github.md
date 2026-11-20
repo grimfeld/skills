@@ -21,7 +21,9 @@ Some repositories fail on `gh pr edit` with a GraphQL error about Projects (clas
 | Mark a PR ready | `gh pr ready <n>` | `update_pull_request` with `draft: false` |
 | Label a PR | as for an issue: PRs share the issues API | as for an issue |
 | Start a workflow run | `gh workflow run <file> --ref <branch>` | `run_workflow` (actions toolset) |
-| A PR's timeline | `gh api repos/{owner}/{repo}/issues/<n>/timeline` | `pull_request_read` `get`, then `get_review_comments` and `get_comments` |
+| A PR's timeline | `gh api repos/{owner}/{repo}/issues/<n>/timeline` | none; take the PR's creation time instead of its `ready_for_review` event |
+| A PR's reviews and comments | `gh api repos/{owner}/{repo}/pulls/<n>/reviews`, `.../pulls/<n>/comments`, `.../issues/<n>/comments` | `pull_request_read` `get_reviews`, `get_review_comments`, `get_comments` |
+| A workflow's latest runs | `gh run list --workflow <file> --event <event> --limit 1` | `list_workflow_runs` |
 | The authenticated user | `gh api user --jq .login` | `get_me` |
 
 `{owner}/{repo}` is filled in by `gh api` inside a clone. With MCP, pass `owner` and `repo` from `git remote get-url origin`.
