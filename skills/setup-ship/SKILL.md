@@ -1,17 +1,21 @@
 ---
 name: setup-ship
-description: Set up a repository so reviewed PRs ship on their own. A `ship` label is the only human step; a required status, auto-merge or the project's own landing command, and a ruleset do the rest. Run once per project, or again to update it.
+description: Set up a repository so reviewed PRs ship on their own. A `ship` label approves a PR, `/ship:land` lands the approved batch, and a required status, auto-merge or the project's own landing command, and a ruleset do the rest, stacked PRs included. Run once per project, or again to update it.
 disable-model-invocation: true
 argument-hint: "[owner/repo] (default: the current repository)"
 ---
 
 # Setup ship
 
-After this runs, the only thing a person does to ship a PR is review it and add the **`ship`** label.
+After this runs, a person reviews a PR and approves it with the **`ship`** label, then runs `/ship:land` (or waits
+for the landing schedule in `command` mode). The label alone lands nothing, so a batch can be approved PR by PR.
 The repository does the rest:
 
 - a required `ship` commit status keeps every unlabelled PR off the default branch
-- the PR then merges when CI is green, through GitHub auto-merge or the project's own landing command
+- a landing run merges the labelled PRs that target the default branch when CI is green, through GitHub
+  auto-merge or the project's own landing command
+- a PR stacked on another one waits; when its parent merges, it is retargeted to the default branch, updated and
+  landed in turn
 - labels track specs through the `ship` plugin's pipeline
 - `docs/agents/shipping.md` writes the rules down for people and for the other `ship` skills
 
@@ -81,7 +85,7 @@ Print every change, grouped, and ask for one yes.
 - **Repository settings**, applied after the PR merges:
   - Auto-merge on: `gh api -X PATCH repos/{owner}/{repo} -F allow_auto_merge=true`.
   - Labels:
-    - `ship`: "Reviewed: lands on its own when green"
+    - `ship`: "Reviewed and approved: lands with the next landing run"
     - `pr-reviewed`: "Reviewed by /ship:pr-review"
     - `spec:draft`
     - `spec:ready`
@@ -91,19 +95,20 @@ Print every change, grouped, and ask for one yes.
     - `design:ready`: "A Claude Design artifact, marked done"
     - `design:specced`: "Turned into specs by /ship:design-me"
     - `conflicts`: "Conflicts with the default branch: resolve, then re-review"
+    - `changes-requested`: "Commented on in review: its spec goes back for a rebuild"
     - `retro`: "Filed by /ship:retro-issues from a session retro"
 
     Create them with `gh label create --force`, which keeps a label's other PRs and issues.
   - The ruleset on the default branch. Amend the existing ruleset that targets it; don't add a second one. It needs:
     - `pull_request`, with no required approvals: one person can't approve their own PRs, and the `ship` label is the review
-    - `required_status_checks`: the chosen checks plus `ship`
+    - `required_status_checks`: the chosen checks plus `ship`. Pin `ship` to GitHub Actions (`"integration_id": 15368`), so only the `gate` job can set it, not anyone with push access calling the statuses API.
     - `non_fast_forward` and `deletion`, if missing
 
     Use `gh api -X PUT repos/{owner}/{repo}/rulesets/<id> --input <file>`, with the full rule list (read, change, write).
 - **What only the user can do.** Never ask for a token's value or handle one.
-  - Create a fine-grained token for this repository with Contents and Pull requests read/write.
+  - Create a fine-grained token for this repository with Contents, Pull requests and Workflows read/write. Workflows lets the stacked-PR cascade push a merge that brings in workflow changes, `ship.yml` itself included.
   - Add it as the Actions secret `SHIP_TOKEN` (`gh secret set SHIP_TOKEN`) and the Dependabot secret `SHIP_TOKEN` (`gh secret set SHIP_TOKEN --app dependabot`).
-  - Why it's needed: without it, merges and landing PRs made by GitHub's default token don't start CI or deploys.
+  - Why it's needed: without it, merges, pushes and landing PRs made by GitHub's default token don't start CI, deploys or the stacked-PR cascade.
   - Cloud sessions don't install plugins from `.claude/settings.json`. Point the user to the `grimfeld/skills` README's cloud setup script for their cloud environment.
   - Optional: a routine that runs `/ship:resolve-conflicts` every hour (`/schedule`), so conflicting PRs get resolved without anyone starting it.
 
@@ -112,13 +117,15 @@ Print every change, grouped, and ask for one yes.
 Work in a branch, through a worktree if the project's docs say so.
 
 1. **`ship.yml`:** copy the template.
-   - **`auto-merge` mode:** delete every `# >>> command mode` … `# <<< command mode` block, markers included. Set `__AUTOMERGE_CONDITION__` to `contains(github.event.pull_request.labels.*.name, 'ship')`.
-   - **`command` mode:** keep the blocks and drop only the marker lines. Set `__AUTOMERGE_CONDITION__` to `startsWith(github.head_ref, '<prefix>')`. Fill `__SETUP_STEPS__` as YAML steps indented six spaces, and `__LAND_COMMAND__`, `__LAND_CRON__`, `__LAND_BRANCH_PREFIX__` and `__COMMIT_EMAIL__`.
+   - **`auto-merge` mode:** delete every `# >>> command mode` … `# <<< command mode` block, markers included, and drop only the marker lines of the `# >>> auto-merge mode` blocks.
+   - **`command` mode:** delete every `# >>> auto-merge mode` … `# <<< auto-merge mode` block, markers included, and drop only the marker lines of the `command mode` blocks. Fill `__SETUP_STEPS__` as YAML steps indented six spaces, and `__LAND_COMMAND__`, `__LAND_CRON__`, `__LAND_BRANCH_PREFIX__` and `__COMMIT_EMAIL__`.
+   - Keep the first line, `# ship.yml version: <n>`, as it is: `/ship:land` and later runs of this skill read it.
    - **Both modes:** fill `__DEFAULT_BRANCH__` and `__MERGE_METHOD__`.
    - Pin every `uses:` the way the repo's other workflows do. If they pin to commit SHAs, pin these too (`actions/checkout@<sha> # vX.Y.Z`): a repo that requires SHAs fails the whole workflow at startup over one tag.
    - Done when `grep -n '__[A-Z_]*__\|# >>>\|# <<<' ship.yml` prints nothing, and the file parses as YAML (`ruby -ryaml -e 'YAML.load_file(ARGV[0])'` or `python3 -c 'import yaml,sys; yaml.safe_load(open(sys.argv[1]))'`, whichever exists). If `actionlint` is installed, run it too.
 2. **`shipping.md`:** fill every placeholder from steps 1 and 2.
    - `__LANDING_SUMMARY__`: one sentence.
+   - `__LAND_SCHEDULE__`: in `command` mode, ` and on the landing schedule (<cron, in words>)`; in `auto-merge` mode, empty.
    - `__LAND_DETAILS__`: in `command` mode, the command, schedule, prefix and contract; in `auto-merge` mode, a single "Merged by GitHub auto-merge when the required checks pass."
    - `__CD_SUMMARY__`: what deploys after a merge, or "Nothing deploys on merge."
    - `__SCREENS__`: the command, or "none".
@@ -144,9 +151,8 @@ Re-read each setting to confirm it took:
 ## 6. Verify and hand off
 
 1. Open any PR, or use the next one, and check its `ship` status reads "Waiting for review".
-   - If `SHIP_TOKEN` is set, adding `ship` turns it green and turns on auto-merge (`gh pr view <n> --json autoMergeRequest`).
-   - In `command` mode, it also starts the `land` job.
-   - It also starts the `conflicts` job. Check that it ran, and that it labelled any PR that already conflicts.
+   - Adding `ship` turns it green and starts nothing else: no `land` or `queue` run.
+   - `gh workflow run ship.yml` then runs `queue` and `land`. Check that `queue` labelled any PR that already conflicts, and, if `SHIP_TOKEN` is set, that `land` turned on auto-merge (`gh pr view <n> --json autoMergeRequest`) or, in `command` mode, ran the landing command.
 2. Report:
    - what changed
    - what was verified
