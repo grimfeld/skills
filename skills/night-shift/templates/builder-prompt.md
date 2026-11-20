@@ -17,10 +17,10 @@ The morning page shows what tonight cost. Only you can count it, because your tr
 
 1. If `/tmp/ship` doesn't exist, run `git clone --depth 1 https://github.com/grimfeld/skills /tmp/ship`.
 2. Run `node /tmp/ship/skills/night-shift/scripts/token-usage.mjs count --specs "{{SPECS}}"`.
-   - It prints tokens by spec and by model, plus `shared` for work outside any spec's branch or worktree.
+   - It prints tokens by spec and by model. A subagent counts toward the spec it was started for. `shared` holds work outside every spec.
    - Don't add up or estimate tokens yourself.
    - If the script fails, write `"tokens": null` and give its error in one line under the comment.
 3. For each spec, take its latest `night-shift` comment (the one with the status) and add `"tokens": <that spec's object from the output>` to its JSON.
    - On the first spec of this list only, also add `"session_shared": <the output's shared object>`.
-   - Edit the comment in place, as `references/github.md` says ("Edit a comment").
+   - Edit the comment in place, as `/tmp/ship/references/github.md` says ("Edit a comment").
    - If you can't edit comments, post the whole comment again with the new JSON. The morning step reads the latest one.
