@@ -181,6 +181,6 @@ Each entry also gives what rendering that version needs beyond the current rules
 
 - **1:** the first release (no version line). Adding `ship` lands a PR at once.
   - Rendering: it has no `# >>> auto-merge mode` blocks, and fills `__AUTOMERGE_CONDITION__`: `contains(github.event.pull_request.labels.*.name, 'ship')` in `auto-merge` mode, `startsWith(github.head_ref, '<prefix>')` in `command` mode.
-- **2:** `ship` approves; a landing run (`/ship:land`'s dispatch, the `command`-mode cron, or a merge) lands. Stacked PRs move onto the default branch when their parent merges. A push after approval withdraws it, unless it's a clean merge of the default branch.
+- **2:** `ship` approves; a landing run (`/ship:land`'s dispatch, the `command`-mode cron, or a merge) lands. Stacked PRs move onto the default branch when their parent merges. The label approves the PR, not a commit: pushes after it keep `ship`.
   - New label `changes-requested`. Ruleset change: pin the `ship` status to GitHub Actions (`integration_id` 15368). Nothing new to ask: `__LAND_SCHEDULE__` comes from the cron.
   - User to-do: add Workflows read/write to `SHIP_TOKEN`, in both the Actions and the Dependabot secret, so the cascade can push merges that bring in workflow changes.
