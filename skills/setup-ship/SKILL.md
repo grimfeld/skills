@@ -79,7 +79,7 @@ Otherwise, ask the user the open choices in one `AskUserQuestion` round, giving 
 
 ## 3. Show the plan
 
-Print every change, grouped, and ask for one yes. On an **upgrade**, the files part is the diff of `ship.yml` and `shipping.md` against what's installed (step 4.0 builds it), with the project's own edits listed separately, each with whether it's kept; the user can drop any of them. The repository settings part is only what's missing: new labels, and ruleset changes if the checks changed. The user's part is the to-dos the "Versions" list gives for each version passed.
+Print every change, grouped, and ask for one yes. On an **upgrade**, run step 4.0's renders and `git merge-file -p` now, printing only, and settle any conflict with the user here. The files part is the diff of `ship.yml` and `shipping.md` against what's installed, with the project's own edits listed separately, each with whether it's kept; the user can drop any of them. The repository settings part is only what's missing: new labels and ruleset changes the "Versions" list gives for each version passed, plus ruleset changes if the checks changed. The user's part is the to-dos the "Versions" list gives for each version passed.
 
 - **Files**, in one PR from a new branch:
   - `.github/workflows/ship.yml` from the template.
