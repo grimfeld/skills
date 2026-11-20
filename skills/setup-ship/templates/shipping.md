@@ -10,11 +10,14 @@ Nothing else merges: the `ship` commit status is required by the ruleset on `__D
 pending until the label is on.
 
 The label approves a PR; it doesn't land it. Landing is a separate step, so a morning's batch can be approved PR by
-PR and then land as one. Approval covers the commits that were reviewed: a push after it removes `ship`, unless the
-push is only a clean merge of `__DEFAULT_BRANCH__` into an approved head. Dependabot's rebases keep `ship`.
+PR and then land as one.
 
-The label approves the head at the moment it's added. Don't add it while someone may still push: a push that lands
-between your review and the label is approved with it.
+### What the label approves
+
+The label approves the PR, not a commit: it stays on through later pushes, and those land with it unreviewed. That
+includes the stacked-PR cascade's merge of `__DEFAULT_BRANCH__` and any `/ship:resolve-conflicts` fix. So:
+- Don't add `ship` while someone may still push to the PR.
+- Remove `ship` before pushing more work to an approved PR, and review again before adding it back.
 
 1. An agent opens the PR as a **draft** while it works.
 2. It marks the PR ready only when local checks pass, `/ship:pr-review` has run (label `pr-reviewed`) and the
