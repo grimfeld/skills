@@ -1,0 +1,17 @@
+{
+  "unit": "USD per million tokens",
+  "as_of": "2026-11-19",
+  "source": "Anthropic API pricing (claude-api skill, cached 2026-11-03). Cache writes are 1.25x input for 5 minutes, 2x for 1 hour.",
+  "notes": "claude-haiku-5-5 is priced at its rate for prompts up to 100K tokens; longer prompts cost 5x, so a long-context Haiku night reads low.",
+  "models": {
+    "claude-fable-5-2":  { "in": 8,    "out": 40,   "cache_read": 0.20, "cache_write_5m": 10,    "cache_write_1h": 16 },
+    "claude-fable-5-1":  { "in": 10,   "out": 50,   "cache_read": 0.25, "cache_write_5m": 12.5,  "cache_write_1h": 20 },
+    "claude-opus-5-5":   { "in": 4,    "out": 20,   "cache_read": 0.20, "cache_write_5m": 5,     "cache_write_1h": 8 },
+    "claude-opus-5":     { "in": 5,    "out": 25,   "cache_read": 0.50, "cache_write_5m": 6.25,  "cache_write_1h": 10 },
+    "claude-opus-4-8":   { "in": 5,    "out": 25,   "cache_read": 0.50, "cache_write_5m": 6.25,  "cache_write_1h": 10 },
+    "claude-sonnet-5-5": { "in": 2,    "out": 10,   "cache_read": 0.10, "cache_write_5m": 2.5,   "cache_write_1h": 4 },
+    "claude-sonnet-5":   { "in": 2,    "out": 10,   "cache_read": 0.20, "cache_write_5m": 2.5,   "cache_write_1h": 4 },
+    "claude-haiku-5-5":  { "in": 0.10, "out": 0.50, "cache_read": 0.01, "cache_write_5m": 0.125, "cache_write_1h": 0.20 },
+    "claude-haiku-4-5":  { "in": 1,    "out": 5,    "cache_read": 0.10, "cache_write_5m": 1.25,  "cache_write_1h": 2 }
+  }
+}

@@ -13,6 +13,7 @@ Some repositories fail on `gh pr edit` with a GraphQL error about Projects (clas
 | Add a label | `gh api repos/{owner}/{repo}/issues/<n>/labels -f 'labels[]=<l>'` | `issue_write` `update` with the full label list |
 | Remove a label | `gh api -X DELETE repos/{owner}/{repo}/issues/<n>/labels/<l>` | `issue_write` `update` with the full label list |
 | Comment | `gh issue comment <n> --body-file …` | `add_issue_comment` |
+| Edit a comment | `jq -Rs '{body: .}' body.md \| gh api -X PATCH repos/{owner}/{repo}/issues/comments/<id> --input -` | none: post a new comment instead |
 | Sub-issue | `gh api repos/{owner}/{repo}/issues/<parent>/sub_issues -F sub_issue_id=<child's id, not number>` | `sub_issue_write` `add` |
 | Open a draft PR | `gh pr create --draft --base … --head … --title … --body-file …` | `create_pull_request` with `draft: true` |
 | Read a PR | `gh api repos/{owner}/{repo}/pulls/<n>` | `pull_request_read` `get` |
