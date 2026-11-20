@@ -144,6 +144,7 @@ Run once per project. Afterwards, a person approves a reviewed PR with the **`sh
 - **Landing:** a run of `ship.yml`, started by a dispatch (`/ship:land`), by the landing schedule in `command` mode, or by a merge. It lands the labelled PRs that target the default branch: GitHub auto-merge once CI is green (`auto-merge` mode), or the project's own landing command (`command` mode, for example a batching script).
 - **Stacked PRs:** a labelled PR built on another PR's branch waits. When its parent merges, it is retargeted to the default branch, has the default branch merged in, and lands in the same run.
 - **Dependabot:** patch updates and GitHub Actions updates are labelled `ship` and land without review.
+- **Approval:** the label approves the PR, not a commit. Pushes after it land with it, so remove `ship` before pushing more work to an approved PR.
 - **Conflicts:** before each landing run and whenever the default branch moves, a labelled PR that conflicts with it loses `ship`, gets `conflicts`, and a comment listing the files. Without this, landing would skip it on every run.
 - **Labels:** `ship`, `pr-reviewed`, `conflicts`, `changes-requested`, and the `spec:*` and `design:*` labels the pipeline uses.
 - **`docs/agents/shipping.md`:** the rules, written down for people and for the other skills.

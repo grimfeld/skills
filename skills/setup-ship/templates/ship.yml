@@ -20,10 +20,6 @@
 name: Ship
 
 on:
-  # `gate` runs on pull_request_target: the default branch's copy of this file, so a PR can't edit its own gate.
-  # It only runs git plumbing on the PR's commits, never their code.
-  pull_request_target:
-    types: [opened, reopened, synchronize, labeled, unlabeled, ready_for_review]
   pull_request:
     types: [opened, reopened, synchronize, labeled, unlabeled, ready_for_review, closed]
   push:
@@ -49,58 +45,20 @@ permissions:
 
 jobs:
   gate:
-    if: github.event_name == 'pull_request_target'
+    # Approval is the label, whatever commits arrive after it: see "What the label approves" in docs/agents/shipping.md.
+    if: github.event_name == 'pull_request' && github.event.action != 'closed'
     runs-on: ubuntu-latest
-    # One run at a time per PR, in event order, so a push can't race the withdrawal of an earlier one.
-    concurrency: { group: "ship-gate-${{ github.event.pull_request.number }}", cancel-in-progress: false }
-    permissions:
-      contents: read
-      statuses: write
-      pull-requests: write
-      issues: write
     steps:
-      - uses: actions/checkout@v4
-        # Only to inspect a push made after approval.
-        if: github.event.action == 'synchronize'
-        with: { fetch-depth: 0, ref: "${{ github.event.pull_request.head.sha }}", persist-credentials: false }
       - name: Set the ship status
         env:
           GH_TOKEN: ${{ github.token }}
-          ACTION: ${{ github.event.action }}
-          PR: ${{ github.event.pull_request.number }}
           SHA: ${{ github.event.pull_request.head.sha }}
-          BEFORE: ${{ github.event.before }}
           HEAD: ${{ github.head_ref }}
-          AUTHOR: ${{ github.event.pull_request.user.login }}
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
         run: |
-          state=pending; desc="Waiting for review: add the '$SHIP_LABEL' label to approve it"
-          # The live labels, not the event's snapshot: an earlier run may have withdrawn approval since.
-          if gh api "repos/$GITHUB_REPOSITORY/issues/$PR/labels" --jq '.[].name' | grep -qx "$SHIP_LABEL"; then
+          state=pending; desc="Waiting for review: add the '$SHIP_LABEL' label to ship it"
+          if echo "$LABELS" | jq -e --arg l "$SHIP_LABEL" 'index($l) != null' >/dev/null; then
             state=success; desc="Reviewed"
-          fi
-          # Approval covers the commits that were reviewed. A push after it withdraws it, unless the previous
-          # head was itself approved (its own `ship` status is success) and the push is only a clean merge of
-          # __DEFAULT_BRANCH__ into it (the stacked-PR cascade, or the author catching up): one merge commit on
-          # top of that head, whose tree is exactly the merge's result. Dependabot rebases its own PRs; the
-          # `dependabot` job's patch-only rule is what approves those, so they keep `ship`.
-          if [ "$state" = success ] && [ "$ACTION" = synchronize ] && [ "$AUTHOR" != "dependabot[bot]" ]; then
-            clean=false
-            before_ok=$(gh api "repos/$GITHUB_REPOSITORY/commits/$BEFORE/status" --jq '[.statuses[] | select(.context == "ship")][0].state // ""' 2>/dev/null || true)
-            git fetch -q origin "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH" "$BEFORE" 2>/dev/null || true
-            read -r _ p1 p2 extra <<< "$(git rev-list --parents -n 1 "$SHA")"
-            if [ "$before_ok" = success ] && [ "$p1" = "$BEFORE" ] && [ -n "$p2" ] && [ -z "$extra" ] &&
-               git merge-base --is-ancestor "$p2" "origin/$DEFAULT_BRANCH"; then
-              # merge-tree exits 1 on a conflict, so a conflicted tree never counts as clean.
-              if mt=$(git merge-tree --write-tree "$BEFORE" "$p2" 2>/dev/null) && [ "${mt%%$'\n'*}" = "$(git rev-parse "$SHA^{tree}")" ]; then
-                clean=true
-              fi
-            fi
-            if [ "$clean" = false ]; then
-              state=pending; desc="New commits since approval: review them and add '$SHIP_LABEL' again"
-              gh api -X DELETE "repos/$GITHUB_REPOSITORY/issues/$PR/labels/$SHIP_LABEL" >/dev/null
-              gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -f body="New commits arrived after this PR was approved, so \`$SHIP_LABEL\` is off. Review them, then add \`$SHIP_LABEL\` again." >/dev/null || true
-            fi
           fi
 # >>> command mode
           case "$HEAD" in "$LAND_BRANCH_PREFIX"*) state=success; desc="Batch of reviewed PRs";; esac
