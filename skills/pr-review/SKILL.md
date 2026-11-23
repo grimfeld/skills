@@ -43,25 +43,37 @@ GitHub: `${CLAUDE_PLUGIN_ROOT}/references/github.md` says what to use when `gh` 
 
 The argument `fix-round` (with or without `unattended`) re-checks a fix round instead of reviewing the whole PR again. It is never chosen from state alone: a re-run after new work, without the argument, is a full review.
 
-**Fall back to a full review**, and say why in the terminal summary and the run's `spec` line, when:
+**Fall back to a full review**, and say why in the terminal summary and in each lens's note for that run (`full review: <reason>`), when:
 - there is no previous state for this target,
-- no finding is open with `decision.state` `approved`, or
+- no finding is open with `decision.state` `approved`,
+- the previous run's head can't be resolved, or isn't an ancestor of the current head (`git merge-base --is-ancestor <previous head> <head>` fails: rebased or force-pushed), or
 - the range from the previous run's `head` to the current head contains a merge commit from the base (`git rev-list --merges <previous head>..<head>` finds one whose other parent is on the base).
 
 Otherwise the steps below change as follows; every other step runs as usual.
 
 - **Step 2.3, the diff:** the fix diff, `git diff <previous run's head> <head>`, written to `.scratch/pr-review/<id>.fix.diff`. The changed-file list is that diff's.
-- **Step 3, routing:** no routing by type or content. Dispatch only the lenses named in the `source_skill`s of open approved findings (match each lens's `source` front matter), plus `quality`, always, for regressions the fixes bring. Every other lens is recorded `skipped` with note `fix round`.
-- **Step 5, dispatch:** each lens prompt adds, after the spec line, the findings to confirm: its own open approved findings (`quality` gets all of them), each with id, title, locations and fix:
+- **Step 3, routing:** no routing by type or content. Dispatch only the lenses named in the `sources` of open approved findings in state (match each lens's `source` front matter), plus `quality`, always, for regressions the fixes bring. Every other lens is recorded `skipped` with note `fix round`.
+- **Step 5, dispatch:** each lens gets this prompt instead of step 5's, with its own open approved findings to confirm (`quality` gets all of them):
 
 ```
-Fix round. Diff: <absolute path of .scratch/pr-review/<id>.fix.diff> (previous head to this head). Confirm each finding below against the current code, then review only this diff for new problems.
-Findings to confirm: <id> · <title> · <locations> · <fix>, one per line.
-Return the coverage line, then one line per finding: `<id>: fixed` or `<id>: still open`, each with its evidence, then the JSON findings array for new problems in this diff.
+You are the <lens> reviewer for a fix-round re-review. You are report-only: read code and run read-only commands; edit no file.
+Read your brief: ${CLAUDE_SKILL_DIR}/lenses/<lens>.md
+Read the finding format: ${CLAUDE_SKILL_DIR}/references/finding-format.md
+Repository root to read: <REVIEW_ROOT>
+Fix diff, already saved: <absolute path of .scratch/pr-review/<id>.fix.diff> (the previous review's head to this head)
+Spec: <spec text, or "no spec available">
+Findings to confirm against the current code, one per line: <id> · <title> · <locations> · <fix>
+Then review only the fix diff for new problems.
+Return the coverage line, then one line per finding above: `<id>: fixed` or `<id>: still open`, each with its evidence, then the JSON findings array for new problems in the fix diff, as the finding format specifies.
 ```
 
 - **Steps 6–7:** new findings are deduped against open ones, verified and (step 9) approved like any other.
-- **Step 8.2, state:** append the run with `mode: "fix-round"`. A finding whose lens says `fixed` becomes `fixed` with `fixed_in` = this run's date; `still open` keeps it open. Findings from lenses not dispatched carry over unchanged: never mark one fixed for going unreported. The report shows "Fix round" in its run line and the confirmed fixes under "Fixed since last run".
+- **Step 8.2, state:** append the run with `mode: "fix-round"`. Only a finding that got an explicit verdict changes:
+  - it becomes `fixed` (with `fixed_in` = this run's date) when a lens asked about it says `fixed` and none says `still open`;
+  - a `still open` verdict, conflicting verdicts, or a missing verdict keep it open.
+  - Every other open finding carries over unchanged, whoever raised it: never mark one fixed for going unreported. The re-run rule that turns unmatched open findings `fixed` doesn't apply in a fix round.
+
+  The report shows "Fix round" in its run line and the confirmed fixes under "Fixed since last run".
 
 ## 1. Drift check
 

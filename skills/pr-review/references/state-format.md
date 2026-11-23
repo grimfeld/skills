@@ -102,6 +102,6 @@ The PR section's footer ("reviewers:") names every lens with status `ran`, `stal
 
 Match each new finding to an existing open finding by root cause and location. Matched: keep the existing id, decision and human fields, refresh `evidence` and `locations`. Unmatched new findings get new ids with `first_seen` set to this run. Existing open findings nothing matched become `fixed`.
 
+**Fix rounds** (`mode: "fix-round"`): only a finding that got an explicit verdict changes. It becomes `fixed` (with `fixed_in`) when a lens asked about it says `fixed` and none says `still open`; any other answer, or none, keeps it open. Every other open finding carries over unchanged, and is never marked fixed for going unreported: the "nothing matched become `fixed`" rule above doesn't apply. New findings are matched for ids as above.
 
-**Fix rounds** (`mode: "fix-round"`): only the dispatched lenses report. A finding they confirm `fixed` gets `status: "fixed"` and `fixed_in`; one they report `still open` stays open. A finding from a lens that wasn't dispatched carries over unchanged, and is never marked fixed for going unreported. New findings are matched as above.
 **Legacy reports**: if `<id>.md` exists without `<id>.json`, seed state from it once: each row of its Rejected table becomes a finding with `decision.state: "rejected"` and its reason.
