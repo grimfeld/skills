@@ -19,6 +19,7 @@ Some repositories fail on `gh pr edit` with a GraphQL error about Projects (clas
 | Read a PR | `gh api repos/{owner}/{repo}/pulls/<n>` | `pull_request_read` `get` |
 | A PR's checks | `gh pr checks <n> --json name,state,link` | `pull_request_read` `get_status`, or `get_check_runs` |
 | A commit's checks | `gh api repos/{owner}/{repo}/commits/<sha>/check-runs`, `.../commits/<sha>/status` | `get_commit`, then `pull_request_read` `get_check_runs` on its PR |
+| The PRs a commit came from | `gh api repos/{owner}/{repo}/commits/<sha>/pulls` | `search_pull_requests` with the SHA as the query |
 | List open PRs | `gh api --paginate 'repos/{owner}/{repo}/pulls?state=open&per_page=100'` | `list_pull_requests` with `state: open` |
 | Merge a PR | `gh api -X PUT repos/{owner}/{repo}/pulls/<n>/merge -f merge_method=<m> -f sha=<sha>` | `merge_pull_request` |
 | Retarget a PR | `gh api -X PATCH repos/{owner}/{repo}/pulls/<n> -f base=<branch>` | `update_pull_request` with `base` |

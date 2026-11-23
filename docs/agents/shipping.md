@@ -30,13 +30,13 @@ its `gate` job only sets the required `ship` status.
 
 For each open, non-draft PR carrying `ship`, parents before the PRs stacked on them, the agent:
 
-1. merges `main` into it (a merge commit, never a rebase or a force-push) and pushes;
+1. merges `main` into it (a merge commit, never a rebase or a force-push), resolves any conflict, and pushes;
 2. waits for its checks;
 3. merges it into `main` with the merge method below;
 4. retargets the PRs stacked on it to `main` and lands them the same way, in the same run.
 
-When it can't land a PR (a conflict, a red check, a merge GitHub refuses), it leaves that PR unmerged with a comment
-saying why, keeps `ship` on, and lands the rest. The PRs stacked on it wait. It ends with one line per PR.
+When it can't land a PR (a conflict whose sides contradict, a red check, a merge GitHub refuses), it leaves that
+PR unmerged with a comment saying why, keeps `ship` on, and lands the rest. The PRs stacked on it wait. It ends with one line per PR.
 
 - **Merge method:** merge
 
@@ -47,8 +47,14 @@ lands it right after its parent. If the parent doesn't carry `ship`, the child w
 
 ## Conflicts
 
-A PR whose merge with `main` conflicts is left with a comment listing the conflicting files, and keeps
-`ship`. Merge `main` into it yourself and push, and the next `/ship:land` lands it.
+When merging `main` into an approved PR conflicts, `/ship:land` resolves it: it reads what each side meant from the
+PRs and specs behind the conflicting commits, keeps both, runs the local checks (see Checks) and pushes. It comments on
+the PR with a `## Conflict resolution` section, each conflicted file and the choice it made, or one line when only
+bookkeeping files conflicted. `ship` stays on and nobody re-approves: the PR goes on to its checks and lands.
+
+It stops only when the two sides contradict each other, changing the same behaviour in incompatible ways. Then it
+pushes nothing, keeps `ship`, and comments naming the decision to make; the PRs stacked on it wait. Settle it on the
+branch (merge `main` into it and push), and the next `/ship:land` lands it.
 
 Bookkeeping files (a conflict only in these is mechanical):
 
