@@ -1,7 +1,7 @@
 // node --test skills/dashboard/scripts/board.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { toCards, counts, ago, BUCKETS, normaliseRepo, mergeProjects, sortBucket, LANDED_WINDOW, isMissingFile, needsCheckRead, needsCommentRead, parseReview, safeUrl, openQuestions, designLink, morningPage, morningSpecs, shipYml, actionsEnabled, approveLabels, unapproveLabels, fileText, landingRun, prAction, labelWrite, writeError, WRITE_DEFINITE, skillFor, preselectEnvironment, sessionLink, singleFlight } from "./board.mjs";
+import { toCards, counts, ago, BUCKETS, normaliseRepo, mergeProjects, sortBucket, LANDED_WINDOW, isMissingFile, needsCheckRead, needsCommentRead, parseReview, safeUrl, openQuestions, designLink, morningPage, morningSpecs, shipYml, actionsEnabled, approveLabels, unapproveLabels, fileText, landFor, LAND, MIN_SHIP_VERSION, prAction, labelWrite, writeError, WRITE_DEFINITE, skillFor, preselectEnvironment, sessionLink, singleFlight } from "./board.mjs";
 
 const NOW = Date.parse("2026-11-23T12:00:00Z");
 const hoursAgo = (h) => new Date(NOW - h * 3600e3).toISOString();
@@ -555,10 +555,10 @@ test("a design card links its design artifact", () => {
   assert.equal(card.designUrl, "https://claude.ai/artifact/abc123");
 });
 
-// ---- Approve, Un-approve and Land: the ship.yml version gate and the label lists.
+// ---- Approve, Un-approve and Land: the ship.yml version gate, Land's mapping and the label lists.
 
-const shipFile = (first, branch = "main") =>
-  `${first}\n# Installed by /ship:setup-ship.\nname: Ship\n\non:\n  pull_request:\n    types: [opened]\n  push:\n    branches: [${branch}]\n  workflow_dispatch:\n`;
+const shipFile = (first) =>
+  `${first}\n# Installed by /ship:setup-ship.\nname: Ship\n\non:\n  pull_request_target:\n    types: [opened, labeled, unlabeled, synchronize]\n`;
 
 test("ship.yml's version comes from its first line: 1, 2 and 3 read as such", () => {
   assert.equal(shipYml(shipFile("# ship.yml version: 1")).version, 1);
@@ -574,8 +574,30 @@ test("a missing ship.yml, or one whose first line isn't the version line, has no
   assert.equal(shipYml("name: Ship\n# ship.yml version: 2\n").version, null, "only the first line counts");
 });
 
-test("actions are enabled from ship.yml version 2 on, never for 1, missing or malformed", () => {
-  assert.deepEqual([1, 2, 3, null].map(actionsEnabled), [false, true, true, false]);
+test("actions are enabled from ship.yml version 3 on, never for 1, 2, missing or malformed", () => {
+  assert.equal(MIN_SHIP_VERSION, 3);
+  assert.deepEqual([1, 2, 3, 4, null, 3.5].map(actionsEnabled), [false, false, true, true, false, false]);
+});
+
+test("Land maps to /ship:land with the PRs the board shows carrying ship, in number order", () => {
+  const prs = [
+    pr(7, ["pr-reviewed", "ship"]),
+    pr(3, ["ship"], { updated: hoursAgo(30) }),
+    pr(4, ["ship"], { draft: true }),
+    { ...pr(5, ["pr-reviewed"]), body: REVIEW },
+    pr(6, ["ship"], { state: "closed", merged: true, merged_at: hoursAgo(5) }),
+  ];
+  const cards = toCards("acme/app", [issue(1, ["spec:ready"])], prs, {}, NOW);
+  assert.deepEqual(landFor(cards, 3), { label: "Land", command: "/ship:land", prs: [3, 4, 7] });
+  assert.deepEqual(LAND, { label: "Land", command: "/ship:land" });
+});
+
+test("Land is off below version 3, and when no PR on the board carries ship", () => {
+  const cards = toCards("acme/app", [], [pr(7, ["pr-reviewed", "ship"])], {}, NOW);
+  for (const version of [1, 2, null]) assert.deepEqual(landFor(cards, version), { off: "version" }, String(version));
+  assert.deepEqual(landFor(toCards("acme/app", [], [{ ...pr(5, ["pr-reviewed"]), body: REVIEW }], {}, NOW), 3), { off: "no-ship" });
+  assert.deepEqual(landFor([], 4), { off: "no-ship" });
+  assert.deepEqual(landFor(undefined, 3), { off: "no-ship" });
 });
 
 test("Approve writes the PR's labels plus ship, once; Un-approve writes them without it", () => {
@@ -623,25 +645,6 @@ test("a reviewed PR's card offers Approve, a ship PR's card Un-approve, others n
     7: ["landed", null],
   });
   assert.deepEqual(toCards("acme/app", [], [pr(1, ["pr-reviewed", "spec:in-review"])], {}, NOW)[0].labels, ["pr-reviewed", "spec:in-review"]);
-});
-
-test("ship.yml names the default branch in its push trigger, as setup-ship writes it", () => {
-  assert.equal(shipYml(shipFile("# ship.yml version: 2", "trunk")).defaultBranch, "trunk");
-  assert.equal(shipYml(shipFile("# ship.yml version: 2", "'release/1.x'")).defaultBranch, "release/1.x");
-  assert.equal(shipYml("# ship.yml version: 2\non:\n  workflow_dispatch:\n").defaultBranch, null);
-  assert.equal(shipYml(null).defaultBranch, null);
-});
-
-test("the landing run is the newest workflow_dispatch run created since the click", () => {
-  const click = Date.parse("2026-11-23T12:00:00Z");
-  const run = (id, at, event = "workflow_dispatch") => ({ id, event, created_at: at, html_url: `https://github.com/acme/app/actions/runs/${id}` });
-  assert.deepEqual(landingRun({ workflow_runs: [run(2, "2026-11-23T12:00:03Z"), run(1, "2026-11-23T11:00:00Z")] }, click),
-    { id: 2, url: "https://github.com/acme/app/actions/runs/2" });
-  assert.equal(landingRun({ workflow_runs: [run(1, "2026-11-23T11:59:00Z")] }, click), null, "an earlier run isn't this one");
-  assert.equal(landingRun({ workflow_runs: [run(3, "2026-11-23T11:59:58Z")] }, click)?.id, 3, "a few seconds of clock skew are allowed");
-  assert.equal(landingRun({ workflow_runs: [run(4, "2026-11-23T12:00:03Z", "push")] }, click), null);
-  assert.equal(landingRun({ workflow_runs: [{ ...run(5, "2026-11-23T12:00:03Z"), html_url: "javascript:alert(1)" }] }, click), null);
-  assert.equal(landingRun(undefined, click), null);
 });
 
 // ---- Who may be approved: prAction, on a card's PR and again on the fresh read before a write.
@@ -741,17 +744,6 @@ test("writeError names the connector that refused, and where to look, for a sess
   assert.match(remote("timeout"), /^No clear answer from Claude Code Remote \(timeout\): it may have gone through\. Check your sessions at claude\.ai\/code before/);
   assert.match(writeError({ code: "needs_reauth" }, { verb: "approve" }), /^Reconnect GitHub/);
   assert.match(writeError({ code: "timeout" }, { verb: "approve" }), /^No clear answer from GitHub \(timeout\).*Check the page after it refreshes before/);
-});
-
-// ---- ship.yml's push block.
-
-test("ship.yml: the default branch is read only inside the push block; a list elsewhere doesn't count", () => {
-  const other = "# ship.yml version: 2\non:\n  push:\n    paths: [src]\n  pull_request:\n    branches: [develop]\n";
-  assert.equal(shipYml(other).defaultBranch, null, "pull_request's branches aren't push's");
-  const multi = "# ship.yml version: 2\non:\n  push:\n    branches:\n      - main\n";
-  assert.equal(shipYml(multi).defaultBranch, null, "no inline list: no branch, Land stays off");
-  const after = "# ship.yml version: 2\non:\n  push:\n\n    # trunk only\n    branches: [trunk]\njobs:\n  x:\n    branches: [nope]\n";
-  assert.equal(shipYml(after).defaultBranch, "trunk", "blank and comment lines stay inside the block");
 });
 
 // ---- Run a skill: the command a card's button starts a cloud session with.

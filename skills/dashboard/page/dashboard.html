@@ -188,6 +188,8 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
 .land-msg a { color: var(--accent); }
 .land-msg code { font-family: var(--font-mono); color: var(--fg); }
 .land-msg.act-error { color: var(--danger); }
+.land-msg.act-done { color: var(--good); }
+.project a.btn { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; color: var(--accent); }
 
 @media (max-width: 720px) {
   .board { grid-template-columns: minmax(0, 1fr); }
@@ -336,7 +338,7 @@ dialog.sheet::backdrop { background: rgb(0 0 0 / 0.45); }
   // The connector tools this page calls. Keep in step with the `mcp` capabilities in SKILL.md
   // (build.test.mjs checks they match).
   const CONNECTORS = {
-    github: { server: "github", tools: ["list_issues", "list_pull_requests", "pull_request_read", "get_file_contents", "issue_read", "issue_write", "actions_run_trigger", "actions_list"] },
+    github: { server: "github", tools: ["list_issues", "list_pull_requests", "pull_request_read", "get_file_contents", "issue_read", "issue_write"] },
     remote: { server: "Claude Code Remote", tools: ["list_repos", "list_environments", "create_session"] },
   };
   const GH = CONNECTORS.github.server;
@@ -679,7 +681,7 @@ dialog.sheet::backdrop { background: rgb(0 0 0 / 0.45); }
     readShip(load);
   }
 
-  // ---- The ship.yml gate: actions need version 2 or later on the default branch, as /ship:land does.
+  // ---- The ship.yml gate: actions need version 3 or later on the default branch, as /ship:land does.
   // Read once per project load, and again on Refresh, so a just-merged upgrade counts.
   const SHIP_YML = ".github/workflows/ship.yml";
   function readShip(load) {
@@ -691,14 +693,15 @@ dialog.sheet::backdrop { background: rgb(0 0 0 / 0.45); }
       (e) => settle(isMissingFile(e) ? { phase: "ready", ...shipYml(null) } : { phase: "failed", code: codeOf(e) }));
   }
 
-  // Whether a project's actions can run, and if not, the note that says why. tool: the write it needs.
+  // Whether a project's actions can run, and if not, the note that says why. tool: the GitHub write it
+  // needs (none for Land, whose session start is gated by Claude Code Remote's tools instead).
   function gateOf(full, tool) {
     const ship = loads.get(full)?.ship ?? { phase: "loading" };
-    if (!state.tools.github.has(tool)) return { ok: false, note: [`Your GitHub connector has no ${tool}, so this can't run from here.`] };
+    if (tool && !state.tools.github.has(tool)) return { ok: false, note: [`Your GitHub connector has no ${tool}, so this can't run from here.`] };
     if (ship.phase === "loading") return { ok: false, note: ["Checking ship.yml…"] };
     if (ship.phase === "failed") return { ok: false, note: [`Couldn't read ship.yml (${ship.code}): Refresh to try again.`] };
     if (!actionsEnabled(ship.version)) {
-      const what = ship.version == null ? "No ship.yml version 2 or later on the default branch" : `ship.yml is version ${ship.version}`;
+      const what = ship.version == null ? `No ship.yml version ${MIN_SHIP_VERSION} or later on the default branch` : `ship.yml is version ${ship.version}`;
       return { ok: false, note: [`${what}: run `, el("code", { text: "/ship:setup-ship" }), " to upgrade."] };
     }
     return { ok: true };
@@ -717,18 +720,16 @@ dialog.sheet::backdrop { background: rgb(0 0 0 / 0.45); }
     setTimeout(() => { region.textContent = text; }, 50);
   }
 
-  // The page's only writes. Its capability grants the whole issue_write and actions_run_trigger
-  // tools (a capability can't be narrowed to methods), so the page holds itself to issue_write's
-  // update with labels and actions_run_trigger's run_workflow on ship.yml, here and nowhere else
-  // (build.test.mjs checks every call site).
+  // The page's only GitHub writes. Its capability grants the whole issue_write tool (a capability
+  // can't be narrowed to methods), so the page holds itself to issue_write's update with labels, here
+  // and nowhere else (build.test.mjs checks every call site). Its other write, a session start, is
+  // startSession's one create_session.
   const WRITES = {
     issue_write: { method: "update", keys: ["method", "owner", "repo", "issue_number", "labels"] },
-    actions_run_trigger: { method: "run_workflow", keys: ["method", "owner", "repo", "workflow_id", "ref"], workflow_id: "ship.yml" },
   };
   async function callWrite(tool, input, verb) {
     const allowed = WRITES[tool];
-    const ok = allowed && input.method === allowed.method && Object.keys(input).every((k) => allowed.keys.includes(k)) &&
-      (!allowed.workflow_id || input.workflow_id === allowed.workflow_id);
+    const ok = allowed && input.method === allowed.method && Object.keys(input).every((k) => allowed.keys.includes(k));
     if (!ok) throw { shown: `This page doesn't ${verb} that way.` };
     try {
       return await state.mcp.callTool(GH, tool, input, { cache: false });
@@ -811,7 +812,7 @@ dialog.sheet::backdrop { background: rgb(0 0 0 / 0.45); }
   }
 
   const LABEL_ACTION = {
-    approve: { idle: "Approve", running: "Approving…", hint: "Adds ship: it lands with the next landing run" },
+    approve: { idle: "Approve", running: "Approving…", hint: "Adds ship: it lands with the next /ship:land" },
     "review-first": { idle: "Approve", running: "Approving…", hint: "" },
     unapprove: { idle: "Un-approve", running: "Un-approving…", hint: "Removes ship: it won't land until approved again" },
   };
@@ -840,37 +841,9 @@ dialog.sheet::backdrop { background: rgb(0 0 0 / 0.45); }
     });
   }
 
-  // Land: one actions_run_trigger dispatching ship.yml on the default branch, as /ship:land does.
-  // Then its run is looked for a few times over about ten seconds (reads, through the pool); if it
-  // hasn't appeared, the row says "dispatched" without a link.
-  const RUN_LOOKS = 4;
-  const RUN_WAIT = 2500;
-  function landAction(full) {
-    const branch = loads.get(full)?.ship?.defaultBranch;
-    if (!branch) return;
-    const { owner, repo } = splitRepo(full);
-    runAction(`land:${full}`, "land", full, { label: full, running: "Starting a landing run on" }, async () => {
-      const clickedAt = Date.now();
-      await callWrite("actions_run_trigger", { method: "run_workflow", owner, repo, workflow_id: "ship.yml", ref: branch }, "start a landing run");
-      const said = `Landing run started on ${full}`;
-      if (!state.tools.github.has("actions_list")) return { text: `Dispatched on ${branch}.`, said };
-      for (let i = 0; i < RUN_LOOKS; i += 1) {
-        await sleep(RUN_WAIT);
-        try {
-          const runs = await readOnce("actions_list", { method: "list_workflow_runs", owner, repo, resource_id: "ship.yml", workflow_runs_filter: { event: "workflow_dispatch" }, perPage: 1 }, { cache: false });
-          const run = landingRun(runs.payload, clickedAt);
-          if (run) return { text: "Landing run started:", url: run.url, said };
-        } catch {
-          // Only the link is missing: the dispatch went through.
-        }
-      }
-      return { text: `Dispatched on ${branch}. The run hasn't shown up yet: see the repo's Actions tab.`, said };
-    });
-  }
-
-  // ---- Run a skill: a card's button starts a Claude cloud session on its repo, through Claude Code
-  // Remote, with the skill's command (board.mjs's skillFor) as its first message. One create_session
-  // per click, never retried: a failed start may still have made a session.
+  // ---- Run a skill: a card's button, or a project row's Land, starts a Claude cloud session on its
+  // repo, through Claude Code Remote, with the skill's command (board.mjs's skillFor, or LAND) as its
+  // first message. One create_session per click, never retried: a failed start may still have made a session.
   const SESSION_TOOLS = ["list_environments", "create_session"];
   const sessionsOn = () => SESSION_TOOLS.every((t) => state.tools.remote.has(t));
   const SESSIONS_URL = "https://claude.ai/code";
@@ -888,6 +861,7 @@ dialog.sheet::backdrop { background: rgb(0 0 0 / 0.45); }
     }
   }
 
+  // card: what the session is for, as skillTarget or landTarget give it: { project, label }.
   async function startSession(card, skill, env) {
     let result;
     try {
@@ -901,17 +875,19 @@ dialog.sheet::backdrop { background: rgb(0 0 0 / 0.45); }
       throw remoteFailure(e, "start a session");
     }
     const link = sessionLink(result);
-    const said = `Session started for #${card.number} in ${env.name}`;
+    const said = `Session started for ${card.label} in ${env.name}`;
     return link ? { text: `Started in ${env.name}`, url: link.url, said } : { text: `Started in ${env.name}: its link didn't come back, so find it among your sessions.`, url: SESSIONS_URL, said };
   }
 
   // The environment chosen for a project, per viewer: { id, name }, or null when none is chosen yet.
-  // Without browser storage the store's in-memory copy remembers it only until the page is closed.
+  // Cards and Land share it. Without browser storage the store's in-memory copy remembers it only until
+  // the page is closed.
   const envKey = (full) => `env:${full.toLowerCase()}`;
-  // A card's run-a-skill button and its "change" button, as data-keys and action keys.
-  const skillKey = (card) => `skill:${card.project}#${card.number}`;
-  const envChangeKey = (card) => `envchange:${card.project}#${card.number}`;
   const storedEnv = (full) => { const v = store.get(envKey(full), null); return typeof v?.id === "string" ? v : null; };
+  // What a session starts for: its repo, the words that name it, and its button's and "change" button's
+  // data-keys (also the action keys).
+  const skillTarget = (card) => ({ project: card.project, label: `#${card.number}`, key: `skill:${card.project}#${card.number}`, changeKey: `envchange:${card.project}#${card.number}` });
+  const landTarget = (full) => ({ project: full, label: full, key: `land:${full}`, changeKey: `envchange:land:${full}` });
 
   // The picker: the viewer's environments, the current choice (else board.mjs's preselection) checked
   // and the preselected one tagged. → the chosen environment, or null when closed without one.
@@ -964,38 +940,38 @@ dialog.sheet::backdrop { background: rgb(0 0 0 / 0.45); }
   }
 
   // The skill action whose environment is being settled (environments read, picker open): board.mjs's
-  // singleFlight, held by its skill key. While one is, every other skill or "change" click is refused
-  // and said so, and the other skill buttons are aria-disabled, so two clicks in quick succession never
+  // singleFlight, held by its target's key. While one is, every other skill, Land or "change" click is
+  // refused and said so, and the other buttons are aria-disabled, so two clicks in quick succession never
   // share the one picker (one submit would start both).
   const choosing = singleFlight();
-  const cardOfKey = (key) => key.replace(/^skill:/, "");
+  const targetOfKey = (key) => key.replace(/^(skill|land):/, "");
 
-  // A run-a-skill click starts at once in the project's stored environment while it still exists;
-  // otherwise (first run, environment gone) the picker asks first. change: only pick and store,
-  // start nothing.
-  function skillAction(card, skill, { change = false } = {}) {
-    const key = skillKey(card);
+  // A run-a-skill click (a card's, or Land's) starts at once in the project's stored environment while
+  // it still exists; otherwise (first run, environment gone) the picker asks first. target: skillTarget
+  // or landTarget. change: only pick and store, start nothing.
+  function skillAction(target, skill, { change = false } = {}) {
+    const key = target.key;
     if (actions.get(key)?.status === "running") return;
     if (!choosing.tryEnter(key)) {
       const other = choosing.holder();
-      if (other !== key) announce(`Choosing an environment for ${cardOfKey(other)} first`);
+      if (other !== key) announce(`Choosing an environment for ${targetOfKey(other)} first`);
       return;
     }
-    const opener = change ? envChangeKey(card) : key;
-    const meta = { label: `#${card.number}` };
-    runAction(key, "skill", card.project, meta, async () => {
+    const opener = change ? target.changeKey : key;
+    const meta = { label: target.label };
+    runAction(key, "skill", target.project, meta, async () => {
       let env;
       try {
         const envs = await environments();
         if (!envs.length) throw { shown: "You have no Claude Code environment to run it in: create one at claude.ai/code, then try again." };
-        env = change ? null : envs.find((e) => e.environment_id === storedEnv(card.project)?.id);
+        env = change ? null : envs.find((e) => e.environment_id === storedEnv(target.project)?.id);
         if (!env) {
           actions.set(key, { kind: "skill", status: "running", choosing: true, ...meta });
           scheduleRender();
-          env = await pickEnvironment(card.project, envs, { starting: !change, opener });
+          env = await pickEnvironment(target.project, envs, { starting: !change, opener });
           if (!env) return null;
-          store.set(envKey(card.project), { id: env.environment_id, name: env.name });
-          if (change) { announce(`Sessions on ${card.project} run in ${env.name || env.environment_id}`); return null; }
+          store.set(envKey(target.project), { id: env.environment_id, name: env.name });
+          if (change) { announce(`Sessions on ${target.project} run in ${env.name || env.environment_id}`); return null; }
           actions.set(key, { kind: "skill", status: "running", ...meta });
           scheduleRender();
         }
@@ -1004,39 +980,44 @@ dialog.sheet::backdrop { background: rgb(0 0 0 / 0.45); }
         scheduleRender();
       }
       announce(`Starting ${skill.command} in ${env.name || env.environment_id}`);
-      return startSession(card, skill, env);
+      return startSession(target, skill, env);
     }, { refetch: false });
   }
 
+  // A started session's link, in its button's place (same data-key, so focus moves to it).
+  function openSession(key, url, cls = "") {
+    const text = url === SESSIONS_URL ? "Open sessions" : "Open session";
+    return el("a", { class: `btn session-link ${cls}`.trim(), href: url, target: "_blank", rel: "noopener noreferrer", "data-key": key, "aria-label": `${text} (opens in a new tab)`, text });
+  }
+
+  // The project's stored environment, and "change" to pick again (no line until there's a stored choice).
+  // off: aria-disabled (its click still reaches skillAction, which says why it can't run yet).
+  function envLine(target, skill, off, cls = "env-line") {
+    const env = storedEnv(target.project);
+    if (!env) return null;
+    const change = el("button", { class: "linklike", type: "button", "data-key": target.changeKey, "aria-label": `Change the environment for ${target.project}`, text: "change" });
+    if (off) change.setAttribute("aria-disabled", "true");
+    change.addEventListener("click", () => skillAction(target, skill, { change: true }));
+    return el("p", { class: cls }, el("span", { text: `Runs in ${env.name || env.id}` }), change);
+  }
+
   // A card's run-a-skill button (actionButton, so a pointer click just after the cards moved is
-  // held back like Approve's); once started, the "Open session" link in its place (same data-key,
-  // so focus moves to it). Hidden without Claude Code Remote's session tools.
+  // held back like Approve's); once started, the "Open session" link in its place. Hidden without
+  // Claude Code Remote's session tools.
   function renderSkill(card) {
     const skill = skillFor(card);
     if (!skill || !sessionsOn()) return [];
-    const key = skillKey(card);
+    const target = skillTarget(card);
+    const key = target.key;
     const act = actions.get(key);
-    if (act?.status === "done") {
-      const text = act.url === SESSIONS_URL ? "Open sessions" : "Open session";
-      return [el("a", { class: "btn session-link", href: act.url, target: "_blank", rel: "noopener noreferrer", "data-key": key, "aria-label": `${text} (opens in a new tab)`, text }),
-        el("p", { class: "act-done", text: act.text })];
-    }
+    if (act?.status === "done") return [openSession(key, act.url), el("p", { class: "act-done", text: act.text })];
     const running = act?.status === "running";
-    // Another card's environment is being chosen: this one waits (aria-disabled, its click announced).
+    // Another environment is being chosen: this one waits (aria-disabled, its click announced).
     const waiting = choosing.holder() !== null && choosing.holder() !== key;
     const [button] = actionButton({ key, text: running && !act.choosing ? "Starting…" : skill.label, busy: running,
       waiting,
-      hint: `Start a Claude session on ${card.project} running ${skill.command}`, onClick: () => skillAction(card, skill) });
-    // The stored environment, and "change" to pick again (no line until there's a stored choice).
-    const env = storedEnv(card.project);
-    let line = null;
-    if (env) {
-      const change = el("button", { class: "linklike", type: "button", "data-key": envChangeKey(card), "aria-label": `Change the environment for ${card.project}`, text: "change" });
-      if (running || waiting) change.setAttribute("aria-disabled", "true");
-      change.addEventListener("click", () => skillAction(card, skill, { change: true }));
-      line = el("p", { class: "env-line" }, el("span", { text: `Runs in ${env.name || env.id}` }), change);
-    }
-    return [button, line, act?.status === "error" ? el("p", { class: "act-error", text: act.text }) : null];
+      hint: `Start a Claude session on ${card.project} running ${skill.command}`, onClick: () => skillAction(target, skill) });
+    return [button, envLine(target, skill, running || waiting), act?.status === "error" ? el("p", { class: "act-error", text: act.text }) : null];
   }
 
   // Land asks first, in place: "Land 2 PRs: #4, #7?" with Confirm and Cancel, listing the PRs the
@@ -1044,22 +1025,32 @@ dialog.sheet::backdrop { background: rgb(0 0 0 / 0.45); }
   const confirming = new Map(); // project -> when it opened (performance.now()): Confirm ignores keys until SETTLE after
   let focusNext = null; // a data-key to focus after the next paint (Cancel hands focus back to Land)
 
-  // A project row's Land button and the line under it: the question, progress, the run link, the error or the gate.
+  // A project row's Land and the line under it: the question, the gate, the error, or the stored
+  // environment. Land starts /ship:land in a Claude cloud session on the repo (board.mjs's landFor,
+  // through skillAction, as a card's skill button does), and once started links the session in its
+  // place. Hidden without Claude Code Remote's session tools; off until ship.yml is version 3 or later
+  // and while no PR on the board carries ship.
   function renderLand(full) {
-    const key = `land:${full}`;
+    if (!sessionsOn()) return [];
+    const target = landTarget(full);
+    const key = target.key;
     const act = actions.get(key);
-    let gate = gateOf(full, "actions_run_trigger");
-    const branch = loads.get(full)?.ship?.defaultBranch;
-    if (gate.ok && !branch) gate = { ok: false, note: ["ship.yml's push trigger names no branch as a list (branches: [main]), so the page can't tell where to land: run ", el("code", { text: "/ship:setup-ship" }), " to upgrade."] };
+    if (act?.status === "done") {
+      return [openSession(key, act.url, "small land"), el("p", { class: "land-msg act-done", text: act.text })];
+    }
+    const gate = gateOf(full, null);
+    const land = gate.ok ? landFor(cardsOf(full), loads.get(full)?.ship?.version) : null;
+    let off = gate.ok ? null : gate.note;
+    if (land?.off) off = ["No PR here carries ship: approve one first."];
     const running = act?.status === "running";
-    if (!gate.ok || running) confirming.delete(full);
+    const waiting = choosing.holder() !== null && choosing.holder() !== key;
+    if (off || running || waiting) confirming.delete(full);
     if (confirming.has(full)) {
-      const shipped = cardsOf(full).filter((c) => c.kind === "pr" && c.action === "unapprove").sort((a, b) => a.number - b.number);
-      const question = shipped.length ? `Land ${plural(shipped.length, "PR")}: ${shipped.map((c) => `#${c.number}`).join(", ")}?` : "No PR on the board carries ship here. Start a landing run anyway?";
+      const question = `Land ${plural(land.prs.length, "PR")}: ${land.prs.map((n) => `#${n}`).join(", ")}?`;
       // Enter on Land moves focus to Confirm (same data-key), so a held or doubled Enter would land:
       // Confirm ignores key repeats, and keyboard clicks for SETTLE after it opens.
-      const [confirm] = actionButton({ key, text: "Confirm", primary: true, small: true, hint: `Start ship.yml on ${branch}`,
-        keysFrom: confirming.get(full) + SETTLE, onClick: () => { confirming.delete(full); landAction(full); } });
+      const [confirm] = actionButton({ key, text: "Confirm", primary: true, small: true, hint: `Start a Claude session on ${full} running ${land.command}`,
+        keysFrom: confirming.get(full) + SETTLE, onClick: () => { confirming.delete(full); skillAction(target, land); } });
       const cancelIt = () => { confirming.delete(full); focusNext = key; scheduleRender(); };
       const [cancel] = actionButton({ key: `land-cancel:${full}`, text: "Cancel", small: true, hint: "Don't land", settle: false, onClick: cancelIt });
       const askId = `ask-${key.replace(/[^\w-]/g, "_")}`;
@@ -1068,21 +1059,19 @@ dialog.sheet::backdrop { background: rgb(0 0 0 / 0.45); }
       group.addEventListener("keydown", (ev) => { if (ev.key === "Escape") { ev.preventDefault(); cancelIt(); } });
       return [group, el("p", { class: "land-msg", id: askId }, question)];
     }
-    const [button, note] = actionButton({ key, text: running ? "Starting…" : "Land", small: true, busy: running, noteClass: "land-msg",
-      hint: `Start ship.yml on ${branch}: it lands every approved PR that targets ${branch}`, off: gate.ok ? null : gate.note,
+    const [button, note] = actionButton({ key, text: running && !act.choosing ? "Starting…" : LAND.label, small: true, busy: running, waiting, noteClass: "land-msg",
+      hint: `Start a Claude session on ${full} running ${LAND.command}: it lands every PR carrying ship`, off,
       onClick: () => {
+        const other = choosing.holder();
+        if (other !== null) { announce(`Choosing an environment for ${targetOfKey(other)} first`); return; }
         confirming.set(full, performance.now());
         settleUntil = performance.now() + SETTLE; // a double click doesn't confirm
-        const shipped = cardsOf(full).filter((c) => c.kind === "pr" && c.action === "unapprove").length;
-        announce(`Land ${full}: ${shipped ? plural(shipped, "approved PR") : "no approved PR shown"}. Confirm or cancel.`);
+        announce(`Land ${full}: ${plural(land.prs.length, "approved PR")}. Confirm or cancel.`);
         scheduleRender();
       } });
     button.classList.add("land");
-    let msg = note;
-    if (!msg && act?.status === "error") msg = el("p", { class: "land-msg act-error", text: act.text });
-    else if (!msg && act?.status === "done") msg = el("p", { class: "land-msg" }, act.text, act.url ? " " : null,
-      act.url ? el("a", { href: act.url, target: "_blank", rel: "noopener noreferrer", text: "open the run", "data-key": `run:${full}` }) : null);
-    return [button, msg];
+    const error = act?.status === "error" ? el("p", { class: "land-msg act-error", text: act.text }) : null;
+    return [button, note ?? error, off ? null : envLine(target, LAND, running || waiting, "land-msg env-line")];
   }
 
   function stopProject(full) {

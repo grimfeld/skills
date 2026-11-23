@@ -352,37 +352,34 @@ export function morningPage(comments) {
   return best;
 }
 
-// ---- Actions: Approve, Un-approve and Land, as /ship:land does them (skills/land/SKILL.md, step 1).
+// ---- Actions: Approve and Un-approve, as /ship:land does them (skills/land/SKILL.md), and Land,
+// which starts /ship:land itself.
 
 // setup-ship's .github/workflows/ship.yml (skills/setup-ship/templates/ship.yml): its first line is
-// "# ship.yml version: N", and its push trigger names the default branch ("branches: [main]"),
-// the value setup-ship's upgrade reads back too. text: the file, or null when it is missing.
-// → { version (a number, or null when missing or the first line isn't a version line), defaultBranch (or null) }
+// "# ship.yml version: N". text: the file, or null when it is missing.
+// → { version (a number, or null when missing or the first line isn't a version line) }
 export function shipYml(text) {
-  const lines = String(text ?? "").split(/\r?\n/);
-  const version = lines[0]?.match(/^#\s*ship\.yml version:\s*(\d+)\s*$/);
-  return { version: version ? Number(version[1]) : null, defaultBranch: pushBranch(lines) };
+  const first = String(text ?? "").split(/\r?\n/)[0];
+  const version = first.match(/^#\s*ship\.yml version:\s*(\d+)\s*$/);
+  return { version: version ? Number(version[1]) : null };
 }
 
-// The inline "branches: [x]" inside the "push:" trigger's block, which ends at the next line indented
-// no deeper than "push:" (blank and comment lines don't end it). Without an inline list there, no
-// branch: Land stays off rather than taking another trigger's branches. → the first branch, or null.
-const indent = (l) => l.match(/^\s*/)[0].length;
-function pushBranch(lines) {
-  const at = lines.findIndex((l) => /^\s+push:\s*(#.*)?$/.test(l));
-  if (at < 0) return null;
-  for (const l of lines.slice(at + 1)) {
-    if (!l.trim() || l.trim().startsWith("#")) continue;
-    if (indent(l) <= indent(lines[at])) return null;
-    if (/^\s+branches:/.test(l)) return l.match(/branches:\s*\[\s*["']?([^"',\]\s]+)["']?/)?.[1] ?? null;
-  }
-  return null;
-}
-
-// Version 2 is the first where `ship` only approves and a landing run lands: older ones land a PR as
-// soon as it's labelled. So every action needs 2 or later, as /ship:land does.
-export const MIN_SHIP_VERSION = 2;
+// Version 3 is the first where nothing in the repository lands a PR: /ship:land merges every `ship` PR
+// itself. On version 2, Approve's `ship` would land through auto-merge, and /ship:land refuses to run.
+// So every action needs 3 or later, as /ship:land does.
+export const MIN_SHIP_VERSION = 3;
 export const actionsEnabled = (version) => Number.isInteger(version) && version >= MIN_SHIP_VERSION;
+
+// Land: a project row's button starts a Claude cloud session on the repo running /ship:land, which
+// lands every PR carrying `ship` (no arguments: it adds `ship` to none). cards: the project's toCards
+// cards; version: shipYml's. → { label, command, prs (the open PRs the board shows carrying ship, by
+// number) }, or { off: "version" } below MIN_SHIP_VERSION, or { off: "no-ship" } when no card carries ship.
+export const LAND = { label: "Land", command: "/ship:land" };
+export function landFor(cards, version) {
+  if (!actionsEnabled(version)) return { off: "version" };
+  const prs = (cards ?? []).filter((c) => c?.kind === "pr" && c.action === "unapprove").map((c) => c.number).sort((a, b) => a - b);
+  return prs.length ? { ...LAND, prs } : { off: "no-ship" };
+}
 
 // issue_write's `labels` replaces a PR's whole label list, so a label change sends every label it
 // keeps. labels: as the connector lists them (names or { name }). → the full list to write.
@@ -407,7 +404,7 @@ export function labelWrite(card, fresh) {
   return { labels: now === "approve" ? approveLabels(fresh.labels) : unapproveLabels(fresh.labels) };
 }
 
-// The words for a failed write (issue_write, actions_run_trigger or create_session), by the
+// The words for a failed write (issue_write or create_session), by the
 // connector's error code. Only the codes listed here mean the write surely didn't happen; any other
 // (a timeout, an upstream error, a code added later) may have run, and says so. context: { verb, who,
 // check }: verb, what was tried ("approve"); who, the connector that refused (GitHub unless named);
@@ -451,17 +448,6 @@ export function fileText(result) {
     }
   }
   return null;
-}
-
-// actions_list's list_workflow_runs for ship.yml, newest first: the run a Land click started is the
-// newest workflow_dispatch run created after the click (less a few seconds for clock skew between
-// this device and GitHub). → { id, url (on github.com) } or null when it hasn't appeared yet.
-const RUN_SKEW = 5e3;
-export function landingRun(payload, clickedAt) {
-  const runs = Array.isArray(payload) ? payload : payload?.workflow_runs ?? [];
-  const run = runs.find((r) => r?.event === "workflow_dispatch" && Date.parse(r.created_at) >= clickedAt - RUN_SKEW);
-  const url = run && safeUrl(run.html_url, ["github.com"]);
-  return url ? { id: run.id, url } : null;
 }
 
 // ---- Run a skill: a card that needs a ship skill starts a Claude cloud session on its repo with the
