@@ -87,11 +87,11 @@ The agent-facing detail (`evidence`, `verification`, `sources`, `confidence`) is
 | `runs[].mode` | `full` or `fix-round` (only the fix diff was re-checked, see SKILL.md "Fix round"). Absent means `full`. |
 | `ci.status` | `passing`, `failing`, `pending`, `no-checks` (a PR whose only checks are the `ship` status and the Ship workflow's jobs) or `none` (not a PR). `failing` lists `{name, url}`; with no names it renders "CI failing" and `note`. |
 | `lenses[].status` | `ran`, `skipped`, `failed`, `stale` (ran with a lens whose upstream drifted, not synced) or `unverified` (ran as written; the drift check couldn't compare). `stale` and `unverified` lenses show in the reviewer table with their note. |
-| `lenses[].note` | Free text. For an `unverified` lens it starts `reason: <r>` (the reason `check-drift.py` printed); step 5 adds `agent: <type>` after it, separated by `; `. |
+| `lenses[].note` | Free text. For an `unverified` lens it starts `reason: <r>` (the reason `check-drift.py` printed); a fix-round run that fell back to a full review adds `full review: <reason>`; step 5 adds `agent: <type>` last. Parts are separated by `; `. |
 | `findings[].id` | `F<n>`, assigned once and never reused. A finding keeps its id across runs. |
 | `severity` | From `references/finding-format.md`. |
 | `status` | `open` or `fixed`. Set `fixed` with `fixed_in` = the run date when a re-run no longer finds it. |
-| `fix_kind` | Optional. `"property"` when the finding is about an algorithm's output over a space of inputs (set at verify): it is fixed when a seeded property test for it passes, not when the reported example does. Absent otherwise. |
+| `fix_kind` | Optional. `"property"` when the finding is about an algorithm's output over a space of inputs (set at verify): it is fixed when a seeded property test for it passes, not when the reported example does. The property itself is named in `fix`. Absent or `null` otherwise. |
 | `options` | Optional. Set at verify (step 7) only for a finding whose fix is a choice for a person, or would change a line the spec settles: two to four `{ "name", "what" }`, the recommended one first. Absent or `null` otherwise. |
 | `spec_line` | Optional. The quoted spec line the suggested fix would change, when that is why `options` is set. |
 | `decision.state` | `pending`, `approved`, `rejected`, `deferred` or `needs-person` (unattended only: a blocker or major with `options`, left for a person; the report shows "needs a person: <option names>"). `needs-person` is not a decision: the next attended run asks it (step 9) and replaces it with the answer. Rejected findings are never resurfaced: on a re-run, a new finding matching a rejected one (same root cause, same place) is discarded. |

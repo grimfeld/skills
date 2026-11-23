@@ -35,7 +35,7 @@ The argument `unattended` means no person is present, for example during a night
   - Every blocker and major still `pending` (or `needs-person`) is `approved`, with the reason "unattended: fix before merge", except one with `options`: that one is `needs-person`, and `decision.reason` is "contradicts the spec's '<spec_line>'" when it has a `spec_line`, otherwise "a choice for a person". A decision a person already made (approved, rejected or deferred) is kept.
   - Minors and nits stay `pending`, for the person who reviews the PR.
 - **Spec and tickets (step 10):** skip it. The caller fixes approved findings on the branch itself.
-- **Hand off (step 11.3):** end with the approved findings as a list of ids, titles, locations and fixes. Then, only when there are any, a separate "Needs a person" list: each `needs-person` finding's id, title, options and the spec line it contradicts, if any. Don't suggest a next command.
+- **Hand off (step 11.3):** end with the approved findings as a list of ids, titles, locations and fixes, marking each `fix_kind: "property"` finding `property: <the property its fix names>`. Then, only when there are any, a separate "Needs a person" list: each `needs-person` finding's id, title, options and the spec line it contradicts, if any. Don't suggest a next command.
 
 GitHub: `${CLAUDE_PLUGIN_ROOT}/references/github.md` says what to use when `gh` isn't available, as in some cloud sessions.
 
@@ -43,7 +43,7 @@ GitHub: `${CLAUDE_PLUGIN_ROOT}/references/github.md` says what to use when `gh` 
 
 The argument `fix-round` (with or without `unattended`) re-checks a fix round instead of reviewing the whole PR again. It is never chosen from state alone: a re-run after new work, without the argument, is a full review.
 
-**Fall back to a full review**, and say why in the terminal summary and in each lens's note for that run (`full review: <reason>`), when:
+**Fall back to a full review**, and say why in the terminal summary and in each lens's note for that run (`full review: <reason>`, after any `reason:` and before `agent:`), when:
 - there is no previous state for this target,
 - no finding is open with `decision.state` `approved`,
 - the previous run's head can't be resolved, or isn't an ancestor of the current head (`git merge-base --is-ancestor <previous head> <head>` fails: rebased or force-pushed), or
@@ -61,9 +61,17 @@ Read your brief: ${CLAUDE_SKILL_DIR}/lenses/<lens>.md
 Read the finding format: ${CLAUDE_SKILL_DIR}/references/finding-format.md
 Repository root to read: <REVIEW_ROOT>
 Fix diff, already saved: <absolute path of .scratch/pr-review/<id>.fix.diff> (the previous review's head to this head)
+Changed files: <the fix diff's list>
 Spec: <spec text, or "no spec available">
-Findings to confirm against the current code, one per line: <id> · <title> · <locations> · <fix> [· property: <the property>]
+<<<<<<< HEAD
+Findings to confirm against the current code, one per line: <id> · <title> · <locations> · <fix> [· property: <the property its `fix` names>, for a `fix_kind: "property"` finding]
 A finding marked property is fixed only when the fix diff adds a seeded property test that covers that property and passes; without one it is still open, whatever the reported example does.
+=======
+<web-quality only> Audit URL: <url, or "none: source-only">
+<design-fidelity only> Skill dir: ${CLAUDE_SKILL_DIR}. Audit URL: <url, or "none">. Fidelity out: <absolute path of .scratch/pr-review/<id>-fidelity/>
+Stay close to the fix diff: read it once, then the changed files and the code they directly call or are called by, using line ranges.
+Findings to confirm against the current code, one per line: <id> · <title> · <locations> · <fix>
+>>>>>>> spec/51-fix-round
 Then review only the fix diff for new problems.
 Return the coverage line, then one line per finding above: `<id>: fixed` or `<id>: still open`, each with its evidence, then the JSON findings array for new problems in the fix diff, as the finding format specifies.
 ```
