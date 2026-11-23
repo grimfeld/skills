@@ -123,6 +123,8 @@ def decision_text(f) -> str:
     s = d.get("state", "pending")
     if s == "pending":
         return ""
+    if s == "needs-person":
+        return "needs a person: " + " / ".join(o["name"] for o in f.get("options") or [])
     return s + (f": {d['reason']}" if d.get("reason") else "")
 
 

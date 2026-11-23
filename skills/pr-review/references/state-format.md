@@ -70,6 +70,8 @@ The agent-facing detail (`evidence`, `verification`, `sources`, `confidence`) is
       "lane": "in",
       "verification": "confirmed: …",
       "evidence": "…",
+      "options": null,
+      "spec_line": null,
       "decision": { "state": "pending", "reason": "", "date": "" },
       "ticket": null
     }
@@ -86,7 +88,9 @@ The agent-facing detail (`evidence`, `verification`, `sources`, `confidence`) is
 | `findings[].id` | `F<n>`, assigned once and never reused. A finding keeps its id across runs. |
 | `severity` | From `references/finding-format.md`. |
 | `status` | `open` or `fixed`. Set `fixed` with `fixed_in` = the run date when a re-run no longer finds it. |
-| `decision.state` | `pending`, `approved`, `rejected` or `deferred`. Rejected findings are never resurfaced: on a re-run, a new finding matching a rejected one (same root cause, same place) is discarded. |
+| `options` | Optional. Set at verify (step 7) only for a finding whose fix is a choice for a person, or would change a line the spec settles: two to four `{ "name", "what" }`, the recommended one first. Absent or `null` otherwise. |
+| `spec_line` | Optional. The quoted spec line the suggested fix would change, when that is why `options` is set. |
+| `decision.state` | `pending`, `approved`, `rejected`, `deferred` or `needs-person` (unattended only: a blocker or major with `options`, left for a person; the report shows "needs a person: <option names>"). Rejected findings are never resurfaced: on a re-run, a new finding matching a rejected one (same root cause, same place) is discarded. |
 | `origin` | Optional; `pre-existing` carried over from the finding format. The report tags it "already in base". |
 | `ticket` | The ticket number once tickets are written. |
 

@@ -84,6 +84,9 @@ Run `pr-review` with `<pr> unattended`, as `${CLAUDE_PLUGIN_ROOT}/references/run
 Round = fix every approved finding and every red CI check on the branch, push, wait for CI, and run `pr-review <pr> unattended` again.
 
 - A finding you think is wrong: record it in Decisions with your reason, and leave it.
+- **A `needs-person` finding** (pr-review's hand-off lists them under "Needs a person"): fix nothing for it and make no commit for it. Add a Decisions line, "finding <id> needs a person: <option names>", or "finding <id> contradicts the spec's '<quoted line>': not fixed". Run the rounds for the remaining approved findings as usual; with none left, no round is needed.
+- **Before fixing any approved finding,** check its fix against the lines the spec settles: its acceptance criteria, Out of scope, Implementation decisions, Decision records, and any "stays unchanged" or ruled-out statement. A fix that would change one is treated as `needs-person`, as above, with that line quoted.
+- A `needs-person` finding still open after the rounds is blocking, like an open major.
 - After round 2, anything still blocking makes the spec stuck. Name each blocking item and what you tried.
 - Without `unattended`, a blocking item that needs a person's decision is asked instead, as in step 2, and fixed with the answer. The two-round cap still holds: no third review round.
 
@@ -95,7 +98,7 @@ Round = fix every approved finding and every red CI check on the branch, push, w
 
 **Stuck:**
 - Leave the PR as a draft, or open one with what exists, if anything was built.
-- Add a "Stuck" section to the PR body below Decisions: what blocks, what you tried, and what a person has to decide.
+- Add a "Stuck" section to the PR body below Decisions: what blocks, what you tried, and what a person has to decide. For a `needs-person` finding, name the finding, the spec line it contradicts if any, and the choice: keep the spec and accept or document the finding, or change the spec (or pick one of its options).
 - Relabel the issue `spec:stuck`.
 
 Either way, comment on the spec issue with one line for the morning page:
