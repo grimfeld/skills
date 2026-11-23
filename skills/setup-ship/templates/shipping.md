@@ -20,6 +20,9 @@ The label is the whole approval: adding it means you have read the PR, its revie
 
 Dependabot patch updates and GitHub Actions updates get `ship` from `ship.yml` and land with the next `/ship:land`.
 
+The label approves the PR, not a commit: pushes after it land with it. Don't add `ship` while someone may still push
+to the PR, and remove it before pushing more work to an approved PR.
+
 ## Landing
 
 `/ship:land` is an agent, run when you start it. `ship.yml` lands nothing:
