@@ -23,6 +23,7 @@ Search queries (`q=repo:…`) never fill `{owner}/{repo}`: always write the repo
 | Create an issue | `gh api repos/{owner}/{repo}/issues -f title='…' -F body=@body.md` | `issue_write` `create` |
 | Edit an issue's body | `jq -Rs '{body: .}' body.md \| gh api -X PATCH repos/{owner}/{repo}/issues/<n> --input -` | `issue_write` `update` |
 | Create a label | `gh api repos/{owner}/{repo}/labels -f name=<l> -f description='…' -f color=<hex without #>` | none |
+| Read a label | `gh api repos/{owner}/{repo}/labels/<l>` (404 when it doesn't exist) | `get_label` |
 | Add a label | `gh api repos/{owner}/{repo}/issues/<n>/labels -f 'labels[]=<l>'` | `issue_write` `update` with the full label list |
 | Remove a label | `gh api -X DELETE repos/{owner}/{repo}/issues/<n>/labels/<l>` | `issue_write` `update` with the full label list |
 | Comment | `gh api repos/{owner}/{repo}/issues/<n>/comments -F body=@comment.md` | `add_issue_comment` |
@@ -45,6 +46,7 @@ Search queries (`q=repo:…`) never fill `{owner}/{repo}`: always write the repo
 | A PR's reviews and comments | `gh api repos/{owner}/{repo}/pulls/<n>/reviews`, `.../pulls/<n>/comments`, `.../issues/<n>/comments` | `pull_request_read` `get_reviews`, `get_review_comments`, `get_comments` |
 | A failed job's log | `gh api repos/{owner}/{repo}/actions/jobs/<job id>/logs` (a GitHub Actions check run's id is its job id) | `get_job_logs` with `failed_only` (actions toolset) |
 | A workflow's latest runs | `gh api 'repos/{owner}/{repo}/actions/workflows/<file>/runs?event=<event>&per_page=1'` | `list_workflow_runs` |
+| Your access to a repository | `gh api repos/<owner>/<repo> --jq .permissions` (`admin`, `maintain`, `push`, `triage`, `pull`) | none: try the write and read the error |
 | The authenticated user | `gh api user --jq .login` | `get_me` |
 
 The `ccr/` routes exist only in a claude.ai/code cloud session, where the session's proxy serves them; the GraphQL 403 message names them.

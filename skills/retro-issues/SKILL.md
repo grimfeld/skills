@@ -25,7 +25,7 @@ Done when every finding has:
 
 Give each finding a **target**:
 - **The current repo**, by default.
-- **Another repo**, when the file it changes lives elsewhere: an installed skill or plugin, read from its install source (`~/.agents/.skill-lock.json`, the plugin's `repository`). Check access with `gh repo view <owner>/<repo> --json viewerPermission`; without write or triage access, it's local only.
+- **Another repo**, when the file it changes lives elsewhere: an installed skill or plugin, read from its install source (`~/.agents/.skill-lock.json`, the plugin's `repository`). Check access with the "Your access to a repository" row of `${CLAUDE_PLUGIN_ROOT}/references/github.md` (`gh api repos/<owner>/<repo> --jq .permissions`); without `push` or `triage`, it's local only.
 - **Local only**, when the file is in no repo, like the global `~/.claude/CLAUDE.md`. Local-only findings are listed and never filed.
 
 Per target repo, note whether it runs the **ship pipeline**: it has `docs/agents/shipping.md` or a `spec:*` label.
@@ -73,7 +73,7 @@ Show, for every picked new item, its acceptance criteria and Touches; for every 
 
 ## 7. File
 
-**Labels:** in each target repo, create any of `retro`, `spec:ready` and `spec:draft` it will need and doesn't have with plain `gh label create <name>`, never `--force`, so an existing label's colour and description stay. If creating fails, file without the label and say so in the report.
+**Labels:** in each target repo, create any of `retro`, `spec:ready` and `spec:draft` it will need and doesn't have with the "Create a label" row of `${CLAUDE_PLUGIN_ROOT}/references/github.md`, the repository written out (`gh api repos/<owner>/<repo>/labels -f name=<name>`). Never overwrite a label: a create of one that exists fails and leaves it as it is, so an existing label's colour and description stay. If creating fails, file without the label and say so in the report.
 
 - **New, ship-pipeline repo:** the body is `${CLAUDE_PLUGIN_ROOT}/skills/spec-me/templates/spec.md`, every section filled. Problem carries the session evidence.
   - Labels: `retro` + `spec:ready`.
