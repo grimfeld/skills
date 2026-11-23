@@ -94,6 +94,7 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
 .project .name { font-family: var(--font-mono); font-size: 14px; font-weight: 500; overflow-wrap: anywhere; min-width: 0; }
 .project .name a { text-decoration: none; }
 .project .name a.morning {
+  display: inline-flex; align-items: center; min-height: 44px; vertical-align: middle;
   margin-left: 12px; font-family: var(--font-body); font-size: 13px; font-weight: 400; color: var(--accent); white-space: nowrap;
 }
 .project .name a:hover { text-decoration: underline; }
@@ -146,19 +147,22 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
 .card-foot { display: flex; gap: 8px; align-items: baseline; font-size: 13px; }
 .card-reason { color: var(--tone); font-weight: 500; min-width: 0; }
 .card-age { margin-left: auto; color: var(--muted); font-size: 12px; flex: none; }
-/* Details under the title: the review's verdict line (one line, in full on hover or focus), then
-   short facts and links that wrap onto as many lines as they need. */
-.card-details { display: grid; gap: 4px; font-size: 13px; min-width: 0; }
+/* Details under the title: the review's verdict line (one line, cut; in full on keyboard focus or
+   once tapped open), then short facts and links that wrap onto as many lines as they need. Every
+   link and the verdict are 44px tall, so each is a full tap target. */
+.card-details { display: grid; gap: 0; font-size: 13px; min-width: 0; }
 .card-verdict {
-  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-radius: 4px;
+  display: block; width: 100%; min-width: 0; min-height: 44px; padding: 12px 0; line-height: 20px; margin: 0; border: 0; background: none;
+  font: inherit; color: inherit; text-align: left; cursor: pointer;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-radius: 4px;
 }
-.card-verdict:hover, .card-verdict:focus { white-space: normal; overflow-wrap: anywhere; }
+.card-verdict:focus-visible, .card-verdict[aria-expanded="true"] { white-space: normal; overflow-wrap: anywhere; }
 .card-verdict b { font-weight: 600; }
 .card-verdict.v-good b { color: var(--good); }
 .card-verdict.v-warn b { color: var(--warn); }
 .card-verdict.v-bad b { color: var(--danger); }
-.card-facts { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 12px; color: var(--muted); min-width: 0; }
-.card-facts a { display: inline-flex; align-items: center; min-height: 24px; color: var(--accent); }
+.card-facts { display: flex; flex-wrap: wrap; align-items: center; gap: 0 12px; color: var(--muted); min-width: 0; }
+.card-facts a { display: inline-flex; align-items: center; min-height: 44px; color: var(--accent); }
 .card-facts .fact-warn { color: var(--needs); }
 /* Actions sit at the bottom of their card, full width: one 44 px target, on every screen. */
 .card-actions { display: grid; gap: 6px; padding-top: 4px; }
@@ -361,27 +365,34 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   // ---- One-shot reads: one shared pool of six, so a page of projects never floods the connector.
+  // Low-priority jobs (comment reads, for the morning-page link) start only when no other job is
+  // waiting, and hold at most lowMax of the slots, so they never hold up the lists and check reads
+  // the cards depend on.
 
-  function pool(size) {
+  function pool(size, lowMax) {
     const queue = [];
+    const low = [];
     let active = 0;
-    const next = () => {
-      while (active < size && queue.length) {
-        const { job, resolve, reject } = queue.shift();
-        active += 1;
-        Promise.resolve().then(job).then(resolve, reject).finally(() => { active -= 1; next(); });
-      }
+    let lowActive = 0;
+    const start = ({ job, resolve, reject }, isLow) => {
+      active += 1;
+      if (isLow) lowActive += 1;
+      Promise.resolve().then(job).then(resolve, reject).finally(() => { active -= 1; if (isLow) lowActive -= 1; next(); });
     };
-    return (job) => new Promise((resolve, reject) => { queue.push({ job, resolve, reject }); next(); });
+    const next = () => {
+      while (active < size && queue.length) start(queue.shift(), false);
+      while (active < size && lowActive < lowMax && low.length) start(low.shift(), true);
+    };
+    return (job, isLow = false) => new Promise((resolve, reject) => { (isLow ? low : queue).push({ job, resolve, reject }); next(); });
   }
-  const inPool = pool(6);
+  const inPool = pool(6, 2);
 
   const READ_CACHE = { staleTime: 4 * 60e3, gcTime: 10 * 60e3 };
   // A GitHub read through the pool. A rate_limited (or otherwise retryable) refusal is retried
   // once, after the wait it asks for; anything else rejects with its code.
-  async function readOnce(tool, input, { refresh = false, cache = READ_CACHE } = {}) {
+  async function readOnce(tool, input, { refresh = false, cache = READ_CACHE, low = false } = {}) {
     const options = { cache: cache && refresh ? { ...cache, refresh: true } : cache };
-    const call = () => inPool(() => (state.mcp ? state.mcp.callTool(GH, tool, input, options) : Promise.reject({ code: "cancelled", message: "" })));
+    const call = () => inPool(() => (state.mcp ? state.mcp.callTool(GH, tool, input, options) : Promise.reject({ code: "cancelled", message: "" })), low);
     try {
       return await call();
     } catch (e) {
@@ -745,7 +756,7 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
   function readChecks(load, refresh = false) {
     if (!state.tools.github.has("pull_request_read")) return;
     const { owner, repo } = splitRepo(load.full);
-    const ready = (load.parts.prsOpen ?? []).filter((p) => String(p.state).toLowerCase() === "open" && !p.draft);
+    const ready = (load.parts.prsOpen ?? []).filter((p) => isOpenPr(p) && !p.draft);
     const live = new Set(ready.map((p) => String(p.number)));
     for (const n of Object.keys(load.checkReads)) if (!live.has(n)) { delete load.checkReads[n]; delete load.checks[n]; }
     for (const p of ready) {
@@ -766,9 +777,9 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
   }
 
   // Comments for the morning-page link: only on the specs board.mjs's morningSpecs picks (updated
-  // in the last 7 days, at most 10), one-shot through the pool, after an issue list arrives, never
-  // per render. A spec is read again only when it changed since (a new comment updates it) or
-  // when its last read failed.
+  // in the last 7 days, at most 3), one-shot through the pool's low-priority lane (behind every
+  // list and check read, at most 2 at a time), after an issue list arrives, never per render.
+  // board.mjs's needsCommentRead decides which specs are read again.
   function readComments(load) {
     const { issuesOpen, issuesClosed } = load.parts;
     if (!state.tools.github.has("issue_read") || !issuesOpen || !issuesClosed) return;
@@ -777,11 +788,10 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
     const keep = new Set(specs.map((i) => String(i.number)));
     for (const n of Object.keys(load.commentReads)) if (!keep.has(n)) { delete load.commentReads[n]; delete load.comments[n]; }
     for (const i of specs) {
-      const prev = load.commentReads[i.number];
-      if (prev && (prev.pending || (prev.updatedAt === i.updated_at && !prev.failed))) continue;
+      if (!needsCommentRead(load.commentReads[i.number], i)) continue;
       const read = { updatedAt: i.updated_at, pending: true, failed: false };
       load.commentReads[i.number] = read;
-      readOnce("issue_read", { method: "get_comments", owner, repo, issue_number: i.number, perPage: 100 }).then((r) => {
+      readOnce("issue_read", { method: "get_comments", owner, repo, issue_number: i.number, perPage: 100 }, { low: true }).then((r) => {
         load.comments[i.number] = listOf(r.payload, "comments");
       }, () => { read.failed = true; }).finally(() => {
         read.pending = false;
@@ -843,10 +853,15 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
   const KIND_LABEL = { spec: "Spec", design: "Design", pr: "PR" };
 
   // A link out of a card. Its URL came from a body or comment, so board.mjs's safeUrl has already
-  // kept it to https; it is checked again here, where it becomes an href.
-  const outLink = (url, text, key) => (safeUrl(url) ? el("a", { href: safeUrl(url), target: "_blank", rel: "noopener noreferrer", text, "data-key": key }) : null);
+  // kept it to https (and to claude.ai where hosts says so); it is checked again here, where it becomes an href.
+  const CLAUDE_ONLY = ["claude.ai"];
+  const outLink = (url, text, key, hosts) => {
+    const href = safeUrl(url, hosts);
+    return href ? el("a", { href, target: "_blank", rel: "noopener noreferrer", text, "data-key": key }) : null;
+  };
   const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
-  const VERDICT_TONE = { "Approve": "v-good", "Approve with suggestions": "v-warn", "Changes requested": "v-bad" };
+  // Verdict lines opened with a tap (or Enter), by data-key, so a re-render keeps them open.
+  const openVerdicts = new Set();
 
   // The details under a card's title: what decides the next step, and links to read more.
   function renderDetails(card) {
@@ -855,21 +870,29 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
     const facts = [];
     if (card.kind === "spec") {
       if (card.openQuestions > 0) facts.push(el("span", { class: "fact-warn", text: plural(card.openQuestions, "open question") }));
-      if (card.pr) facts.push(outLink(card.pr.url, `PR #${card.pr.number}`, `pr:${key}`));
+      if (card.pr) facts.push(outLink(card.pr.url, `PR #${card.pr.number}`, `pr:${key}`, ["github.com"]));
     }
-    if (card.kind === "design") facts.push(outLink(card.designUrl, "Open design", `design:${key}`));
+    if (card.kind === "design") facts.push(outLink(card.designUrl, "Open design", `design:${key}`, CLAUDE_ONLY));
     if (card.kind === "pr") {
       const r = card.review;
       if (r?.line) {
+        const vkey = `verdict:${key}`;
         const rest = r.line.slice(r.verdict.length);
-        // Focusable, so the full line also shows on keyboard focus and on a tap.
-        rows.push(el("div", { class: `card-verdict ${VERDICT_TONE[r.verdict] ?? ""}`, tabindex: "0", title: r.line, "data-key": `verdict:${key}` },
-          el("b", { text: r.verdict }), rest));
+        // One line, cut; a tap (or Enter, or Space) opens it in full and closes it again.
+        const verdict = el("button", { type: "button", class: `card-verdict${r.tone ? ` v-${r.tone}` : ""}`, "aria-expanded": String(openVerdicts.has(vkey)),
+          "aria-label": `Review verdict: ${r.line}`, title: r.line, "data-key": vkey }, el("b", { text: r.verdict }), rest);
+        verdict.addEventListener("click", () => {
+          const open = !openVerdicts.delete(vkey);
+          if (open) openVerdicts.add(vkey);
+          verdict.setAttribute("aria-expanded", String(open));
+        });
+        rows.push(verdict);
       }
       if (!r) facts.push(el("span", { text: "not reviewed yet" }));
+      else if (r.outOfDate) facts.push(el("span", { class: "fact-warn", text: "review out of date" }));
       else if (r.risks != null) facts.push(el("span", { class: r.risks ? "fact-warn" : "", text: r.risks ? plural(r.risks, "risk") : "no risks" }));
       if (card.landsAfter) facts.push(el("span", { text: `lands after #${card.landsAfter}` }));
-      facts.push(outLink(r?.reportUrl, "Full report", `report:${key}`), outLink(r?.previewUrl, "Preview", `preview:${key}`));
+      facts.push(outLink(r?.reportUrl, "Full report", `report:${key}`, CLAUDE_ONLY), outLink(r?.previewUrl, "Preview", `preview:${key}`));
     }
     const shown = facts.filter(Boolean);
     if (shown.length) rows.push(el("div", { class: "card-facts" }, ...shown));
@@ -930,7 +953,7 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
     const load = loads.get(full);
     // The newest morning page on the project's recent specs (no link without one).
     const morning = morningPage(Object.values(load?.comments ?? {}).flat());
-    const morningLink = morning ? outLink(morning.url, "Morning page", `morning:${full}`) : null;
+    const morningLink = morning ? outLink(morning.url, "Morning page", `morning:${full}`, CLAUDE_ONLY) : null;
     morningLink?.classList.add("morning");
     if (morningLink) morningLink.title = `Posted ${new Date(morning.at).toLocaleString()}`;
     const name = el("div", { class: "name" }, el("a", { href: `https://github.com/${full}`, target: "_blank", rel: "noopener", text: full, "data-key": `project:${full}` }), morningLink);
