@@ -29,6 +29,7 @@ Some repositories fail on `gh pr edit` with a GraphQL error about Projects (clas
 | Start a workflow run | `gh workflow run <file> --ref <branch>` | `run_workflow` (actions toolset) |
 | A PR's timeline | `gh api repos/{owner}/{repo}/issues/<n>/timeline` | none; take the PR's creation time instead of its `ready_for_review` event |
 | A PR's reviews and comments | `gh api repos/{owner}/{repo}/pulls/<n>/reviews`, `.../pulls/<n>/comments`, `.../issues/<n>/comments` | `pull_request_read` `get_reviews`, `get_review_comments`, `get_comments` |
+| A failed job's log | `gh api repos/{owner}/{repo}/actions/jobs/<job id>/logs` (a GitHub Actions check run's id is its job id) | `get_job_logs` with `failed_only` (actions toolset) |
 | A workflow's latest runs | `gh run list --workflow <file> --event <event> --limit 1` | `list_workflow_runs` |
 | The authenticated user | `gh api user --jq .login` | `get_me` |
 

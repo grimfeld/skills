@@ -35,8 +35,13 @@ For each open, non-draft PR carrying `ship`, parents before the PRs stacked on t
 3. merges it into `main` with the merge method below;
 4. retargets the PRs stacked on it to `main` and lands them the same way, in the same run.
 
-When it can't land a PR (a conflict whose sides contradict, a red check, a merge GitHub refuses), it leaves that
-PR unmerged with a comment saying why, keeps `ship` on, and lands the rest. The PRs stacked on it wait. It ends with one line per PR.
+When a check goes red because of its merge or resolution (it passed before the merge, or fails in code the merge
+touched), the agent fixes it, pushes and waits again, at most twice. A check that was red before the merge isn't its
+to fix.
+
+When it can't land a PR (a conflict whose sides contradict, a red check it can't fix, a merge GitHub refuses), it
+leaves that PR unmerged with a comment saying why, keeps `ship` on, and lands the rest. The PRs stacked on it wait.
+It ends with one line per PR.
 
 - **Merge method:** merge
 
