@@ -63,15 +63,11 @@ Repository root to read: <REVIEW_ROOT>
 Fix diff, already saved: <absolute path of .scratch/pr-review/<id>.fix.diff> (the previous review's head to this head)
 Changed files: <the fix diff's list>
 Spec: <spec text, or "no spec available">
-<<<<<<< HEAD
-Findings to confirm against the current code, one per line: <id> · <title> · <locations> · <fix> [· property: <the property its `fix` names>, for a `fix_kind: "property"` finding]
-A finding marked property is fixed only when the fix diff adds a seeded property test that covers that property and passes; without one it is still open, whatever the reported example does.
-=======
 <web-quality only> Audit URL: <url, or "none: source-only">
 <design-fidelity only> Skill dir: ${CLAUDE_SKILL_DIR}. Audit URL: <url, or "none">. Fidelity out: <absolute path of .scratch/pr-review/<id>-fidelity/>
 Stay close to the fix diff: read it once, then the changed files and the code they directly call or are called by, using line ranges.
-Findings to confirm against the current code, one per line: <id> · <title> · <locations> · <fix>
->>>>>>> spec/51-fix-round
+Findings to confirm against the current code, one per line: <id> · <title> · <locations> · <fix> [· property: <the property its `fix` names>, for a `fix_kind: "property"` finding]
+A finding marked property is fixed only when the fix diff adds a seeded property test that covers that property and passes; without one it is still open, whatever the reported example does.
 Then review only the fix diff for new problems.
 Return the coverage line, then one line per finding above: `<id>: fixed` or `<id>: still open`, each with its evidence, then the JSON findings array for new problems in the fix diff, as the finding format specifies.
 ```
