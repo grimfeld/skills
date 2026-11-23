@@ -112,6 +112,14 @@ Tell the user:
      - Name every model in the night's `unpriced`: its tokens are counted but not priced, and `scripts/prices.json` needs an entry for it.
      - Footnote: the figures are API-price estimates, not a bill, and builder turns after the last count are missing.
    - **Next:** the command that ships what the user approves: `/ship:land <ready PRs, in review order>`, to cut down to the ones they approve. A PR left with a comment instead goes back to `spec:ready` for tonight's night shift.
-5. **Report in the terminal:** the page link, one line per PR in the order to review them (children under their parent), one line with the night's cost, worded as on the page, and the same `/ship:land` line.
+5. **Link the page from each spec.** Once the page is published, post one comment on each spec collected in step 1, so anything reading GitHub (the ship dashboard, a person on the spec) can find it:
+
+   ```
+   <!-- ship:morning-page -->
+   Reviewed on this morning's page: <page URL>
+   ```
+
+   Post a new comment every morning, even on a spec that already has one: the newest is the current link. Post with `gh issue comment`, or `add_issue_comment` where `${CLAUDE_PLUGIN_ROOT}/references/github.md` says to use the GitHub MCP tools. If a comment fails, name the spec in the report and go on.
+6. **Report in the terminal:** the page link, one line per PR in the order to review them (children under their parent), one line with the night's cost, worded as on the page, any spec whose morning-page comment failed (step 5), and the same `/ship:land` line.
 
 The user reviews each PR from its description, approving it or leaving a comment, then runs `/ship:land` with the PRs they approve. Adding `ship` by hand approves a PR but doesn't land it; `/ship:land` with no arguments does, or in `command` mode the landing schedule.
