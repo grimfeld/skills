@@ -10,6 +10,6 @@ description: Say which version (commit) of the ship plugin is installed, where i
 Run `node ${CLAUDE_PLUGIN_ROOT}/skills/version/scripts/version.mjs "${CLAUDE_PLUGIN_ROOT}"` and show its output to the user as it is. It prints:
 
 - the installed version and commit, its scope and when it was last updated, read from Claude Code's plugin registry; or, for a working copy loaded with `--plugin-dir`, its branch and commit;
-- whether `main` has moved on, with the update command when it has.
+- whether `main` has moved on: for a registry install, with the `claude plugin update` command when it has; for a working copy, where `main` is and whether the copy is behind, ahead of or diverged from it, with `git pull` when it is behind.
 
 When `${CLAUDE_PLUGIN_ROOT}` is empty (the skills were copied into `~/.claude/skills/`, as the cloud fallback does), say the version can't be told from a copy. Don't guess one.

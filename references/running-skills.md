@@ -1,6 +1,6 @@
 # Running another skill
 
-The ship skills, `implement-spec`, `to-tickets` and `retro` are all user-invoked only (`disable-model-invocation: true`), except the ship skill `version`, which stays model-invocable. The Skill tool refuses them, so one skill can't call another with it. Run them by reading them instead:
+The ship skills, `implement-spec`, `to-tickets` and `retro` are all user-invoked only (`disable-model-invocation: true`), except the ship skill `version`, which stays model-invocable. The Skill tool refuses the others, so one skill can't call another with it. Run them by reading them instead:
 
 1. **Find its `SKILL.md`.**
    - A ship skill: `${CLAUDE_PLUGIN_ROOT}/skills/<name>/SKILL.md`.
