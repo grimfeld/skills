@@ -34,7 +34,7 @@ Compare every pair of specs on their Touches, Data, Docs to update, Implementati
   - Chain them: B is built after A, in the same cloud session, on top of A's branch. B's PR targets A's branch.
   - Respect an existing Depends on.
   - When nothing forces an order, put the smaller spec first.
-  - Also chain specs that each add a migration or an ADR, so their numbers don't clash, but only when the repo's `docs/agents/shipping.md`, `CLAUDE.md` or `AGENTS.md` names no command that reserves the next number (lifeline: `adr:new`, `migrations:next`, `integrate`). With one, such specs are Independent unless something else orders them.
+  - Also chain specs that each add a migration, or each add an ADR, so their numbers don't clash, unless the repo's `docs/agents/shipping.md`, `CLAUDE.md` or `AGENTS.md` names a command that reserves the next number of that kind (lifeline: `adr:new` for ADRs, `migrations:next` or `integrate` for migrations). With one, such specs are Independent unless something else orders them.
   - **Design specs** (those with a "Design" section) chain at most a design's foundation and shell. A place spec whose Depends on isn't merged yet is held: it stays `spec:ready` and builds on a later night, once the user has merged what it depends on. Six places stacked on an unreviewed shell would all need rebasing after its review.
   - Ordering needs no question.
 - **Conflicting:** two specs settle the same thing differently. Examples: the same term defined two ways, one field given two meanings, the same screen redesigned twice. These go to the user.
