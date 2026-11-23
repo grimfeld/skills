@@ -12,7 +12,7 @@ The page calls tools with `window.claude.use("mcp").callTool(server, tool, input
 - `content`: the tool's raw content blocks. Two readers use them: `fileText` (`get_file_contents`) and `sessionLink` (`create_session`), both in `board.mjs`.
 - A failure rejects with `{ code, message }`. A tool's own error (GitHub's answer) has `code: "tool_error"` and the tool's error text as `message`. Connector-level refusals have the codes in `DENIED` in the page.
 
-The calls below were made from the session's own MCP client, which shows `payload` and `content` but not that wrapper. Four reads go through `listOf(payload, key)`, which takes a bare array or `payload[key]`: `list_issues`, `list_pull_requests`, `issue_read` and `list_environments`. The others read only their wrapper key (`payload.repos`, `payload.check_runs`, `payload.statuses`), so a bare array there reads as empty.
+The calls below were made from the session's own MCP client, which shows `payload` and `content` but not that wrapper. Four reads go through `listOf(payload, key)`, which takes a bare array or `payload[key]`: `list_issues`, `list_pull_requests`, `issue_read` and `list_environments`. `list_repos`, `get_check_runs` and `get_status` read only their wrapper key (`payload.repos`, `payload.check_runs`, `payload.statuses`), so a bare array there reads as empty.
 
 ## GitHub (`github`)
 
@@ -84,7 +84,7 @@ Observed 2026-11-23.
 
 - **Arguments:** `{ limit: 100 }`.
 - **Response:** `{ environments: [{ environment_id, name, description, state, kind, created_at }], has_more }`. The page reads `payload.environments` and keeps entries with an `environment_id`.
-- **`kind`:** `"anthropic_cloud"` for a cloud environment (the `Default` one among them), `"bridge"` for one on the viewer's own machine (its `description` is `Bridge environment (<machine name>)`). `preselectEnvironment` prefers a cloud one; the picker labels a bridge one "your machine". `state` was `"active"` on every one.
+- **`kind`:** `"anthropic_cloud"` for a cloud environment (the `Default` one among them), `"bridge"` for one on the viewer's own machine (its `description` is `Bridge environment (<machine name>)`). `preselectEnvironment` picks the environment named after the repo, else the first `anthropic_cloud` one, else the first listed; the picker labels a bridge one "your machine". `state` was `"active"` on every one.
 
 ### `create_session`
 
