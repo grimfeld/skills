@@ -12,7 +12,7 @@ You build one spec, or a chain of specs in order.
 - **`unattended`** (night-shift's builders always pass it): nobody can answer questions. Where the rules below say a spec is **stuck**, it is stuck.
 - **Without it**, a person ran you and is in the session. Where the rules below would make a spec stuck over a question, **ask** it instead (see "A question the spec doesn't answer") and carry on with the answer. Anything else that makes a spec stuck still does.
 
-Every choice the spec doesn't settle is yours. Make it, record it and keep going. Ask (or, unattended, stop) only where the rules below say a spec would be **stuck**.
+Every choice the spec doesn't settle is yours. Make it, record it and keep going. Stop only where the rules below say a spec is **stuck**; without `unattended`, a stuck question is asked instead, as above.
 
 You must never:
 - merge a PR
@@ -89,6 +89,8 @@ Round = fix every approved finding and every red CI check on the branch, push, w
 
 ### 6. Finish the spec
 
+Skipped for a spec handed back at step 3 (no Agent tool): the caller runs it.
+
 **Ready** (CI green apart from `ship`, and no blocker or major left open):
 - Mark the PR ready.
 - Relabel the spec issue `spec:building` → `spec:in-review`.
@@ -109,4 +111,4 @@ A stuck spec ends the chain for the specs built on top of it. Mark each of those
 
 ## 7. End
 
-Clean up the worktrees you made. Your last message lists, per spec: ready or stuck, the PR link, and the decision count.
+Clean up the worktrees you made. Your last message lists, per spec: ready, stuck or review pending, the PR link, and the decision count. For each spec handed back at step 3 (no Agent tool), give the PR number and the line "review pending: run build-spec steps 4–6 from a session with the Agent tool".
