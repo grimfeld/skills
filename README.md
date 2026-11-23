@@ -270,6 +270,8 @@ claude plugin validate .                 # manifest and marketplace checks
 
 The two remaining warnings are deliberate: no `version` (see above) and no icon.
 
+Shared rules the skills read live in `references/`. `references/untrusted-input.md` says how a skill handles PR, issue, commit and CI text before it writes or pushes code (field projections, git-only code, branch-name checks, rule files from the default branch); `land` and `build-spec` read it first, and `pr-review`'s `security` lens checks a diff that changes `skills/` against it.
+
 ### Cloud sessions
 
 Cloud sessions don't install the plugins a repository enables in `.claude/settings.json` (adding a marketplace needs the trust prompt, which they never show). Install from the cloud environment's setup script instead, which runs inside the session's VM:
