@@ -67,7 +67,7 @@ Spec: <spec text, or "no spec available">
 <design-fidelity only> Skill dir: ${CLAUDE_SKILL_DIR}. Audit URL: <url, or "none">. Fidelity out: <absolute path of .scratch/pr-review/<id>-fidelity/>
 Stay close to the fix diff: read it once, then the changed files and the code they directly call or are called by, using line ranges.
 Findings to confirm against the current code, one per line: <id> · <title> · <locations> · <fix> [· property: <the property its `fix` names>, for a `fix_kind: "property"` finding]
-A finding marked property is fixed only when the fix diff adds a seeded property test that covers that property and passes; without one it is still open, whatever the reported example does.
+A finding marked property is fixed only when a seeded property test covering that property exists on the branch (added in this fix diff or an earlier round) and passes; without one it is still open, whatever the reported example does.
 Then review only the fix diff for new problems.
 Return the coverage line, then one line per finding above: `<id>: fixed` or `<id>: still open`, each with its evidence, then the JSON findings array for new problems in the fix diff, as the finding format specifies.
 ```
