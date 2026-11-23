@@ -1,9 +1,22 @@
 {
   "DEFAULT_BRANCH": "main",
   "MERGE_METHOD": "merge",
-  "REQUIRED_CHECKS": "no CI checks (the repository has no CI yet)",
-  "LOCAL_CHECKS": ["claude plugin validate ."],
+  "REQUIRED_CHECKS": [
+    "check"
+  ],
+  "LOCAL_CHECKS": [
+    "node --test skills/*/scripts/*.test.mjs",
+    "find skills -path '*/scripts/test_*.py' -execdir python3 -m unittest {} +",
+    "printf '%s\\0' skills/*/scripts/*.mjs | xargs -0 -n1 node --check",
+    "python3 -m py_compile skills/*/scripts/*.py",
+    "printf '%s\\0' skills/*/scripts/*.sh | xargs -0 -n1 bash -n",
+    "actionlint .github/workflows/*.yml",
+    "! grep -rn '__[A-Z_]*__' .github/workflows docs/agents",
+    "claude plugin validate ."
+  ],
   "CD_SUMMARY": "Nothing deploys on merge. Plugin users pick up `main` through the `grimfeld` marketplace on their next plugin update.",
   "SCREENS": "none",
-  "BOOKKEEPING_FILES": ["README.md"]
+  "BOOKKEEPING_FILES": [
+    "README.md"
+  ]
 }
