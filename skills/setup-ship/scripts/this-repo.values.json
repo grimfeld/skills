@@ -16,7 +16,5 @@
   ],
   "CD_SUMMARY": "Nothing deploys on merge. Plugin users pick up `main` through the `grimfeld` marketplace on their next plugin update.",
   "SCREENS": "none",
-  "BOOKKEEPING_FILES": [
-    "README.md"
-  ]
+  "BOOKKEEPING_FILES": ["README.md"]
 }
