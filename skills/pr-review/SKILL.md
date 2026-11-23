@@ -62,7 +62,8 @@ Read the finding format: ${CLAUDE_SKILL_DIR}/references/finding-format.md
 Repository root to read: <REVIEW_ROOT>
 Fix diff, already saved: <absolute path of .scratch/pr-review/<id>.fix.diff> (the previous review's head to this head)
 Spec: <spec text, or "no spec available">
-Findings to confirm against the current code, one per line: <id> · <title> · <locations> · <fix>
+Findings to confirm against the current code, one per line: <id> · <title> · <locations> · <fix> [· property: <the property>]
+A finding marked property is fixed only when the fix diff adds a seeded property test that covers that property and passes; without one it is still open, whatever the reported example does.
 Then review only the fix diff for new problems.
 Return the coverage line, then one line per finding above: `<id>: fixed` or `<id>: still open`, each with its evidence, then the JSON findings array for new problems in the fix diff, as the finding format specifies.
 ```
@@ -181,6 +182,8 @@ Refuted findings move to "Dropped by verification". `minor` and `nit` skip this 
 
 Give two to four named moves, the recommended one first. A finding about behaviour the spec doesn't mention is an ordinary fix and gets no `options`.
 
+**Property fixes.** Set `fix_kind: "property"` on a confirmed finding about an algorithm's output over a space of inputs (layout, ordering, parsing, scheduling): fixing the reported example doesn't fix it. Its `fix` names the property that must hold and says to add a failing seeded property test first (see `references/state-format.md`).
+
 Done when every blocker and major is `confirmed` or `refuted` with a reason, and every confirmed one that is a decision carries its `options`.
 
 ## 8. Report
@@ -215,7 +218,7 @@ Record every decision in the state file, re-render, republish the page and updat
 With at least one approved finding, write into `.scratch/pr-review-<id>/`, the local-markdown tracker layout `/implement-spec` reads:
 
 - `spec.md` from `references/spec-template.md`.
-- `issues/NN-<slug>.md` from `references/ticket-template.md`, numbered from `01`; record each finding's ticket number in state. Group approved findings by root cause or area, one ticket per group. Order the tickets so a fix others depend on (a boundary type, a shared helper) comes first, and record that with `Blocked by:`. All nits go into one final `polish` ticket that blocks nothing. Every ticket names its check: a failing test to write first where an honest one exists, otherwise a concrete manual or CI check. A ticket for a finding with `options` states the chosen option (its `decision.reason`) as the rule to build, naming no alternative and nothing "recommended".
+- `issues/NN-<slug>.md` from `references/ticket-template.md`, numbered from `01`; record each finding's ticket number in state. Group approved findings by root cause or area, one ticket per group. Order the tickets so a fix others depend on (a boundary type, a shared helper) comes first, and record that with `Blocked by:`. All nits go into one final `polish` ticket that blocks nothing. Every ticket names its check: a failing test to write first where an honest one exists, otherwise a concrete manual or CI check. Copy every command a ticket or the spec names (test, filter, script) from the repo's own scripts, CI workflow, `docs/agents/shipping.md` or test README, never from memory, and check it resolves before writing it: a filter lists its matched project, a test path exists, a script name is in the manifest. Don't run the suite for this. A ticket for a `fix_kind: "property"` finding is done when its seeded property test, written first and seen red, passes. A ticket for a finding with `options` states the chosen option (its `decision.reason`) as the rule to build, naming no alternative and nothing "recommended".
 
 If `docs/agents/issue-tracker.md` names GitHub or GitLab, offer to publish the spec and tickets there; publish only on a yes.
 

@@ -10,7 +10,7 @@ Reviewers return findings in agent terms. Before saving a finding to state, rewr
   - Agent: "`promptText` re-derives each face's question/answer; already differs from WordFace for listen"
   - Person: "The practice report and the practice screen can show different questions"
 - **`why`**: one or two sentences: when it happens and what it costs. Code identifiers only where the reader needs them to find the spot.
-- **`fix`**: one sentence naming the move, plus the test or check that proves it.
+- **`fix`**: one sentence naming the move, plus the test or check that proves it. For a `fix_kind: "property"` finding, name the property that must hold over all inputs, and say to add a seeded property test that fails on it first.
 - **`theme`**: a short area name readers recognise, shared across findings so minors group well: `Accessibility`, `Security`, `Data and privacy`, `Performance`, `Duplication and type casts`, `Error handling`, `Tests`, `Docs and decisions`, `Layout on phones`, or another plain name. Nits always use `Polish`.
 - One finding, one issue. Split a reviewer finding that packs several issues into several findings.
 
@@ -71,6 +71,7 @@ The agent-facing detail (`evidence`, `verification`, `sources`, `confidence`) is
       "lane": "in",
       "verification": "confirmed: …",
       "evidence": "…",
+      "fix_kind": null,
       "options": null,
       "spec_line": null,
       "decision": { "state": "pending", "reason": "", "date": "" },
@@ -90,6 +91,7 @@ The agent-facing detail (`evidence`, `verification`, `sources`, `confidence`) is
 | `findings[].id` | `F<n>`, assigned once and never reused. A finding keeps its id across runs. |
 | `severity` | From `references/finding-format.md`. |
 | `status` | `open` or `fixed`. Set `fixed` with `fixed_in` = the run date when a re-run no longer finds it. |
+| `fix_kind` | Optional. `"property"` when the finding is about an algorithm's output over a space of inputs (set at verify): it is fixed when a seeded property test for it passes, not when the reported example does. Absent otherwise. |
 | `options` | Optional. Set at verify (step 7) only for a finding whose fix is a choice for a person, or would change a line the spec settles: two to four `{ "name", "what" }`, the recommended one first. Absent or `null` otherwise. |
 | `spec_line` | Optional. The quoted spec line the suggested fix would change, when that is why `options` is set. |
 | `decision.state` | `pending`, `approved`, `rejected`, `deferred` or `needs-person` (unattended only: a blocker or major with `options`, left for a person; the report shows "needs a person: <option names>"). `needs-person` is not a decision: the next attended run asks it (step 9) and replaces it with the answer. Rejected findings are never resurfaced: on a re-run, a new finding matching a rejected one (same root cause, same place) is discarded. |
