@@ -330,9 +330,21 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
   }
 
   // Per-viewer browser storage. It can throw or come back empty: the page works without it.
+  // Browser storage when the page has it; a copy in memory always, so a page without storage
+  // (private window, blocked site data) still keeps what it found for as long as it's open.
+  const memory = new Map();
   const store = {
-    get(key, fallback) { try { return JSON.parse(localStorage.getItem(`ship-dashboard:${key}`)) ?? fallback; } catch { return fallback; } },
-    set(key, value) { try { localStorage.setItem(`ship-dashboard:${key}`, JSON.stringify(value)); } catch {} },
+    get(key, fallback) {
+      try {
+        const saved = JSON.parse(localStorage.getItem(`ship-dashboard:${key}`));
+        if (saved != null) return saved;
+      } catch {}
+      return memory.has(key) ? memory.get(key) : fallback;
+    },
+    set(key, value) {
+      memory.set(key, value);
+      try { localStorage.setItem(`ship-dashboard:${key}`, JSON.stringify(value)); } catch {}
+    },
   };
 
   const el = (tag, attrs = {}, ...kids) => {
