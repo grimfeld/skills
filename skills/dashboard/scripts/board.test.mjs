@@ -1,7 +1,7 @@
 // node --test skills/dashboard/scripts/board.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { toCards, counts, ago, BUCKETS, normaliseRepo, mergeProjects, sortBucket, LANDED_WINDOW, isMissingFile, needsCheckRead, needsCommentRead, parseReview, safeUrl, openQuestions, designLink, morningPage, morningSpecs, shipYml, actionsEnabled, approveLabels, unapproveLabels, fileText, landingRun, prAction, labelWrite, writeError, WRITE_DEFINITE } from "./board.mjs";
+import { toCards, counts, ago, BUCKETS, normaliseRepo, mergeProjects, sortBucket, LANDED_WINDOW, isMissingFile, needsCheckRead, needsCommentRead, parseReview, safeUrl, openQuestions, designLink, morningPage, morningSpecs, shipYml, actionsEnabled, approveLabels, unapproveLabels, fileText, landingRun, prAction, labelWrite, writeError, WRITE_DEFINITE, skillFor, preselectEnvironment, sessionLink, singleFlight } from "./board.mjs";
 
 const NOW = Date.parse("2026-11-23T12:00:00Z");
 const hoursAgo = (h) => new Date(NOW - h * 3600e3).toISOString();
@@ -13,7 +13,7 @@ test("a spec:draft spec needs you, with its project, link, reason and age", () =
   assert.deepEqual(card, {
     project: "acme/app", number: 7, title: "Issue 7", url: "https://github.com/acme/app/issues/7",
     kind: "spec", bucket: "needs-you", reason: "draft", since: hoursAgo(2), age: "2 h",
-    openQuestions: null, pr: null,
+    openQuestions: null, pr: null, labels: ["spec:draft"],
   });
 });
 
@@ -726,13 +726,21 @@ test("writeError: each definite failure says so; every other code says the write
   for (const code of ["server_not_connected", "selection_required", "server_not_found", "bad_request", "not_granted",
     "capability_disabled", "rate_limited", "not_in_manifest", "blocked_by_policy"]) {
     assert.ok(WRITE_DEFINITE.has(code), code);
-    const text = writeError({ code, message: "m" }, "approve");
+    const text = writeError({ code, message: "m" }, { verb: "approve" });
     assert.doesNotMatch(text, MAYBE, code);
     assert.ok(text.length > 10, code);
   }
   for (const e of [{ code: "server_unavailable" }, { code: "upstream_error" }, { code: "cancelled" }, { code: "timeout" }, { code: "something_new" }, {}, undefined]) {
-    assert.match(writeError(e, "approve"), MAYBE, JSON.stringify(e));
+    assert.match(writeError(e, { verb: "approve" }), MAYBE, JSON.stringify(e));
   }
+});
+
+test("writeError names the connector that refused, and where to look, for a session start", () => {
+  const remote = (code) => writeError({ code }, { verb: "start a session", who: "Claude Code Remote", check: "Check your sessions at claude.ai/code" });
+  assert.match(remote("needs_reauth"), /^Reconnect Claude Code Remote/);
+  assert.match(remote("timeout"), /^No clear answer from Claude Code Remote \(timeout\): it may have gone through\. Check your sessions at claude\.ai\/code before/);
+  assert.match(writeError({ code: "needs_reauth" }, { verb: "approve" }), /^Reconnect GitHub/);
+  assert.match(writeError({ code: "timeout" }, { verb: "approve" }), /^No clear answer from GitHub \(timeout\).*Check the page after it refreshes before/);
 });
 
 // ---- ship.yml's push block.
@@ -744,4 +752,112 @@ test("ship.yml: the default branch is read only inside the push block; a list el
   assert.equal(shipYml(multi).defaultBranch, null, "no inline list: no branch, Land stays off");
   const after = "# ship.yml version: 2\non:\n  push:\n\n    # trunk only\n    branches: [trunk]\njobs:\n  x:\n    branches: [nope]\n";
   assert.equal(shipYml(after).defaultBranch, "trunk", "blank and comment lines stay inside the block");
+});
+
+// ---- Run a skill: the command a card's button starts a cloud session with.
+
+const skillOf = (issues, prs) => Object.fromEntries(toCards("acme/app", issues, prs, {}, NOW).map((c) => [`${c.kind}${c.number}`, skillFor(c)]));
+
+test("each card that needs a ship skill maps to its button and command; every other card to none", () => {
+  const issues = [
+    issue(1, ["spec:draft"]),
+    issue(2, ["design:ready"]),
+    issue(3, ["spec:stuck"]),
+    issue(4, ["spec:ready"]),
+    issue(5, ["spec:draft"], { state: "CLOSED" }),
+  ];
+  const prs = [
+    pr(10, ["conflicts"]),
+    pr(11, ["pr-reviewed"]),
+    pr(12, ["pr-reviewed", "ship"]),
+    pr(13, ["pr-reviewed", "changes-requested"]),
+    pr(14, ["pr-reviewed"], { draft: true }),
+    pr(15, ["ship"], { updated: hoursAgo(30) }),
+    pr(16, ["conflicts"], { state: "closed", merged: true, merged_at: hoursAgo(5) }),
+  ];
+  assert.deepEqual(skillOf(issues, prs), {
+    spec1: { label: "Resume spec", command: "/ship:spec-me #1" },
+    design2: { label: "Spec design", command: "/ship:design-me #2" },
+    spec3: null,
+    spec4: null,
+    spec5: null,
+    pr10: { label: "Resolve", command: "/ship:resolve-conflicts #10" },
+    pr11: null, // reviewed: Approve is its action, and no command sends one PR back
+    pr12: null,
+    pr13: null,
+    pr14: null,
+    pr15: null,
+    pr16: null,
+  });
+});
+
+test("a conflicting PR that was also reviewed is offered Resolve", () => {
+  assert.deepEqual(skillOf([], [pr(20, ["pr-reviewed", "conflicts"])]).pr20, { label: "Resolve", command: "/ship:resolve-conflicts #20" });
+});
+
+const env = (id, name, kind = "anthropic_cloud") => ({ environment_id: id, name, kind, state: "active" });
+
+test("preselection: the environment named like the repo, ignoring case, wherever it is listed", () => {
+  const envs = [env("env_1", "Default"), env("env_2", "website"), env("env_3", "App")];
+  assert.equal(preselectEnvironment(envs, "acme/app").environment_id, "env_3");
+});
+
+test("preselection without a match: the first listed, though a cloud environment before a machine bridged to it", () => {
+  assert.equal(preselectEnvironment([env("env_1", "Default"), env("env_2", "website")], "acme/app").environment_id, "env_1");
+  assert.equal(preselectEnvironment([env("env_b", "laptop", "bridge"), env("env_c", "Default")], "acme/app").environment_id, "env_c");
+  assert.equal(preselectEnvironment([env("env_b", "laptop", "bridge")], "acme/app").environment_id, "env_b");
+});
+
+test("preselection: a repo-named machine still wins, and no environments gives none", () => {
+  assert.equal(preselectEnvironment([env("env_c", "Default"), env("env_b", "APP", "bridge")], "acme/app").environment_id, "env_b");
+  assert.equal(preselectEnvironment([], "acme/app"), null);
+  assert.equal(preselectEnvironment(undefined, "acme/app"), null);
+});
+
+test("the new session's link is built from the id create_session returns, wherever the result carries it", () => {
+  const link = { id: "session_01AbC", url: "https://claude.ai/code/session_01AbC" };
+  assert.deepEqual(sessionLink({ payload: { session_id: "session_01AbC", status: "running" } }), link);
+  assert.deepEqual(sessionLink({ payload: { id: "session_01AbC" } }), link);
+  assert.deepEqual(sessionLink({ payload: { session: { id: "session_01AbC" } } }), link);
+  assert.deepEqual(sessionLink({ content: [{ type: "text", text: '{"session_id":"session_01AbC"}' }] }), link);
+});
+
+test("no recognisable session id, or one that isn't a plain id, gives no link", () => {
+  assert.equal(sessionLink({ payload: { status: "running" } }), null);
+  // Free text is never searched: only a structured id makes a link.
+  assert.equal(sessionLink({ payload: "Created session session_01AbC (status: running)" }), null);
+  assert.equal(sessionLink({ content: [{ type: "text", text: "see session_01AbC" }] }), null);
+  assert.equal(sessionLink({ payload: { id: "../../evil?x=1" } }), null);
+  assert.equal(sessionLink(undefined), null);
+});
+
+test("singleFlight: one holder at a time; a second enter is refused until the holder leaves", () => {
+  const gate = singleFlight();
+  assert.equal(gate.holder(), null);
+  assert.equal(gate.tryEnter("skill:a/b#1"), true);
+  assert.equal(gate.holder(), "skill:a/b#1");
+  assert.equal(gate.tryEnter("skill:c/d#2"), false);
+  assert.equal(gate.tryEnter("skill:a/b#1"), false, "the holder can't enter twice either");
+  assert.equal(gate.holder(), "skill:a/b#1");
+  gate.leave("skill:a/b#1");
+  assert.equal(gate.holder(), null);
+  assert.equal(gate.tryEnter("skill:c/d#2"), true);
+});
+
+test("singleFlight: leave by a non-holder does nothing", () => {
+  const gate = singleFlight();
+  gate.tryEnter("skill:a/b#1");
+  gate.leave("skill:c/d#2");
+  assert.equal(gate.holder(), "skill:a/b#1");
+  assert.equal(gate.tryEnter("skill:c/d#2"), false);
+});
+
+test("singleFlight: a holder whose work throws or picks nothing releases the gate when left in a finally", async () => {
+  const gate = singleFlight();
+  const run = async (key, work) => { if (!gate.tryEnter(key)) return "refused"; try { return await work(); } finally { gate.leave(key); } };
+  await assert.rejects(run("skill:a/b#1", async () => { throw new Error("no environments"); }));
+  assert.equal(gate.holder(), null);
+  assert.equal(await run("skill:a/b#1", async () => null), null);
+  assert.equal(gate.holder(), null);
+  assert.equal(await run("skill:c/d#2", async () => "started"), "started");
 });

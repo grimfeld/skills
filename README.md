@@ -155,15 +155,25 @@ Links in descriptions and comments are only followed when they are `https://`.
 - **Approve** on a reviewed PR's card (`pr-reviewed`, no `ship`, not a draft, not sent back or conflicting) adds `ship`, and the card moves to In flight. It needs the description's `/ship:pr-review` section to be of the PR's current head: without one, or after a push since, the button is off and says to re-run the review. Just before writing, the page reads the PR again: if that read fails, or the PR no longer qualifies (it went draft, gained `changes-requested` or `conflicts`, lost `pr-reviewed`, or was pushed since), nothing is written. **Un-approve** on a card carrying `ship` removes it, with the same fresh read.
 - **Land** on a project row asks first, in place ("Land 2 PRs: #4, #7?", the PRs the board shows carrying `ship`), then on **Confirm** starts its landing run: it dispatches `ship.yml` on the default branch (the one its push trigger names), which lands every approved PR that targets it. The row then links the run, or says "dispatched" if the run hasn't shown up within about ten seconds. On a phone, pick the project's chip to see its row.
 
-Each click is one change, made with your GitHub connector, which asks for your approval the first time. The page is given the whole of GitHub's `issue_write` and `actions_run_trigger` tools, since a page's access can't be narrowed to part of a tool, so in principle it could edit any issue or run any workflow. It only ever calls `issue_write` to update a PR's labels and `actions_run_trigger` to run `ship.yml`; a test checks the page's source for any other use.
+Each click is one change, made with your GitHub connector, which asks for your approval the first time. The page is given the whole of GitHub's `issue_write` and `actions_run_trigger` tools, since a page's access can't be narrowed to part of a tool, so in principle it could edit any issue or run any workflow. It only ever calls `issue_write` to update a PR's labels and `actions_run_trigger` to run `ship.yml`. On Claude Code Remote it likewise holds the whole `create_session` tool, so in principle it could start a session on any repo with any prompt and permission mode, including in an environment on your own machine; it only ever sends the four pinned fields: the card's ship command, a title of that command and the repo, the card's repo, and the environment you chose. A test checks the page's source for any other use.
 
 They need the project's `.github/workflows/ship.yml` to be version 2 or later (its first line, `# ship.yml version: 2`), as `/ship:land` does: in older versions `ship` lands a PR at once. With an older or missing file, or one whose push trigger doesn't name its branch as a list (`branches: [main]`), the buttons are off and say to run `/ship:setup-ship` to upgrade. A failed action shows its error on its card or project row and isn't retried; commenting, sending a PR back and anything else that takes judgement stay with `/ship:land`.
+
+Cards that need a ship skill start one in a Claude cloud session on the card's repo, with the command as its first message:
+
+| Card | Button | Command |
+|---|---|---|
+| `spec:draft` spec | **Resume spec** | `/ship:spec-me #n` |
+| PR labelled `conflicts` | **Resolve** | `/ship:resolve-conflicts #n` |
+| `design:ready` design | **Spec design** | `/ship:design-me #n` |
+
+While it starts, the button says so and can't be pressed twice; then the card links to the new session (**Open session**). A failed start shows its error on the card and isn't retried. The first time you start one for a project, the page asks which of your Claude Code environments it runs in (a bottom sheet on a phone), suggesting the one named like the repo, else your first cloud environment. It remembers the choice for that project in this browser, and starts later ones at once; **change** under the button picks again. Without browser storage it remembers the choice only until the page is closed; when the remembered environment is gone, it asks again.
 
 Run it once and pin the page. Running it again (after a plugin update, say) republishes to the same page: it finds it among your artifacts by its title, "Ship dashboard".
 
 It needs, in claude.ai:
 - the **GitHub** connector, to read issues, PRs, their checks, recent specs' comments, `docs/agents/shipping.md` and `ship.yml`, to change a PR's labels when you Approve or Un-approve, and to start and find a landing run when you Land
-- optionally **Claude Code Remote**, to find your projects: without it, add them by name
+- optionally **Claude Code Remote**, to find your projects and to start skill sessions from cards: without it, add projects by name, and the skill buttons are hidden
 
 The first open asks you to allow both for the page.
 

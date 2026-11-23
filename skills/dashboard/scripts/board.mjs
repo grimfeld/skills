@@ -49,6 +49,7 @@ function issueCard(project, issue, now, prs) {
   return {
     project, number: issue.number, title: issue.title, url: `https://github.com/${project}/issues/${issue.number}`,
     kind: rule.kind, bucket: rule.bucket, reason: rule.reason, since: issue.updated_at, age: ago(now - Date.parse(issue.updated_at)),
+    labels: [...i.l],
     ...(rule.kind === "spec" ? { openQuestions: openQuestions(issue.body), pr: specPr(project, issue.number, prs) } : {}),
     ...(rule.kind === "design" ? { designUrl: designLink(issue.body) } : {}),
   };
@@ -171,11 +172,11 @@ export function prAction(pr, review) {
 //   checks:  { [prNumber]: { check_runs, statuses } }, missing for PRs whose checks weren't read
 //            (or couldn't be: an unread PR counts as not failing, and the page says so on its row)
 //   now:     epoch ms
-// Each card: { project, number, title, url, kind: "spec"|"design"|"pr", bucket, reason, since, age }, plus
+// Each card: { project, number, title, url, kind: "spec"|"design"|"pr", bucket, reason, since, age, labels (names) }, plus
 //   spec cards:   openQuestions (a count, or null without the section), pr ({ number, url } or null)
 //   design cards: designUrl (claude.ai, or null)
 //   PR cards:     review (trustedReview: parseReview plus outOfDate, or null), landsAfter (the PR it is stacked on, or null),
-//                 labels (names), action (prAction: "approve", "review-first", "unapprove" or null)
+//                 action (prAction: "approve", "review-first", "unapprove" or null)
 // Items that need nothing from the dashboard (spec:in-review specs, unreviewed ready PRs,
 // PRs closed unmerged, anything older than a week in Landed) get no card.
 export function toCards(project, issues, prs, checks, now) {
@@ -406,29 +407,31 @@ export function labelWrite(card, fresh) {
   return { labels: now === "approve" ? approveLabels(fresh.labels) : unapproveLabels(fresh.labels) };
 }
 
-// The words for a failed write (issue_write or actions_run_trigger), by the connector's error code.
-// Only the codes listed here mean the write surely didn't happen; any other (a timeout, an upstream
-// error, a code added later) may have run, and says so. verb: what was tried ("approve").
+// The words for a failed write (issue_write, actions_run_trigger or create_session), by the
+// connector's error code. Only the codes listed here mean the write surely didn't happen; any other
+// (a timeout, an upstream error, a code added later) may have run, and says so. context: { verb, who,
+// check }: verb, what was tried ("approve"); who, the connector that refused (GitHub unless named);
+// check, where to look before trying again (the refreshed page unless named).
 export const WRITE_DEFINITE = new Map([
-  ["approval_required", (v) => `GitHub needs your approval to ${v}. ${v[0].toUpperCase()}${v.slice(1)} again to be asked.`],
-  ["consent_required", (v) => `GitHub needs your approval to ${v}. ${v[0].toUpperCase()}${v.slice(1)} again to be asked.`],
+  ["approval_required", (v, m, w) => `${w} needs your approval to ${v}. ${v[0].toUpperCase()}${v.slice(1)} again to be asked.`],
+  ["consent_required", (v, m, w) => `${w} needs your approval to ${v}. ${v[0].toUpperCase()}${v.slice(1)} again to be asked.`],
   ["not_granted", (v) => `This page wasn't allowed to ${v}: ${v} again and allow it when asked.`],
-  ["not_in_manifest", (v) => `This page isn't allowed to ${v}: turn the GitHub connector's tool on in Permissions, or rerun /ship:dashboard.`],
+  ["not_in_manifest", (v, m, w) => `This page isn't allowed to ${v}: turn the ${w} connector's tool on in Permissions, or rerun /ship:dashboard.`],
   ["capability_disabled", (v) => `Connector calls are turned off for this page, so it can't ${v}.`],
   ["blocked_by_policy", (v) => `Your organization's policy doesn't let this page ${v}.`],
-  ["server_not_connected", () => "GitHub isn't connected: connect it in claude.ai Settings → Connectors, then try again."],
-  ["server_not_found", () => "GitHub isn't connected: connect it in claude.ai Settings → Connectors, then try again."],
-  ["selection_required", (v) => `Pick the GitHub connection to use when asked, then ${v} again.`],
-  ["needs_reauth", () => "Reconnect GitHub in claude.ai Settings → Connectors, then try again."],
-  ["bad_request", (v, m) => `GitHub rejected the request to ${v}${m ? `: ${m}` : ""}. Nothing changed.`],
-  ["rate_limited", () => "Too many GitHub calls just now: wait a minute, then try again."],
-  ["tool_error", (v, m) => `GitHub refused: ${m || "tool_error"}`],
+  ["server_not_connected", (v, m, w) => `${w} isn't connected: connect it in claude.ai Settings → Connectors, then try again.`],
+  ["server_not_found", (v, m, w) => `${w} isn't connected: connect it in claude.ai Settings → Connectors, then try again.`],
+  ["selection_required", (v, m, w) => `Pick the ${w} connection to use when asked, then ${v} again.`],
+  ["needs_reauth", (v, m, w) => `Reconnect ${w} in claude.ai Settings → Connectors, then try again.`],
+  ["bad_request", (v, m, w) => `${w} rejected the request to ${v}${m ? `: ${m}` : ""}. Nothing changed.`],
+  ["rate_limited", (v, m, w) => `Too many ${w} calls just now: wait a minute, then try again.`],
+  ["tool_error", (v, m, w) => `${w} refused: ${m || "tool_error"}`],
 ]);
-export function writeError(e, verb) {
+export function writeError(e, { verb = "do that", who = "GitHub", check = "Check the page after it refreshes" } = {}) {
   const code = e?.code ?? "upstream_error";
   const definite = WRITE_DEFINITE.get(code);
-  if (definite) return definite(verb, e?.message);
-  return `No clear answer from GitHub (${code}${e?.message ? `: ${e.message}` : ""}): it may have gone through. Check the page after it refreshes before trying again.`;
+  if (definite) return definite(verb, e?.message, who);
+  return `No clear answer from ${who} (${code}${e?.message ? `: ${e.message}` : ""}): it may have gone through. ${check} before trying again.`;
 }
 
 // A file's text from a get_file_contents result: the GitHub connector answers with a status line,
@@ -459,4 +462,63 @@ export function landingRun(payload, clickedAt) {
   const run = runs.find((r) => r?.event === "workflow_dispatch" && Date.parse(r.created_at) >= clickedAt - RUN_SKEW);
   const url = run && safeUrl(run.html_url, ["github.com"]);
   return url ? { id: run.id, url } : null;
+}
+
+// ---- Run a skill: a card that needs a ship skill starts a Claude cloud session on its repo with the
+// command as its first message. The commands are the skills' own (skills/<name>/SKILL.md argument-hint).
+// card: a toCards card. → { label, command }, or null when the card needs no skill.
+//   an open spec:draft spec        Resume spec   /ship:spec-me #n
+//   an open conflicts PR           Resolve       /ship:resolve-conflicts #n
+//   a design:ready design          Spec design   /ship:design-me #n
+// No "Send back": /ship:land approves every PR it is given, so there is no command that sends one PR back.
+// Landed cards are closed or merged: they need nothing.
+export function skillFor(card) {
+  if (!card || card.bucket === "landed") return null;
+  const l = new Set(card.labels ?? []);
+  const n = card.number;
+  if (card.kind === "spec" && l.has("spec:draft")) return { label: "Resume spec", command: `/ship:spec-me #${n}` };
+  if (card.kind === "design") return { label: "Spec design", command: `/ship:design-me #${n}` };
+  if (card.kind !== "pr") return null;
+  if (l.has("conflicts")) return { label: "Resolve", command: `/ship:resolve-conflicts #${n}` };
+  return null;
+}
+
+// The environment a project's sessions run in, before the viewer picks: the one whose name equals the
+// repo's name (case-insensitive), else the first cloud environment listed, else the first listed. A
+// "bridge" environment is someone's own machine, which may be off, so a cloud one is preferred when
+// nothing is named for the repo. envs: Claude Code Remote list_environments items
+// { environment_id, name, kind }. project: "owner/name". → the environment, or null when there is none.
+export function preselectEnvironment(envs, project) {
+  const list = (envs ?? []).filter((e) => e?.environment_id);
+  const repo = String(project ?? "").split("/").pop().toLowerCase();
+  return list.find((e) => String(e.name ?? "").trim().toLowerCase() === repo) ??
+    list.find((e) => e.kind === "anthropic_cloud") ?? list[0] ?? null;
+}
+
+// The new session from a Claude Code Remote create_session result. Its shape wasn't observed (the
+// tool says it "returns the new session's ID and status"), so the id is looked for as session_id, id
+// or session.id in the payload, or in a JSON text block. Free text is never searched, and only a plain
+// id makes a link. → { id, url: https://claude.ai/code/<id> }, or null (the page then links the
+// viewer's sessions).
+const SESSION_ID = /^[A-Za-z0-9_-]+$/;
+const idIn = (o) => (o && typeof o === "object" ? [o.session_id, o.id, o.session?.id, o.session?.session_id].find((v) => typeof v === "string") : undefined);
+const json = (text) => { try { return JSON.parse(text); } catch { return null; } };
+export function sessionLink(result) {
+  const p = result?.payload;
+  const texts = [typeof p === "string" ? p : "", ...(result?.content ?? []).map((b) => (typeof b?.text === "string" ? b.text : ""))];
+  const id = idIn(p) ?? texts.map((t) => idIn(json(t))).find(Boolean);
+  return id && SESSION_ID.test(id) ? { id, url: `https://claude.ai/code/${id}` } : null;
+}
+
+// A single-flight gate: at most one key holds it at a time. tryEnter(key) → true when it was free
+// (key now holds it), false otherwise (the holder included). leave(key) frees it only when key holds
+// it, so a late leave from someone else can't open it under the holder. holder() → the key or null.
+// The page holds it while a card's environment is being settled, so two clicks never share the picker.
+export function singleFlight() {
+  let held = null;
+  return {
+    tryEnter(key) { if (held !== null) return false; held = key; return true; },
+    leave(key) { if (held === key) held = null; },
+    holder: () => held,
+  };
 }

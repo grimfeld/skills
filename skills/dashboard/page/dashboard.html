@@ -167,6 +167,7 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
 /* Actions sit at the bottom of their card, full width: one 44 px target, on every screen. */
 .card-actions { display: grid; gap: 6px; padding-top: 4px; }
 .card-actions .btn { width: 100%; }
+.card-actions a.btn { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; color: var(--accent); }
 /* Off (gated) and busy buttons keep full-contrast text: off ones go outlined and muted, busy ones
    keep their colours and show a spinner. aria-disabled, not disabled, so they keep focus. */
 .btn.is-off, .btn.is-off:hover { background: var(--surface); border: 1px dashed var(--muted); color: var(--muted); cursor: not-allowed; }
@@ -241,6 +242,41 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
   .card-project { white-space: normal; overflow: visible; overflow-wrap: anywhere; }
 }
 
+/* The environment picker: a centred dialog, a bottom sheet on a phone. */
+dialog.sheet {
+  border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--fg);
+  padding: 0; width: min(440px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto;
+}
+dialog.sheet::backdrop { background: rgb(0 0 0 / 0.45); }
+/* The padding is the form's, so the form covers the whole sheet: a click whose target is the dialog
+   itself landed on the ::backdrop. */
+.sheet form { display: grid; gap: 14px; padding: 20px; margin: 0; }
+.sheet h2 { margin: 0; font-size: 17px; font-weight: 600; }
+.sheet p { margin: 0; }
+.sheet fieldset { border: 0; margin: 0; padding: 0; display: grid; gap: 8px; min-width: 0; }
+.env-option {
+  display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 8px 12px; min-width: 0;
+  border: 1px solid var(--line); border-radius: 8px; cursor: pointer;
+}
+.env-option:has(input:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
+.env-option input { margin: 0; width: 18px; height: 18px; flex: none; accent-color: var(--accent); }
+.env-text { display: grid; min-width: 0; }
+.env-name { font-weight: 500; overflow-wrap: anywhere; }
+.env-meta { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.env-tag { margin-left: auto; flex: none; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--accent); }
+.sheet .actions { justify-content: flex-end; }
+.env-line { margin: 0; font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; align-items: center; gap: 0 6px; min-width: 0; }
+.env-line span { overflow-wrap: anywhere; min-width: 0; }
+.linklike { border: 0; background: none; padding: 0; color: var(--accent); text-decoration: underline; cursor: pointer; font-size: 12px; min-height: 44px; }
+@media (max-width: 720px) {
+  dialog.sheet {
+    margin: auto 0 0; width: 100%; max-width: 100%; max-height: 85dvh; border-radius: 16px 16px 0 0; border-bottom: 0;
+  }
+  .sheet form { padding-bottom: max(20px, env(safe-area-inset-bottom, 0px)); }
+  .sheet .actions .btn { flex: 1 1 0; }
+  .linklike { font-size: 13px; }
+}
+
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 </style>
 
@@ -280,6 +316,18 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
   </main>
 </div>
 
+<dialog class="sheet" id="picker" aria-labelledby="picker-title">
+  <form method="dialog" id="picker-form">
+    <h2 id="picker-title">Run in which environment?</h2>
+    <p class="hint" id="picker-hint"></p>
+    <fieldset id="picker-list"></fieldset>
+    <div class="actions">
+      <button class="btn" type="button" id="picker-cancel">Cancel</button>
+      <button class="btn primary" type="submit" id="picker-ok">Start session</button>
+    </div>
+  </form>
+</dialog>
+
 <script>
 /*@@BOARD@@*/
 </script>
@@ -289,9 +337,10 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
   // (build.test.mjs checks they match).
   const CONNECTORS = {
     github: { server: "github", tools: ["list_issues", "list_pull_requests", "pull_request_read", "get_file_contents", "issue_read", "issue_write", "actions_run_trigger", "actions_list"] },
-    remote: { server: "Claude Code Remote", tools: ["list_repos"] },
+    remote: { server: "Claude Code Remote", tools: ["list_repos", "list_environments", "create_session"] },
   };
   const GH = CONNECTORS.github.server;
+  const REMOTE = CONNECTORS.remote.server;
 
   // Codes that mean the viewer has to act before a connector answers.
   const DENIED = new Set(["needs_reauth", "server_not_connected", "selection_required", "server_not_found", "not_in_manifest", "blocked_by_policy", "approval_required", "not_granted", "capability_disabled", "capability_removed", "consent_required"]);
@@ -412,11 +461,11 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
   const inPool = pool(6, 2);
 
   const READ_CACHE = { staleTime: 4 * 60e3, gcTime: 10 * 60e3 };
-  // A GitHub read through the pool. A rate_limited (or otherwise retryable) refusal is retried
-  // once, after the wait it asks for; anything else rejects with its code.
-  async function readOnce(tool, input, { refresh = false, cache = READ_CACHE, low = false } = {}) {
+  // A read through the pool (GitHub unless another server is named). A rate_limited (or otherwise
+  // retryable) refusal is retried once, after the wait it asks for; anything else rejects with its code.
+  async function readOnce(tool, input, { refresh = false, cache = READ_CACHE, server = GH, low = false } = {}) {
     const options = { cache: cache && refresh ? { ...cache, refresh: true } : cache };
-    const call = () => inPool(() => (state.mcp ? state.mcp.callTool(GH, tool, input, options) : Promise.reject({ code: "cancelled", message: "" })), low);
+    const call = () => inPool(() => (state.mcp ? state.mcp.callTool(server, tool, input, options) : Promise.reject({ code: "cancelled", message: "" })), low);
     try {
       return await call();
     } catch (e) {
@@ -478,7 +527,7 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
       note("Looking for your repos…");
       let repos;
       try {
-        const result = await state.mcp.callTool(CONNECTORS.remote.server, "list_repos", { limit: SCAN_LIMIT }, { cache: false });
+        const result = await state.mcp.callTool(REMOTE, "list_repos", { limit: SCAN_LIMIT }, { cache: false });
         repos = (result.payload?.repos ?? []).map((r) => r?.full_name).filter((n) => n && normaliseRepo(n) === n).slice(0, SCAN_LIMIT);
       } catch (e) {
         return note(`Claude Code Remote couldn't list your repos (${codeOf(e)}). Add repos by name, or try Rescan.`, true);
@@ -688,24 +737,28 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
     }
   }
 
-  // meta: { label (what it acts on: "#12" or the project), running (its progress words), bucket }.
-  async function runAction(key, kind, full, meta, work) {
+  // meta: { label (what it acts on: "#12" or the project), running (its progress words, announced
+  // at the start; none for a skill, which may first ask for an environment), bucket }.
+  // refetch: whether the project is read again afterwards (a session start changes nothing on GitHub).
+  async function runAction(key, kind, full, meta, work, { refetch = true } = {}) {
     if (actions.get(key)?.status === "running") return;
     actions.set(key, { kind, status: "running", ...meta });
-    announce(`${meta.running} ${meta.label}`);
+    if (meta.running) announce(`${meta.running} ${meta.label}`);
     scheduleRender();
     try {
       const done = await work();
+      // null: nothing was done (a picker closed without a choice), so back to idle.
+      if (done === null) { actions.delete(key); scheduleRender(); return; }
       const text = done?.text ?? done;
       actions.set(key, { kind, status: "done", text, url: done?.url ?? null, at: Date.now(), ...meta });
       announce(done?.said ?? `${text} ${meta.label}`);
-      loads.get(full)?.refetch?.();
+      if (refetch) loads.get(full)?.refetch?.();
     } catch (e) {
-      const text = e?.shown ?? writeError(e, e?.verb ?? "do that");
+      const text = e?.shown ?? writeError(e, { verb: e?.verb, who: e?.who, check: e?.check });
       actions.set(key, { kind, status: "error", text, refetch: Boolean(e?.refetch), ...meta });
       announce(text);
       // A write that may have run, or a PR that changed: read the project again, so the page shows what GitHub has.
-      if (!e?.shown || e.refetch) loads.get(full)?.refetch?.();
+      if (refetch && (!e?.shown || e.refetch)) loads.get(full)?.refetch?.();
     }
     scheduleRender();
   }
@@ -733,18 +786,19 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
     layout = next;
   }
 
-  // One action button (Approve, Un-approve, Land, Confirm, Cancel), and the note that says why it's
+  // One action button (Approve, Un-approve, Land, Confirm, Cancel, a card's run-a-skill), and the note that says why it's
   // off. Off or busy, it is aria-disabled rather than disabled, so it keeps focus through a re-render
   // and an off one reads its reason (aria-describedby). off: the note's nodes, or null when it can run.
   // held: aria-disabled with no note (an outcome just shown, until the refetch catches up).
+  // waiting: aria-disabled, but its click still reaches onClick, which says why it can't run yet.
   // keysFrom: keyboard clicks before this time (performance.now()) are ignored, and a held key's
   // repeats always are (Confirm, which takes focus from Land under a key that may still be down).
-  function actionButton({ key, text, hint, primary = false, small = false, off = null, busy = false, held = false, keysFrom = 0, noteClass = "act-note", settle = true, onClick }) {
+  function actionButton({ key, text, hint, primary = false, small = false, off = null, busy = false, held = false, waiting = false, keysFrom = 0, noteClass = "act-note", settle = true, onClick }) {
     const noteId = `why-${key.replace(/[^\w-]/g, "_")}`;
     const note = off ? el("p", { class: noteClass, id: noteId }, ...off) : null;
     const cls = ["btn", small && "small", primary && !off && "primary", off && "is-off", busy && "is-busy"].filter(Boolean).join(" ");
     const button = el("button", { class: cls, type: "button", title: off ? note.textContent : hint, "data-key": key }, text);
-    if (off || busy || held) button.setAttribute("aria-disabled", "true");
+    if (off || busy || held || waiting) button.setAttribute("aria-disabled", "true");
     if (off) button.setAttribute("aria-describedby", noteId);
     if (busy) button.setAttribute("aria-busy", "true");
     button.addEventListener("click", (ev) => {
@@ -812,6 +866,177 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
       }
       return { text: `Dispatched on ${branch}. The run hasn't shown up yet: see the repo's Actions tab.`, said };
     });
+  }
+
+  // ---- Run a skill: a card's button starts a Claude cloud session on its repo, through Claude Code
+  // Remote, with the skill's command (board.mjs's skillFor) as its first message. One create_session
+  // per click, never retried: a failed start may still have made a session.
+  const SESSION_TOOLS = ["list_environments", "create_session"];
+  const sessionsOn = () => SESSION_TOOLS.every((t) => state.tools.remote.has(t));
+  const SESSIONS_URL = "https://claude.ai/code";
+  const ENV_CACHE = { staleTime: 60e3, gcTime: 5 * 60e3 };
+  const remoteFailure = (e, verb) => Object.assign(Object.create(null), { code: e?.code, message: e?.message, verb, who: "Claude Code Remote", check: "Check your sessions at claude.ai/code" });
+
+  // The viewer's environments (list_environments), read again after a minute so one deleted since
+  // isn't offered.
+  async function environments() {
+    try {
+      const r = await readOnce("list_environments", { limit: 100 }, { server: REMOTE, cache: ENV_CACHE });
+      return listOf(r.payload, "environments").filter((e) => e?.environment_id);
+    } catch (e) {
+      throw remoteFailure(e, "list your environments");
+    }
+  }
+
+  async function startSession(card, skill, env) {
+    let result;
+    try {
+      result = await state.mcp.callTool(REMOTE, "create_session", {
+        prompt: skill.command,
+        title: `${skill.command} · ${card.project}`,
+        source_url: `https://github.com/${card.project}`,
+        environment_id: env.environment_id,
+      }, { cache: false });
+    } catch (e) {
+      throw remoteFailure(e, "start a session");
+    }
+    const link = sessionLink(result);
+    const said = `Session started for #${card.number} in ${env.name}`;
+    return link ? { text: `Started in ${env.name}`, url: link.url, said } : { text: `Started in ${env.name}: its link didn't come back, so find it among your sessions.`, url: SESSIONS_URL, said };
+  }
+
+  // The environment chosen for a project, per viewer: { id, name }, or null when none is chosen yet.
+  // Without browser storage the store's in-memory copy remembers it only until the page is closed.
+  const envKey = (full) => `env:${full.toLowerCase()}`;
+  // A card's run-a-skill button and its "change" button, as data-keys and action keys.
+  const skillKey = (card) => `skill:${card.project}#${card.number}`;
+  const envChangeKey = (card) => `envchange:${card.project}#${card.number}`;
+  const storedEnv = (full) => { const v = store.get(envKey(full), null); return typeof v?.id === "string" ? v : null; };
+
+  // The picker: the viewer's environments, the current choice (else board.mjs's preselection) checked
+  // and the preselected one tagged. → the chosen environment, or null when closed without one.
+  // opener: the data-key focus returns to. There is one #picker, so one picker at a time: skillAction
+  // never opens a second, and one asked for while the dialog is open closes at once (null) without
+  // touching it. Only the picker that opened the dialog listens on it, until it closes.
+  function pickEnvironment(full, envs, { starting, opener }) {
+    const dialog = $("picker");
+    if (dialog.open) return Promise.resolve(null);
+    const suggested = preselectEnvironment(envs, full);
+    const current = envs.find((e) => e.environment_id === storedEnv(full)?.id) ?? suggested;
+    $("picker-hint").textContent = `For sessions on ${full}. This browser remembers the choice.`;
+    $("picker-ok").textContent = starting ? "Start session" : "Use this environment";
+    $("picker-list").replaceChildren(el("legend", { class: "sr-only", text: "Environments" }), ...envs.map((e) => {
+      const input = el("input", { type: "radio", name: "env", value: e.environment_id });
+      input.checked = e === current;
+      const meta = [e.kind === "bridge" ? "your machine" : "cloud", e.description].filter(Boolean).join(" · ");
+      return el("label", { class: "env-option" }, input,
+        el("span", { class: "env-text" }, el("span", { class: "env-name", text: e.name || e.environment_id }), el("span", { class: "env-meta", text: meta })),
+        e === suggested ? el("span", { class: "env-tag", text: "suggested" }) : null);
+    }));
+    return new Promise((resolve) => {
+      const form = $("picker-form");
+      const finish = (env) => {
+        form.removeEventListener("submit", onSubmit);
+        $("picker-cancel").removeEventListener("click", onCancel);
+        dialog.removeEventListener("close", onClose);
+        dialog.removeEventListener("click", onBackdrop);
+        if (dialog.open) dialog.close();
+        resolve(env);
+        // The card was redrawn while the picker was open: the next paint focuses its replacement.
+        focusNext = opener;
+        scheduleRender();
+      };
+      const onSubmit = (event) => {
+        event.preventDefault();
+        const id = form.elements.env?.value;
+        finish(envs.find((e) => e.environment_id === id) ?? null);
+      };
+      const onCancel = () => finish(null);
+      const onClose = () => finish(null);
+      const onBackdrop = (event) => { if (event.target === dialog) finish(null); };
+      form.addEventListener("submit", onSubmit);
+      $("picker-cancel").addEventListener("click", onCancel);
+      dialog.addEventListener("close", onClose);
+      dialog.addEventListener("click", onBackdrop);
+      dialog.showModal();
+      (form.querySelector("input:checked") ?? form.querySelector("input"))?.focus();
+    });
+  }
+
+  // The skill action whose environment is being settled (environments read, picker open): board.mjs's
+  // singleFlight, held by its skill key. While one is, every other skill or "change" click is refused
+  // and said so, and the other skill buttons are aria-disabled, so two clicks in quick succession never
+  // share the one picker (one submit would start both).
+  const choosing = singleFlight();
+  const cardOfKey = (key) => key.replace(/^skill:/, "");
+
+  // A run-a-skill click starts at once in the project's stored environment while it still exists;
+  // otherwise (first run, environment gone) the picker asks first. change: only pick and store,
+  // start nothing.
+  function skillAction(card, skill, { change = false } = {}) {
+    const key = skillKey(card);
+    if (actions.get(key)?.status === "running") return;
+    if (!choosing.tryEnter(key)) {
+      const other = choosing.holder();
+      if (other !== key) announce(`Choosing an environment for ${cardOfKey(other)} first`);
+      return;
+    }
+    const opener = change ? envChangeKey(card) : key;
+    const meta = { label: `#${card.number}` };
+    runAction(key, "skill", card.project, meta, async () => {
+      let env;
+      try {
+        const envs = await environments();
+        if (!envs.length) throw { shown: "You have no Claude Code environment to run it in: create one at claude.ai/code, then try again." };
+        env = change ? null : envs.find((e) => e.environment_id === storedEnv(card.project)?.id);
+        if (!env) {
+          actions.set(key, { kind: "skill", status: "running", choosing: true, ...meta });
+          scheduleRender();
+          env = await pickEnvironment(card.project, envs, { starting: !change, opener });
+          if (!env) return null;
+          store.set(envKey(card.project), { id: env.environment_id, name: env.name });
+          if (change) { announce(`Sessions on ${card.project} run in ${env.name || env.environment_id}`); return null; }
+          actions.set(key, { kind: "skill", status: "running", ...meta });
+          scheduleRender();
+        }
+      } finally {
+        choosing.leave(key);
+        scheduleRender();
+      }
+      announce(`Starting ${skill.command} in ${env.name || env.environment_id}`);
+      return startSession(card, skill, env);
+    }, { refetch: false });
+  }
+
+  // A card's run-a-skill button (actionButton, so a pointer click just after the cards moved is
+  // held back like Approve's); once started, the "Open session" link in its place (same data-key,
+  // so focus moves to it). Hidden without Claude Code Remote's session tools.
+  function renderSkill(card) {
+    const skill = skillFor(card);
+    if (!skill || !sessionsOn()) return [];
+    const key = skillKey(card);
+    const act = actions.get(key);
+    if (act?.status === "done") {
+      const text = act.url === SESSIONS_URL ? "Open sessions" : "Open session";
+      return [el("a", { class: "btn session-link", href: act.url, target: "_blank", rel: "noopener noreferrer", "data-key": key, "aria-label": `${text} (opens in a new tab)`, text }),
+        el("p", { class: "act-done", text: act.text })];
+    }
+    const running = act?.status === "running";
+    // Another card's environment is being chosen: this one waits (aria-disabled, its click announced).
+    const waiting = choosing.holder() !== null && choosing.holder() !== key;
+    const [button] = actionButton({ key, text: running && !act.choosing ? "Starting…" : skill.label, busy: running,
+      waiting,
+      hint: `Start a Claude session on ${card.project} running ${skill.command}`, onClick: () => skillAction(card, skill) });
+    // The stored environment, and "change" to pick again (no line until there's a stored choice).
+    const env = storedEnv(card.project);
+    let line = null;
+    if (env) {
+      const change = el("button", { class: "linklike", type: "button", "data-key": envChangeKey(card), "aria-label": `Change the environment for ${card.project}`, text: "change" });
+      if (running || waiting) change.setAttribute("aria-disabled", "true");
+      change.addEventListener("click", () => skillAction(card, skill, { change: true }));
+      line = el("p", { class: "env-line" }, el("span", { text: `Runs in ${env.name || env.id}` }), change);
+    }
+    return [button, line, act?.status === "error" ? el("p", { class: "act-error", text: act.text }) : null];
   }
 
   // Land asks first, in place: "Land 2 PRs: #4, #7?" with Confirm and Cancel, listing the PRs the
@@ -1016,10 +1241,16 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
     return rows.length ? el("div", { class: "card-details" }, ...rows) : null;
   }
 
+  // A card's buttons, in one row: Approve or Un-approve, then its run-a-skill button.
+  function renderCardActions(card) {
+    const nodes = [...renderLabelAction(card), ...renderSkill(card)].filter(Boolean);
+    return nodes.length ? el("div", { class: "card-actions" }, ...nodes) : null;
+  }
+
   // A PR card's Approve or Un-approve, with its progress, outcome, error, or why it's off: the gate,
   // or a review missing or out of date (Approve is withheld until the PR is reviewed again).
-  function renderCardActions(card) {
-    if (!card.action) return null;
+  function renderLabelAction(card) {
+    if (!card.action) return [];
     const key = `pr:${card.project}#${card.number}`;
     let act = actions.get(key);
     // An outcome stays under the button for a minute, wherever the card has moved.
@@ -1035,9 +1266,9 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
       // Done, but the refetch hasn't changed the card yet: the same action again would only be refused.
       held: act?.status === "done" && act.kind === card.action,
       onClick: () => labelAction(card) });
-    return el("div", { class: "card-actions" }, button, note,
+    return [button, note,
       act?.status === "error" ? el("p", { class: "act-error", text: act.text }) : null,
-      act?.status === "done" ? el("p", { class: "act-done", text: act.text }) : null);
+      act?.status === "done" ? el("p", { class: "act-done", text: act.text }) : null];
   }
 
   // One card. Sibling specs extend the dashboard here: details, actions and sessions hang off the card.
@@ -1163,7 +1394,7 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
     if (shown(target)) return target.focus({ preventScroll: true });
     const cards = bucket ? [...document.querySelectorAll(`[data-bucket="${bucket}"] .card`)] : [];
     const near = cards[Math.min(Math.max(at, 0), cards.length - 1)];
-    const fallback = [near?.querySelector('[data-key^="act:"]'), near?.querySelector(".card-title"),
+    const fallback = [near?.querySelector('[data-key^="act:"], [data-key^="skill:"]'), near?.querySelector(".card-title"),
       bucket && document.querySelector(`[data-key="tab:${bucket}"]`), $("refresh")].find(shown);
     fallback?.focus({ preventScroll: true });
   }
