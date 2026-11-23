@@ -1,6 +1,6 @@
 # GitHub Actions checklist
 
-For the `quality` and `security` lenses, when the diff has a **workflow file**: anything under `.github/workflows/`, an `action.yml` or `action.yaml`, or a YAML file with top-level `on:` and `jobs:` keys (a workflow template, such as `skills/setup-ship/templates/ship.yml`).
+For the `quality` and `security` lenses, when the dispatch prompt lists **workflow files** (pr-review's step 3 defines them; templates such as `skills/setup-ship/templates/ship.yml` count).
 
 Workflow bugs hide in the event model, not in the YAML: each item below is a failure that passed earlier reviews here. For each, the failure, then the sign in a diff. Report what you find in your own lane, in the usual finding format; cite the item by its name in `category` (`actions:race`, `actions:concurrency`, …).
 
@@ -16,17 +16,17 @@ Workflow bugs hide in the event model, not in the YAML: each item below is a fai
 
 **Sign:** a new or changed `concurrency:` key; a group that doesn't include what makes each run distinct (the PR number, the head SHA, the event); a design that relies on every queued run eventually running. For a 3-level stack or a burst of events, count how many runs queue on one group.
 
-## 3. A second run's writes fail under `bash -e` (`actions:idempotence`)
+## 3. A second run's writes fail, or failures hide (`actions:idempotence`)
 
-**Failure:** `run:` steps use `bash -e` by default (`set -eo pipefail`). A write that already happened fails the second time: deleting a label that's gone (404), creating one that exists (422), merging an already merged PR (405), and the step, then the job, goes red. Writes that don't fail duplicate instead: two identical comments, two status updates in the wrong order.
+**Failure:** a `run:` step with no `shell:` key runs as `bash -e {0}`: errexit, but **no pipefail**. With `shell: bash` it runs `bash --noprofile --norc -eo pipefail {0}`. A write that already happened fails the second time: deleting a label that's gone (404), creating one that exists (422), merging an already merged PR (405), and the step, then the job, goes red. Writes that don't fail duplicate instead: two identical comments, two status updates in the wrong order. And a failure can hide: under the default shell, a failing `gh api` piped into `jq`, `sed` or `head` leaves the step green and an empty value flowing on; `curl` without `--fail` exits 0 on a 404, 405 or 422.
 
-**Sign:** `gh` or `curl` writes in a `run:` step with no check before them and no `|| true` / `--silent` on a missing target: `gh api -X DELETE …/labels/…`, `gh pr merge`, `gh label create` without `--force`, `gh pr comment` with no look for an earlier comment. Ask what the step does when it runs twice for one event (see 1) or is re-run by hand.
+**Sign:** `gh` or `curl` writes in a `run:` step with no read-before-write check and no guard scoped to the expected error (a 404 on a DELETE, a 422 on a create): `gh api -X DELETE …/labels/…`, `gh pr merge`, `gh label create` without `--force`, `gh pr comment` with no look for an earlier comment. `--silent` is no guard: it only hides output (`gh api` still fails on any 4xx). Also a read or write in a pipeline under the default shell, and `curl` without `--fail`, whose failure nobody sees. Ask what the step does when it runs twice for one event (see 1), is re-run by hand, or its API call fails.
 
-## 4. `pull_request` vs `pull_request_target` (`actions:trigger`)
+## 4. `pull_request` vs privileged triggers (`actions:trigger`)
 
-**Failure:** `pull_request_target` runs the **base branch's** workflow with a **write** `GITHUB_TOKEN` and the repository's secrets, even for a PR from a fork. Checking out or running the PR's code there (`actions/checkout` with `ref: ${{ github.event.pull_request.head.sha }}`, a build or install script, `${{ github.event.pull_request.title }}` in a `run:` line) hands that token to the PR's author. `pull_request` from a fork gets a read-only token and no secrets, so a write step that works on a same-repo PR fails on a fork.
+**Failure:** `pull_request_target` runs the **default branch's** workflow (since December 2025, whatever the PR's base: a fix to the workflow on a stacked PR's base branch doesn't apply until it reaches the default branch), with a `GITHUB_TOKEN` that can write unless `permissions:` narrows it, and the repository's secrets, even for a PR from a fork. `workflow_run`, `issue_comment` and `pull_request_review_comment` run the same way, in the base repository with its token and secrets, on input a fork PR or any commenter controls. Checking out or running the PR's code there (`actions/checkout` with `ref: ${{ github.event.pull_request.head.sha }}`, a build or install script, `${{ github.event.pull_request.title }}` in a `run:` line) hands that token to the PR's author. `pull_request` from a fork gets a read-only token and no secrets, so a write step that works on a same-repo PR fails on a fork.
 
-**Sign:** a switch to or from `pull_request_target`; a checkout of the head ref in a `pull_request_target` job; `${{ github.event.* }}` text (titles, bodies, branch names, comments) interpolated straight into `run:` instead of passed through `env:`; `permissions:` widened; secrets used in a job that fork PRs can start.
+**Sign:** a switch to or from `pull_request_target`, `workflow_run` or `issue_comment`; a checkout of the head ref, the head SHA or `refs/pull/*/head` in one of those jobs; a `workflow_run` job that downloads the triggering run's artifacts and runs or trusts them; `${{ github.event.comment.body }}` or `${{ github.event.workflow_run.head_branch }}` in a `run:` line; `${{ github.event.* }}` text (titles, bodies, branch names, comments) interpolated straight into `run:` instead of passed through `env:`; `permissions:` widened; secrets used in a job that fork PRs can start.
 
 ## 5. What `GITHUB_TOKEN` writes don't trigger (`actions:token-trigger`)
 

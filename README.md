@@ -25,7 +25,7 @@ The flow:
 
 1. **Drift check**: each lens records the hash of the skill it was adapted from. If that skill has changed since, the run pauses and offers to re-sync the lens.
 2. **Prepare**: resolves the diff (in a temporary worktree for PRs that aren't checked out), the spec, CI status and any previous report.
-3. **Route**: skips lenses with nothing to review, first by file type (no front-end files: no web audit; docs-only: standards and spec only, plus security when a ship skill under `skills/` changes), then by reading the hunks of smaller diffs (no data or loop changes: no performance review).
+3. **Route**: skips lenses with nothing to review, first by file type (no front-end files: no web audit; docs-only: standards and spec only, plus security when a ship skill under `skills/` changes; a GitHub Actions workflow or workflow template gets quality and security with an Actions checklist), then by reading the hunks of smaller diffs (no data or loop changes: no performance review).
 4. **Find a preview URL** for the web audit: GitHub deployments, the Vercel bot comment, the Vercel MCP, then a local dev server already running. Never starts or deploys anything.
 5. **Review** in parallel, one lightweight `pr-lens-reviewer` agent per lens. Every reviewer is report-only and returns findings in one shared format.
 6. **Dedupe** across lenses. A finding several lenses agree on ranks higher.
