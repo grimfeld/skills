@@ -36,8 +36,9 @@ For each open, non-draft PR carrying `ship`, parents before the PRs stacked on t
 4. retargets the PRs stacked on it to `main` and lands them the same way, in the same run.
 
 When a check goes red because of its merge or resolution (it passes on `main`, and either passed before the merge or
-fails in the PR's own code), the agent fixes it in the PR's code, never in a file only `main` changed, pushes and
-waits again, at most twice. A check that was red before the merge, or is red on `main` too, isn't its to fix.
+fails in the PR's side of the merge), the agent fixes it on the PR's side (the PR's own files and its
+resolution), never in a file only `main` changed, pushes and
+waits again, at most twice. A check that was red before the merge, or isn't shown passing on `main`, isn't its to fix.
 
 Resolving and fixing run the project's local checks, from `main`'s copy of this file, on the PR's merged code, on the
 machine running `/ship:land`, with its git and GitHub credentials. Run it where you'd run the project's tests.
