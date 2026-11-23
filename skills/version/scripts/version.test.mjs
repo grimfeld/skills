@@ -10,11 +10,12 @@ import { fileURLToPath } from "node:url";
 const script = join(dirname(fileURLToPath(import.meta.url)), "version.mjs");
 const git = (cwd, ...args) => execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8" }).trim();
 const run = (args, env) => execFileSync("node", [script, ...args], { encoding: "utf8", env: { ...process.env, ...env } });
+const commit = (dir, msg) => git(dir, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", msg);
 
 function repo() {
   const dir = mkdtempSync(join(tmpdir(), "ship-version-"));
   git(dir, "init", "-q", "-b", "main");
-  git(dir, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "one");
+  commit(dir, "one");
   return dir;
 }
 
@@ -41,7 +42,7 @@ test("installed and up to date", () => {
 test("installed and behind main", () => {
   const remote = repo();
   const sha = git(remote, "rev-parse", "HEAD");
-  git(remote, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "two");
+  commit(remote, "two");
   const root = mkdtempSync(join(tmpdir(), "ship-root-"));
   const out = run([root], { CLAUDE_CONFIG_DIR: registry(root, sha), SHIP_REMOTE: remote });
   assert.match(out, /claude plugin update ship@grimfeld/);
@@ -90,7 +91,7 @@ test("working copy ahead of main is not told to run plugin update", () => {
   const remote = repo();
   const root = mkdtempSync(join(tmpdir(), "ship-clone-"));
   execFileSync("git", ["clone", "-q", remote, root]);
-  git(root, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "two");
+  commit(root, "two");
   const out = run([root], { CLAUDE_CONFIG_DIR: mkdtempSync(join(tmpdir(), "c-")), SHIP_REMOTE: remote });
   assert.doesNotMatch(out, /claude plugin update/);
   assert.match(out, new RegExp(`main is at ${git(remote, "rev-parse", "HEAD").slice(0, 12)}`));
@@ -100,7 +101,7 @@ test("working copy ahead of main is not told to run plugin update", () => {
 test("installed from another marketplace names its own key in the update hint", () => {
   const remote = repo();
   const sha = git(remote, "rev-parse", "HEAD");
-  git(remote, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "two");
+  commit(remote, "two");
   const root = mkdtempSync(join(tmpdir(), "ship-root-"));
   const out = run([root], { CLAUDE_CONFIG_DIR: registry(root, sha, "ship@other"), SHIP_REMOTE: remote });
   assert.match(out, /claude plugin update ship@other$/m);
@@ -110,7 +111,7 @@ test("compares with main even when the remote's default branch is another", () =
   const remote = repo();
   const main = git(remote, "rev-parse", "HEAD");
   git(remote, "checkout", "-q", "-b", "dev");
-  git(remote, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "dev");
+  commit(remote, "dev");
   const root = mkdtempSync(join(tmpdir(), "ship-root-"));
   const out = run([root], { CLAUDE_CONFIG_DIR: registry(root, main), SHIP_REMOTE: remote });
   assert.match(out, new RegExp(`Up to date with main \\(${main.slice(0, 12)}\\)`));
