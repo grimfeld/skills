@@ -52,6 +52,14 @@ Append to that section every time you choose something the spec didn't say, and 
 
 **A question the spec doesn't answer:** if the answer changes what a user sees or does, or changes data in a way that can't be undone, the spec is stuck. Otherwise, decide and record it.
 
+**Overrides to `implement-spec`.** Where these replace one of its steps, they win:
+- **The notes dir:** `/tmp/build-spec-<n>/`, made before the first subagent. It's the one folder outside the repo that `implement-spec`'s exploration subagent saves to, and it holds the handoff notes below. Give its absolute path in every brief.
+- **The implementer brief:** the implementer commits on its ticket branch in its own worktree and never pushes it. Its worktree shares your clone's object store, so you see the branch without a push.
+- **Handoff notes:** an implementer whose ticket blocks another writes `<notes dir>/<ticket>.md` before it reports done: the paths it touched and the seams the next ticket plugs into (functions, test helpers, where to extend), as pointers and decisions, never the diff. A ticket that blocks nothing writes none. Done when every ticket it unblocks has a notes file to point at.
+- **The merger step:** a finished ticket branch already holds the spec branch's tip (the implementer merged it before reporting). Merge it yourself, inline, in your clone, on the spec branch: `git merge --no-ff --no-commit <ticket branch>`, then `git commit` with the build's message conventions and attribution, then push the spec branch. Done when the spec branch on the remote holds the implementer's commit. Start a merger subagent only when that merge conflicts; it resolves in your clone the same way and pushes only the spec branch.
+- **The new-frontier step:** each newly unblocked ticket's brief points at its blockers' notes files.
+- **Nothing else is pushed:** after the build, `git ls-remote --heads origin` lists no ticket branch, only the branches that were there before and the spec branch.
+
 Done when every ticket is closed, or one can't be built, which makes the spec stuck.
 
 ### 3. Check
