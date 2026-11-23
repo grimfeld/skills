@@ -276,7 +276,7 @@ jobs:
         run: |
           # The workflow's own token can only read pull requests here, so every merge would be refused.
           [ "$HAS_SHIP_TOKEN" = true ] && exit 0
-          msg="No SHIP_TOKEN secret, so nothing can land. Add the SHIP_TOKEN secret (see docs/agents/shipping.md), then start a landing run again."
+          msg="No SHIP_TOKEN secret, so nothing can land. Add the SHIP_TOKEN secret (see docs/agents/shipping.md): a fine-grained token with Contents, Pull requests and Workflows read and write, then start a landing run again."
           echo "::error::$msg"
           echo "**Landing failed:** $msg" >> "$GITHUB_STEP_SUMMARY"
           exit 1
@@ -299,59 +299,59 @@ __SETUP_STEPS__
           merged=0 queued=0 failed=0 skipped=0 report=""
           # One summary line per PR.
           note() { report="$report- [#$1]($url/$1): $2"$'\n'; echo "#$1: $2"; }
+          landed() { merged=$((merged + 1)); note "$1" "${2:-merged}"; }
+          auto_merging() { queued=$((queued + 1)); note "$1" "$2"; }
+          skip() { skipped=$((skipped + 1)); note "$1" "not landed: $2"; }
           fail() { failed=$((failed + 1)); note "$1" "couldn't land it: $2"; echo "::error::#$1: couldn't land it: $2"; }
           # GitHub's error, on one line.
           oneline() { printf '%s' "$1" | tr '\n' ' ' | sed 's/  */ /g; s/^ //; s/ $//' | cut -c1-300; }
           if [ "$EVENT" = pull_request ]; then
             # A merge lands only the stacked children `queue` just moved, each read by its number: GitHub search,
-            # which `gh pr list` goes through, can still see a child's old base for a while after the move.
+            # which `gh pr list` goes through, can still see a child's old base for a while after the move. So this
+            # checks here what the list query below filters on: open, not a draft, on __DEFAULT_BRANCH__, labelled.
             prs=""
             for n in $ONLY; do
               if ! pr=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$n" 2>&1); then fail "$n" "$(oneline "$pr")"; continue; fi
               # shellcheck disable=SC2016 # a jq program, not shell
               why=$(echo "$pr" | jq -r --arg base "$DEFAULT_BRANCH" --arg label "$SHIP_LABEL" '
-                if .state != "open" then "not landed: it is \(if .merged then "already merged" else "closed" end)"
-                elif .draft then "not landed: it is a draft"
-                elif .base.ref != $base then "not landed: it targets `\(.base.ref)`, not `\($base)`"
-                elif ([.labels[].name] | index($label)) == null then "not landed: it has no `\($label)` label"
+                if .state != "open" then "it is \(if .merged then "already merged" else "closed" end)"
+                elif .draft then "it is a draft"
+                elif .base.ref != $base then "it targets `\(.base.ref)`, not `\($base)`"
+                elif ([.labels[].name] | index($label)) == null then "it has no `\($label)` label"
                 else "" end')
-              if [ -n "$why" ]; then skipped=$((skipped + 1)); note "$n" "$why"; else prs="$prs $n"; fi
+              if [ -n "$why" ]; then skip "$n" "$why"; else prs="$prs $n"; fi
             done
           else
             # A `ship` PR based on another PR's branch is a stacked child: `queue` moves it here once its parent lands.
             prs=$(gh pr list --label "$SHIP_LABEL" --state open --base "$DEFAULT_BRANCH" --limit 200 --json number,isDraft \
               --jq '[.[] | select(.isDraft | not) | .number] | map(tostring) | join(" ")')
           fi
+          # Nothing to land, and no moved child skipped or failed above either.
           if [ -z "${prs// /}" ] && [ -z "$report" ]; then
             echo "Nothing to land."; echo "Nothing to land." >> "$GITHUB_STEP_SUMMARY"; exit 0
           fi
           for n in $prs; do
             # GitHub merges it once its required checks pass: a PR still waiting for them isn't a failure.
             if err=$(gh pr merge "$n" --auto "--$MERGE_METHOD" 2>&1); then
-              if [ "$(gh pr view "$n" --json state --jq .state)" = MERGED ]; then
-                merged=$((merged + 1)); note "$n" "merged"
-              else
-                queued=$((queued + 1)); note "$n" "auto-merge on: GitHub merges it once its required checks pass"
-              fi
+              if [ "$(gh pr view "$n" --json state --jq .state)" = MERGED ]; then landed "$n"
+              else auto_merging "$n" "auto-merge on: GitHub merges it once its required checks pass"; fi
               continue
             fi
-            # Auto-merge can't be turned on for a PR that is already mergeable, so that one merges now. Another run
-            # may have merged it or turned auto-merge on in the meantime.
+            # Refused. Another run may have merged it or turned its auto-merge on in the meantime.
             if ! st=$(gh pr view "$n" --json state,mergeStateStatus,autoMergeRequest \
-                  --jq '"\(.state) \(.mergeStateStatus) \(.autoMergeRequest != null)"' 2>&1); then
+                  --jq '[.state, .mergeStateStatus, (.autoMergeRequest != null)] | @tsv' 2>&1); then
               fail "$n" "$(oneline "$err")"; continue
             fi
-            case "$st" in
-              MERGED*) merged=$((merged + 1)); note "$n" "already merged" ;;
-              *" true") queued=$((queued + 1)); note "$n" "auto-merge already on" ;;
-              "OPEN CLEAN "*)
-                if err=$(gh pr merge "$n" "--$MERGE_METHOD" 2>&1); then
-                  merged=$((merged + 1)); note "$n" "merged"
-                else
-                  fail "$n" "$(oneline "$err")"
-                fi ;;
-              *) fail "$n" "$(oneline "$err")" ;;
-            esac
+            IFS=$'\t' read -r state merge_state auto_merge_on <<< "$st"
+            if [ "$state" = MERGED ]; then landed "$n" "already merged"
+            elif [ "$auto_merge_on" = true ]; then auto_merging "$n" "auto-merge already on"
+            # Auto-merge can't be turned on for a PR that can already merge (its required checks passed, even if an
+            # optional one failed), so that one merges now.
+            elif [ "$state" = OPEN ] && case "$merge_state" in CLEAN|UNSTABLE|HAS_HOOKS) true;; *) false;; esac; then
+              if err=$(gh pr merge "$n" "--$MERGE_METHOD" 2>&1); then landed "$n"; else fail "$n" "$(oneline "$err")"; fi
+            else
+              fail "$n" "$(oneline "$err")"
+            fi
           done
           {
             echo "## Landing"

@@ -56,7 +56,8 @@ without merging leaves its children where they are.
 __LAND_DETAILS__
 
 A landing run needs the `SHIP_TOKEN` secret. Without it, the workflow's own token can't merge, so `land` fails at once,
-before trying any PR, and its error says to add the secret.
+before trying any PR, and its error says to add the secret: a fine-grained token with Contents, Pull requests and
+Workflows read and write, saved as the Actions secret `SHIP_TOKEN` (`gh secret set SHIP_TOKEN`).
 
 A landing run that can't land an approved PR fails, so a red `Ship` run means something approved is still waiting.
 A run with nothing to land stays green. In `auto-merge` mode, `land` tries every PR it finds, even after one fails,
@@ -88,7 +89,7 @@ __BOOKKEEPING_FILES__
 
 Required on `__DEFAULT_BRANCH__`: __REQUIRED_CHECKS__, and `ship`.
 
-A landing run's `land` job is red when it couldn't land an approved PR; see Landing. That isn't a check on any PR.
+A landing run's `land` job is red when `SHIP_TOKEN` is missing or an approved PR couldn't land; see Landing.
 
 Run locally before marking a PR ready: __LOCAL_CHECKS__
 
