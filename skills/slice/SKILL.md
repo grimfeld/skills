@@ -11,7 +11,7 @@ The rule: **one spec, one PR, about ten minutes to review.** The reviewer reads 
 
 Tickets are how the builder breaks the work up. They become commits on the spec's branch, never PRs of their own.
 
-Read `docs/agents/issue-tracker.md` for how issues are created, edited and linked here; in a cloud session without `gh`, use the GitHub MCP tools it names. Read `docs/agents/shipping.md` for a **review budget** if the project sets one.
+Read the project's `docs/agents/issue-tracker.md` (how issues are created, edited and linked here) and `docs/agents/shipping.md` (a **review budget**, if the project sets one) as `${CLAUDE_PLUGIN_ROOT}/references/project-docs.md` says: from the default branch, with its defaults for a missing file. Reach GitHub through the rows of `${CLAUDE_PLUGIN_ROOT}/references/github.md`.
 
 ## 1. Pick the specs
 

@@ -18,8 +18,9 @@ You must never:
 - touch another spec's branch, except the one in your own chain you build on
 
 Read first:
-1. The project's `CLAUDE.md` (and `AGENTS.md`), `docs/agents/shipping.md`, `docs/agents/issue-tracker.md`. The project's rules apply to you: worktrees, commit email, migrations, docs to update.
-2. `${CLAUDE_PLUGIN_ROOT}/references/github.md`, for when `gh` isn't available.
+1. The project's `CLAUDE.md` (and `AGENTS.md`). The project's rules apply to you: worktrees, commit email, migrations, docs to update.
+2. `docs/agents/shipping.md` and `docs/agents/issue-tracker.md`, as `${CLAUDE_PLUGIN_ROOT}/references/project-docs.md` says: from the default branch, with its defaults for a missing file.
+3. `${CLAUDE_PLUGIN_ROOT}/references/github.md`, for every GitHub call (REST first, GitHub MCP where there is no `gh`).
 
 ## For each spec, in the order given
 
