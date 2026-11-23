@@ -192,7 +192,7 @@ Every choice the spec left open goes in the PR's Decisions section. The PR ends 
 
 ### `/ship:setup-ship`
 
-Run once per project. Afterwards, a person approves a reviewed PR with the **`ship`** label, and `/ship:land` lands it.
+Run once per project. It works in an empty folder too: it creates the local repo, the GitHub repo and a first empty commit on your yes, before the setup PR. Afterwards, a person approves a reviewed PR with the **`ship`** label, and `/ship:land` lands it.
 
 - **Required `ship` status:** a commit status, required by the default branch's ruleset, that stays pending until the label is on, so nothing unreviewed merges. It is the only job of `ship.yml`, apart from Dependabot's label: the workflow merges nothing.
 - **Landing:** `/ship:land`, an agent that merges every `ship` PR itself, parents before their stacked children. Nothing merges on its own: no auto-merge, no scheduled run.
@@ -203,7 +203,7 @@ Run once per project. Afterwards, a person approves a reviewed PR with the **`sh
 
 Run it again in a project set up by an older version and it offers an upgrade: it re-renders `ship.yml` and `shipping.md` with the values already installed, keeps your own edits to them, and shows the diff first. Upgrading from version 2 also turns auto-merge off and retires the `conflicts` label.
 
-GitHub settings are shown first and applied only after you approve them. You create the `SHIP_TOKEN` secret yourself: the skill never handles tokens. Deploys stay with the project's CD.
+GitHub settings are shown first and applied only after you approve them. You create the `SHIP_TOKEN` Dependabot secret yourself, in a separate terminal (`gh secret set SHIP_TOKEN --app dependabot --repo <owner>/<repo>`; with `!` in the session it saves an empty value), or on the repository's Dependabot secrets page; the skill only checks it is listed and never handles tokens. Deploys stay with the project's CD.
 
 `pr-review` writes its review into the PR description: what changes by area, risks, preview, screens, and what to fix before merge. That is the page you read before adding `ship`.
 
