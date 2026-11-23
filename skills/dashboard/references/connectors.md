@@ -2,17 +2,17 @@
 
 Every tool in `CONNECTORS` (`page/dashboard.html`): the arguments the page passes, the response it reads, and the errors it relies on. Add a tool here when you add it to `CONNECTORS` and to the capabilities in `SKILL.md`.
 
-**Observed** means a real, read-only call through the connector tool in a Claude Code cloud session, on the date given. **Not observed** means nobody has seen the reply: the entry says what the page assumes, and the code has to survive that guess being wrong.
+**Observed** means a real call through the connector tool in a Claude Code cloud session, on the date given: read-only, except `issue_write`, seen through a real label update. **Not observed** means nobody has seen the reply: the entry says what the page assumes, and the code has to survive that guess being wrong.
 
 ## How the page sees a reply
 
 The page calls tools with `window.claude.use("mcp").callTool(server, tool, input, options)`. The reply comes back as `{ payload, content, cache }`:
 
 - `payload`: the tool's JSON answer, parsed. The shapes below are the JSON each tool returned.
-- `content`: the tool's raw content blocks. Only `get_file_contents` is read from them (`fileText` in `board.mjs`).
+- `content`: the tool's raw content blocks. Two readers use them: `fileText` (`get_file_contents`) and `sessionLink` (`create_session`), both in `board.mjs`.
 - A failure rejects with `{ code, message }`. A tool's own error (GitHub's answer) has `code: "tool_error"` and the tool's error text as `message`. Connector-level refusals have the codes in `DENIED` in the page.
 
-The calls below were made from the session's own MCP client, which shows `payload` and `content` but not that wrapper. Where the page reads an array, it goes through `listOf(payload, key)`, which takes a bare array or `payload[key]`, so either form works.
+The calls below were made from the session's own MCP client, which shows `payload` and `content` but not that wrapper. Four reads go through `listOf(payload, key)`, which takes a bare array or `payload[key]`: `list_issues`, `list_pull_requests`, `issue_read` and `list_environments`. The others read only their wrapper key (`payload.repos`, `payload.check_runs`, `payload.statuses`), so a bare array there reads as empty.
 
 ## GitHub (`github`)
 
@@ -37,7 +37,7 @@ Observed 2026-11-23.
 
 Observed 2026-11-23. Three methods; each takes `{ method, owner, repo, pullNumber }`.
 
-- **`get`** (fresh labels before an Approve or Un-approve): one PR object, the fields of `list_pull_requests` plus `body`, `user`, `merged_by`, `mergeable_state`, `additions`, `deletions`, `changed_files`, `commits`, `html_url` and `closed_at`. `labels` is an array of strings; `labelWrite` reads only `payload.labels`.
+- **`get`** (fresh labels before an Approve or Un-approve): one PR object, the fields of `list_pull_requests` plus `body`, `user`, `merged_by`, `mergeable_state`, `additions`, `deletions`, `changed_files`, `commits`, `html_url` and `closed_at`. `labels` is an array of strings. `labelWrite` (`board.mjs`) reads `state`, `draft`, `labels`, `body` (the review section), `head.sha` and `head.repo.full_name`: trim any of them and Approve and Un-approve stop working.
 - **`get_check_runs`**: `{ total_count, check_runs: [{ id, name, status, conclusion, html_url, details_url, started_at, completed_at }] }`. `status` is `"completed"` once done; `conclusion` is then `"success"`, `"skipped"`, `"failure"` and so on. The page reads `payload.check_runs`.
 - **`get_status`**: `{ state, sha, total_count, statuses: [{ state, context, description, created_at, updated_at }] }`. The `ship` gate is the status with `context: "ship"`. The page reads `payload.statuses`.
 
@@ -63,10 +63,11 @@ Observed 2026-11-23.
 
 ### `issue_write`
 
-Observed 2026-11-23 (a label update on a spec issue).
+Observed 2026-11-23, through a real label update on a spec issue.
 
 - **Arguments:** only `{ method: "update", owner, repo, issue_number, labels }`, through `callWrite`, which refuses anything else. `labels` replaces the whole list, so the page sends every label the PR keeps.
 - **Response:** `{ id, url }`, with `id` a string and `url` the issue's (or PR's) `github.com` page. The page doesn't read it: success is the call resolving.
+- **Errors:** shown through `writeError` (`board.mjs`). A code in `WRITE_DEFINITE` (`tool_error`, `bad_request`, `rate_limited` and the connector refusals) means nothing was written. Any other code (a timeout, `upstream_error`) may have written, so the page says so and reads the project again.
 
 ## Claude Code Remote (`Claude Code Remote`)
 
@@ -91,4 +92,4 @@ Observed 2026-11-23.
 
 - **Arguments:** exactly `{ prompt, title, source_url: "https://github.com/<owner>/<repo>", environment_id }` (`startSession`).
 - **What the page assumes:** the tool's description says it "returns the new session's ID and status". `sessionLink` in `board.mjs` looks for the id as `session_id`, `id`, `session.id` or `session.session_id`, in `payload` or in a JSON text block, and links `https://claude.ai/code/<id>` only when it is a plain id. Otherwise the page links the viewer's sessions at `https://claude.ai/code`. The tests assume `{ session_id: "session_…", status }`.
-- **Errors:** any failure is shown as "it may have gone through" (`writeError`), and the page never retries, since a failed start may still have made a session.
+- **Errors:** shown through `writeError`, as for `issue_write`. A code in `WRITE_DEFINITE` is a definite refusal. Any other code is shown as "it may have gone through". The page never retries, since a failed start may still have made a session.
