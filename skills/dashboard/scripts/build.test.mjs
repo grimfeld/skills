@@ -31,3 +31,14 @@ test("build fails when the page has no placeholder", () => {
     /no \/\*@@BOARD@@\*\/ placeholder/,
   );
 });
+
+test("SKILL.md's capabilities name exactly the connector tools the page calls", () => {
+  const skill = readFileSync(join(here, "..", "SKILL.md"), "utf8");
+  const page = readFileSync(join(here, "..", "page", "dashboard.html"), "utf8");
+  const declared = JSON.parse(skill.match(/```json\n([^]*?)\n```/)[1]).mcp.servers;
+  const literal = page.match(/const CONNECTORS = (\{[^]*?\n\s*\});/)[1];
+  const called = Object.values(new Function(`return ${literal}`)());
+  const shape = (servers) => Object.fromEntries(servers.map((s) => [s.server, [...s.tools].sort()]));
+  assert.deepEqual(shape(declared), shape(called));
+  assert.equal(declared.length, called.length, "each server once");
+});

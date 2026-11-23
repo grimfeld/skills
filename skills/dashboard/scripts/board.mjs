@@ -4,13 +4,15 @@
 
 const HOUR = 3600e3;
 const DAY = 24 * HOUR;
-const WEEK = 7 * DAY;
+// How far back Landed looks. The page reads closed issues from a little before this.
+export const LANDED_WINDOW = 7 * DAY;
+const WEEK = LANDED_WINDOW;
 
 export const BUCKETS = [
-  { id: "needs-you", title: "Needs you", empty: "Nothing needs you" },
-  { id: "ready", title: "Ready for tonight", empty: "Nothing ready for tonight" },
-  { id: "in-flight", title: "In flight", empty: "Nothing in flight" },
-  { id: "landed", title: "Landed", empty: "Nothing landed this week" },
+  { id: "needs-you", tone: "needs", title: "Needs you", empty: "Nothing needs you" },
+  { id: "ready", tone: "ready", title: "Ready for tonight", empty: "Nothing ready for tonight" },
+  { id: "in-flight", tone: "flight", title: "In flight", empty: "Nothing in flight" },
+  { id: "landed", tone: "landed", title: "Landed", empty: "Nothing landed this week" },
 ];
 
 export function ago(ms) {
@@ -58,15 +60,16 @@ export function checksFailing(check) {
 }
 
 // Each rule: when it matches, its bucket, its reason, and the time its age counts from.
+// list_pull_requests gives no time for when `ship` went on, so a ship PR is measured by its last update.
 const updated = (p) => p.updatedAt;
-const approved = (p) => p.approvedAt;
 const PR_RULES = [
   { when: (p) => p.open && p.l.has("conflicts"), bucket: "needs-you", reason: () => "conflicts", at: updated },
   { when: (p) => p.open && p.failing, bucket: "needs-you", reason: () => "checks failing", at: updated },
-  { when: (p, now) => p.open && p.l.has("ship") && now - Date.parse(p.approvedAt) > DAY, bucket: "needs-you", reason: (age) => `approved ${age} ago, not merged`, at: approved },
+  { when: (p, now) => p.open && p.l.has("ship") && now - Date.parse(p.updatedAt) > DAY, bucket: "needs-you", reason: (age) => `ship label on, no update for ${age}`, at: updated },
+  { when: (p) => p.open && p.l.has("changes-requested"), bucket: "in-flight", reason: () => "changes requested, back to the night shift", at: updated },
   { when: (p) => p.open && p.l.has("pr-reviewed") && !p.l.has("ship"), bucket: "needs-you", reason: () => "reviewed, waiting for your verdict", at: updated },
   { when: (p) => p.open && p.draft, bucket: "in-flight", reason: () => "draft", at: updated },
-  { when: (p) => p.open && p.l.has("ship"), bucket: "in-flight", reason: (age) => `approved ${age} ago, landing`, at: approved },
+  { when: (p) => p.open && p.l.has("ship"), bucket: "in-flight", reason: () => "ship label on, landing", at: updated },
   { when: (p, now) => p.mergedAt && now - Date.parse(p.mergedAt) < WEEK, bucket: "landed", reason: () => "merged", at: (p) => p.mergedAt },
 ];
 
@@ -77,8 +80,6 @@ function prCard(project, pr, check, now) {
     draft: Boolean(pr.draft),
     mergedAt: pr.merged_at ?? null,
     updatedAt: pr.updated_at,
-    // The label's time when the caller knows it; else the PR's last update, which is no earlier.
-    approvedAt: pr.ship_labeled_at ?? pr.updated_at,
     failing: checksFailing(check),
   };
   const rule = PR_RULES.find((r) => r.when(p, now));
@@ -86,7 +87,7 @@ function prCard(project, pr, check, now) {
   const since = rule.at(p);
   const age = ago(now - Date.parse(since));
   return {
-    project, number: pr.number, title: pr.title, url: pr.html_url ?? `https://github.com/${project}/pull/${pr.number}`,
+    project, number: pr.number, title: pr.title, url: `https://github.com/${project}/pull/${pr.number}`,
     kind: "pr", bucket: rule.bucket, reason: rule.reason(age), since, age,
   };
 }
@@ -94,9 +95,9 @@ function prCard(project, pr, check, now) {
 // toCards(project, issues, prs, checks, now) → cards, issues first, then PRs.
 //   project: "owner/name"
 //   issues:  list_issues items { number, title, state, labels, updated_at }
-//   prs:     list_pull_requests items { number, title, state, draft, merged_at, html_url, labels, updated_at },
-//            plus ship_labeled_at when the caller knows when `ship` went on
+//   prs:     list_pull_requests items { number, title, state, draft, merged_at, labels, updated_at }
 //   checks:  { [prNumber]: { check_runs, statuses } }, missing for PRs whose checks weren't read
+//            (or couldn't be: an unread PR counts as not failing, and the page says so on its row)
 //   now:     epoch ms
 // Each card: { project, number, title, url, kind: "spec"|"design"|"pr", bucket, reason, since, age }.
 // Items that need nothing from the dashboard (spec:in-review specs, unreviewed ready PRs,
@@ -113,4 +114,28 @@ export function counts(cards) {
   const out = Object.fromEntries(BUCKETS.map((b) => [b.id, 0]));
   for (const c of cards) out[c.bucket] += 1;
   return out;
+}
+
+// A repo as typed or pasted (owner/name, or its github.com URL, with or without .git) → "owner/name",
+// or null when it isn't one.
+const REPO = /^[\w.-]+\/[\w.-]+$/;
+export function normaliseRepo(input) {
+  const full = String(input ?? "").trim()
+    .replace(/^(https?:\/\/)?(www\.)?github\.com\//i, "")
+    .replace(/\/+$/, "")
+    .replace(/\.git$/i, "");
+  return REPO.test(full) ? full : null;
+}
+
+// The dashboard's projects: each list in turn, each repo once (GitHub names ignore case).
+export function mergeProjects(...lists) {
+  const seen = new Map();
+  for (const full of lists.flat()) if (full && !seen.has(full.toLowerCase())) seen.set(full.toLowerCase(), full);
+  return [...seen.values()];
+}
+
+// A bucket's cards in reading order: what has waited longest first; Landed shows the newest first.
+export function sortBucket(cards, bucket) {
+  const dir = bucket === "landed" ? -1 : 1;
+  return [...cards].sort((a, b) => dir * (Date.parse(a.since) - Date.parse(b.since)));
 }

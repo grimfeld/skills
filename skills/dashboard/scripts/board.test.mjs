@@ -1,7 +1,7 @@
 // node --test skills/dashboard/scripts/board.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { toCards, counts, ago } from "./board.mjs";
+import { toCards, counts, ago, BUCKETS, normaliseRepo, mergeProjects, sortBucket, LANDED_WINDOW } from "./board.mjs";
 
 const NOW = Date.parse("2026-11-23T12:00:00Z");
 const hoursAgo = (h) => new Date(NOW - h * 3600e3).toISOString();
@@ -51,9 +51,9 @@ test("specs closed in the last 7 days have landed; older ones and open issues st
   assert.deepEqual(pick(toCards("acme/app", issues, [], {}, NOW)), [[1, "spec", "landed", "closed"]]);
 });
 
-const pr = (number, labels, { draft = false, state = "open", merged = false, updated = hoursAgo(3), merged_at = null, ship_labeled_at } = {}) => ({
-  number, title: `PR ${number}`, state, draft, merged, merged_at, labels, html_url: `https://github.com/acme/app/pull/${number}`,
-  created_at: hoursAgo(200), updated_at: updated, ...(ship_labeled_at ? { ship_labeled_at } : {}),
+const pr = (number, labels, { draft = false, state = "open", merged = false, updated = hoursAgo(3), merged_at = null } = {}) => ({
+  number, title: `PR ${number}`, state, draft, merged, merged_at, labels, html_url: `https://evil.example/acme/app/pull/${number}`,
+  created_at: hoursAgo(200), updated_at: updated,
 });
 
 test("each PR state lands in its bucket", () => {
@@ -70,17 +70,13 @@ test("each PR state lands in its bucket", () => {
     [10, "pr", "needs-you", "reviewed, waiting for your verdict"],
     [11, "pr", "needs-you", "conflicts"],
     [12, "pr", "in-flight", "draft"],
-    [13, "pr", "in-flight", "approved 5 h ago, landing"],
-    [14, "pr", "needs-you", "approved 31 h ago, not merged"],
+    [13, "pr", "in-flight", "ship label on, landing"],
+    [14, "pr", "needs-you", "ship label on, no update for 31 h"],
   ]);
-  assert.equal(toCards("acme/app", [], prs, {}, NOW)[0].url, "https://github.com/acme/app/pull/10");
 });
 
-test("approval time is when ship was added, when known, else the PR's last update", () => {
-  const prs = [pr(20, ["ship"], { updated: hoursAgo(2), ship_labeled_at: hoursAgo(30) })];
-  const [card] = toCards("acme/app", [], prs, {}, NOW);
-  assert.equal(card.reason, "approved 30 h ago, not merged");
-  assert.equal(card.since, hoursAgo(30));
+test("a PR card links to the PR on github.com, built from project and number, not html_url", () => {
+  assert.equal(toCards("acme/app", [], [pr(10, ["pr-reviewed"])], {}, NOW)[0].url, "https://github.com/acme/app/pull/10");
 });
 
 test("failing checks need you; the pending ship status and skipped runs are not failures", () => {
@@ -129,4 +125,47 @@ test("counts gives every bucket, zero included", () => {
 
 test("ago reads in minutes, then hours up to two days, then days", () => {
   assert.deepEqual([ago(20 * 60e3), ago(31 * 3600e3), ago(47.5 * 3600e3), ago(50 * 3600e3), ago(-5)], ["20 min", "31 h", "47 h", "2 d", "1 min"]);
+});
+
+test("a changes-requested PR is back with the night shift, not waiting on you", () => {
+  const prs = [pr(60, ["pr-reviewed", "changes-requested"])];
+  assert.deepEqual(pick(toCards("acme/app", [], prs, {}, NOW)), [[60, "pr", "in-flight", "changes requested, back to the night shift"]]);
+});
+
+test("a PR closed without merging gets no card, whatever its labels", () => {
+  assert.deepEqual(toCards("acme/app", [], [pr(61, ["pr-reviewed"], { state: "closed" })], {}, NOW), []);
+});
+
+test("a merged PR has landed, even with conflicts, pr-reviewed and ship still on", () => {
+  const prs = [pr(62, ["conflicts", "pr-reviewed", "ship"], { state: "closed", merged: true, merged_at: hoursAgo(5) })];
+  assert.deepEqual(pick(toCards("acme/app", [], prs, {}, NOW)), [[62, "pr", "landed", "merged"]]);
+});
+
+test("each bucket carries the colour tone the page styles it with", () => {
+  assert.deepEqual(BUCKETS.map((b) => [b.id, b.tone]), [["needs-you", "needs"], ["ready", "ready"], ["in-flight", "flight"], ["landed", "landed"]]);
+});
+
+test("normaliseRepo turns a pasted repo into owner/name, and rejects anything else", () => {
+  assert.deepEqual(
+    ["https://github.com/o/r.git/", "  acme/app ", "github.com/acme/app", "acme/my.repo-2", "acme", "a/b/c", "acme/ap p", "", "https://gitlab.com/o/r", null].map(normaliseRepo),
+    ["o/r", "acme/app", "acme/app", "acme/my.repo-2", null, null, null, null, null, null],
+  );
+});
+
+test("mergeProjects keeps each repo once, ignoring case, in first-seen order and spelling", () => {
+  assert.deepEqual(mergeProjects(["Acme/App", "acme/api"], ["acme/app", "zed/x", "ACME/API"]), ["Acme/App", "acme/api", "zed/x"]);
+  assert.deepEqual(mergeProjects(undefined, ["a/b"]), ["a/b"]);
+});
+
+test("within a bucket, what has waited longest comes first; Landed shows the newest first", () => {
+  const cards = [{ n: 1, since: hoursAgo(5) }, { n: 2, since: hoursAgo(50) }, { n: 3, since: hoursAgo(1) }];
+  assert.deepEqual(sortBucket(cards, "needs-you").map((c) => c.n), [2, 1, 3]);
+  assert.deepEqual(sortBucket(cards, "landed").map((c) => c.n), [3, 1, 2]);
+  assert.deepEqual(cards.map((c) => c.n), [1, 2, 3], "the input is left alone");
+});
+
+test("Landed covers the last 7 days", () => {
+  assert.equal(LANDED_WINDOW, 7 * 24 * 3600e3);
+  const prs = [pr(70, [], { state: "closed", merged_at: hoursAgo(24 * 7 - 1) }), pr(71, [], { state: "closed", merged_at: hoursAgo(24 * 7 + 1) })];
+  assert.deepEqual(pick(toCards("acme/app", [], prs, {}, NOW)).map((c) => c[0]), [70]);
 });
