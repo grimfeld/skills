@@ -115,3 +115,32 @@ test("compares with main even when the remote's default branch is another", () =
   const out = run([root], { CLAUDE_CONFIG_DIR: registry(root, main), SHIP_REMOTE: remote });
   assert.match(out, new RegExp(`Up to date with main \\(${main.slice(0, 12)}\\)`));
 });
+
+test("plain folder inside a git repo is not a git checkout", () => {
+  const outer = repo();
+  const root = join(outer, "plugin");
+  mkdirSync(root);
+  const out = run([root], { CLAUDE_CONFIG_DIR: mkdtempSync(join(tmpdir(), "c-")), SHIP_REMOTE: outer });
+  assert.match(out, /not a git checkout/);
+});
+
+test("dirty working copy says it has uncommitted changes", () => {
+  const root = repo();
+  writeFileSync(join(root, "edit.txt"), "x");
+  const out = run([root], { CLAUDE_CONFIG_DIR: mkdtempSync(join(tmpdir(), "c-")), SHIP_REMOTE: root });
+  assert.match(out, /ship working copy at .*: main @ [0-9a-f]{12}, with uncommitted changes/);
+});
+
+test("registry entry without gitCommitSha shows latest on main", () => {
+  const remote = repo();
+  const latest = git(remote, "rev-parse", "HEAD");
+  const root = mkdtempSync(join(tmpdir(), "ship-root-"));
+  const config = rawRegistry(JSON.stringify({
+    version: 2,
+    plugins: { "ship@grimfeld": [{ scope: "user", installPath: root, version: "1.0.0", lastUpdated: "2026-11-23T17:56:53.353Z" }] },
+  }));
+  const out = run([root], { CLAUDE_CONFIG_DIR: config, SHIP_REMOTE: remote });
+  assert.match(out, /ship 1\.0\.0: ship@grimfeld, installed user/);
+  assert.doesNotMatch(out, /Commit:/);
+  assert.match(out, new RegExp(`Latest on main: ${latest.slice(0, 12)}`));
+});
