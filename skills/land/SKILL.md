@@ -37,6 +37,8 @@ Read the first line of `.github/workflows/ship.yml` on the default branch, fetch
 
 It must be `# ship.yml version: 3` or later. If the file is missing, has no version line or an older version, stop before changing anything. Version 2's jobs land PRs themselves (auto-merge and a stacked cascade), so they would race you. Tell the user to run `/ship:setup-ship`, which offers the upgrade.
 
+Also check that the repository's auto-merge is off (`gh api repos/{owner}/{repo} --jq .allow_auto_merge` is `false`). If it's on, the version 3 upgrade isn't finished: stop the same way, telling the user to finish `/ship:setup-ship`'s upgrade, since auto-merge would race you too.
+
 ## 2. Approve the named PRs
 
 With no arguments, skip this step: the batch is what already carries `ship`.
@@ -56,8 +58,8 @@ Approval is per PR. Never label a PR the user didn't name, not even the parent o
    - a PR whose head branch is on a fork ("head branch is on a fork, can't push to it");
    - a PR whose head or base branch name has anything but letters, digits, `.`, `_`, `/` and `-` ("branch name isn't safe to pass to a shell"). Branch names go into your commands, so check each against `^[A-Za-z0-9._][A-Za-z0-9._/-]*$` (no leading `-`, which git would read as an option) before using it.
 3. **Stacks:** a PR whose base is another open PR's head branch is that PR's child.
-   - Parent carries `ship`: the child lands after it.
-   - Parent doesn't: the child waits. Report it as "waiting on #<parent>, not approved", and its own children as waiting on it.
+   - Parent carries `ship` and is in the batch: the child lands after it.
+   - Parent doesn't carry `ship`, or was skipped above: the child waits, with no comment. Report it as "waiting on #<parent>, not approved" (or "…, skipped"), and its own children as waiting on it.
    - Base is neither the default branch nor an open PR's branch (its parent merged or closed without a retarget): if the parent merged, retarget the child (step 4.6) and treat it as a root; otherwise skip it ("base `<branch>` isn't the default branch or an open PR").
 4. **Order:** roots (PRs based on the default branch) by ascending number, each followed depth-first by its children, also by ascending number.
 
@@ -108,7 +110,9 @@ Wait on the SHA you pushed (or the head you found already up to date), never on 
 2. **What to wait for:** the checks `docs/agents/shipping.md` "Checks" requires, plus every other check run or status that appears on `<sha>`, except `ship`. The `ship` status counts as passed, since `ship` is on: `gate` may still be catching up with your push.
 3. **No CI:** if "Checks" names no check beyond `ship`, go to 4.4 as soon as the PR's head is `<sha>`.
 
-Wait with a single `until` loop over `gh api repos/{owner}/{repo}/commits/<sha>/check-runs --jq '.check_runs[] | {name, status, conclusion, html_url}'` and `.../commits/<sha>/status --jq '.statuses[] | {context, state, target_url}'` (only these fields: a check's output text can carry PR content), 30 minutes at most, never repeated `sleep` calls. It ends when the PR's head is `<sha>`, every required check exists on it, and every check on it has finished. A required check that never appears counts as not finished.
+Wait with a single `until` loop over `gh api repos/{owner}/{repo}/commits/<sha>/check-runs --jq '.check_runs[] | {name, status, conclusion, html_url}'` and `.../commits/<sha>/status --jq '.statuses[] | {context, state, target_url}'` (only these fields: a check's output text can carry PR content), 30 minutes at most, never repeated `sleep` calls. It ends when the PR's head is `<sha>`, every required check exists on it, and every check on it has finished. A required check that never appears counts as not finished. If the PR's head becomes anything but `<sha>` or the head you started from, someone pushed during the run: end the wait and stop the PR (4.5) with reason `branch-changed` ("the branch changed during the run").
+
+A check passes with conclusion `success`, `neutral` or `skipped` (a status: `success`). It fails with `failure`, `cancelled`, `timed_out` or `action_required` (a status: `failure` or `error`). `ship.yml`'s `dependabot` job shows as `skipped` on most PRs: that's a pass.
 
 **A check failed, or hadn't finished after 30 minutes:** stop the PR (4.5):
 
@@ -127,7 +131,7 @@ Read the PR again first (with the filter from step 2). If it no longer carries `
 gh api -X PUT repos/{owner}/{repo}/pulls/<n>/merge -f merge_method=<method> -f sha=<sha>
 ```
 
-Without `gh`, use the GitHub MCP merge tool (`merge_pull_request`) with the same method.
+Without `gh`, use the GitHub MCP merge tool (`merge_pull_request`) with the same method. It takes no SHA, so read the PR again right before it and stop the PR (4.5, `branch-changed`) if its head isn't `<sha>`. Wait for checks by reading `pull_request_read` `get_check_runs` every 30 seconds, 30 minutes at most.
 
 If the `ship` status is still pending, GitHub may refuse at first: wait for `gate` on that SHA (one blocking wait, 2 minutes at most), check the label is still on, and try once more.
 
@@ -144,11 +148,11 @@ land: GitHub refused the merge:
 
 ### 4.5 Stopping a PR
 
-Post the comment (`gh api repos/{owner}/{repo}/issues/<n>/comments -F body=@<file>`). Keep the HTML marker on its first line: it tells the ship tooling's comments from the user's. Its `reason` is one of `conflict`, `push-rejected`, `check`, `merge-refused`, `base` or `retarget`. The last two have no template above; use:
+Post the comment (`gh api repos/{owner}/{repo}/issues/<n>/comments -F body=@<file>`). Keep the HTML marker on its first line: it tells the ship tooling's comments from the user's. Its `reason` is one of `conflict`, `push-rejected`, `branch-changed`, `check`, `merge-refused`, `base` or `retarget`. The last two have no template above; use:
 
 ```
-<!-- land {"status":"stopped","reason":"base"|"retarget"} -->
-land: <base is `<branch>`, not `<default>` | couldn't retarget it to `<default>`: <GitHub's message>>. `ship` stays on.
+<!-- land {"status":"stopped","reason":"base"|"retarget"|"branch-changed"} -->
+land: <base is `<branch>`, not `<default>` | couldn't retarget it to `<default>`: <GitHub's message> | the branch changed during the run>. `ship` stays on.
 ```
  Keep `ship` on. Its children, and theirs, wait: report each as "waiting on #<parent>, stopped". Go on with the next root.
 

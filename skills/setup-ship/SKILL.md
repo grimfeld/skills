@@ -150,7 +150,7 @@ Work in a branch, through a worktree if the project's docs say so.
 
 ## 5. Apply the settings
 
-After the user says the PR has merged, apply step 3's repository settings in the order listed: the upgrade steps, then labels, then the ruleset. The upgrade steps come after the merge, so the old `ship.yml` can't turn auto-merge back on. Applying the ruleset last means a missing `ship` status can't block the setup PR. On an upgrade, apply only what step 3 listed.
+After the user says the PR has merged, apply step 3's repository settings in the order listed: the upgrade steps, then labels, then the ruleset. The upgrade steps come after the merge, so the old `ship.yml` can't turn auto-merge back on. Applying the ruleset last means a missing `ship` status can't block the setup PR. On an upgrade, apply only what step 3 listed, with one exception: list the open PRs with auto-merge on again now and turn it off on every one, since the old `ship.yml` kept turning it on until the merge.
 
 Re-read each setting to confirm it took:
 - on an upgrade, each upgrade step: for version 3, no open PR with `autoMergeRequest`, `allow_auto_merge` false, `ship` on the `conflicts` PRs the user confirmed, and no `conflicts` label; in `command` mode, the landing-batch PRs the user agreed to close are closed
