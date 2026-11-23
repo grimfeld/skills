@@ -145,9 +145,13 @@ It shows every project set up for ship (a repo with `docs/agents/shipping.md` am
 
 An item that fits several buckets shows once, in the first. Each card says why it's there ("checks failing", "ship label on, no update for 31 h") and for how long. The page refreshes every 5 minutes while it's open, and on **Refresh**.
 
+What waits on other work leaves the buckets, so they show only what needs something now: a PR stacked on another open PR, and an open spec whose **Depends on** names an open issue. Each folds under the card it waits on ("2 items waiting on this"), a whole stack under its first PR in landing order, keeping its own reason and buttons. When what it waits on has no card on the board, it folds at the foot of its own bucket ("waiting on other work"). Waiting items aren't counted in the buckets' totals.
+
+The project chips above the board filter it, and the project rows, to one project, on any screen. The choice is remembered in this browser.
+
 Cards carry the details that decide the next step, read from what the other ship skills write:
 - **PR cards** show the verdict line from the description's `/ship:pr-review` section (cut to one line, in full on hover or focus), its number of risks, and links to its **Full report** and **Preview** when the review has them. A PR without a review section says "not reviewed yet"; one built on another PR's branch says "lands after #n".
-- **Spec cards** say how many questions are still open, from the spec's "Open questions" section ("None" counts as none), and link the spec's PR when it has one.
+- **Spec cards** say how many questions are still open, from the spec's "Open questions" section ("None" counts as none), and link the spec's PR when it has one; a spec waiting on another says "waits on #n".
 - **Design cards** link the design artifact named in the issue.
 - **Project rows** link the latest **Morning page** from `/ship:night-shift morning`, found in its comments on the project's specs updated in the last 7 days. On a phone, the link shows once you pick the project's chip.
 

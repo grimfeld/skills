@@ -1,7 +1,7 @@
 // node --test skills/dashboard/scripts/board.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { toCards, counts, ago, BUCKETS, normaliseRepo, mergeProjects, sortBucket, LANDED_WINDOW, isMissingFile, needsCheckRead, needsCommentRead, parseReview, safeUrl, openQuestions, designLink, morningPage, morningSpecs, shipYml, actionsEnabled, approveLabels, unapproveLabels, fileText, landFor, LAND, MIN_SHIP_VERSION, prAction, labelWrite, writeError, WRITE_DEFINITE, skillFor, preselectEnvironment, sessionLink, singleFlight } from "./board.mjs";
+import { toCards, groupWaiting, dependsOn, counts, ago, BUCKETS, normaliseRepo, mergeProjects, sortBucket, LANDED_WINDOW, isMissingFile, needsCheckRead, needsCommentRead, parseReview, safeUrl, openQuestions, designLink, morningPage, morningSpecs, shipYml, actionsEnabled, approveLabels, unapproveLabels, fileText, landFor, LAND, MIN_SHIP_VERSION, prAction, labelWrite, writeError, WRITE_DEFINITE, skillFor, preselectEnvironment, sessionLink, singleFlight } from "./board.mjs";
 
 const NOW = Date.parse("2026-11-23T12:00:00Z");
 const hoursAgo = (h) => new Date(NOW - h * 3600e3).toISOString();
@@ -13,7 +13,7 @@ test("a spec:draft spec needs you, with its project, link, reason and age", () =
   assert.deepEqual(card, {
     project: "acme/app", number: 7, title: "Issue 7", url: "https://github.com/acme/app/issues/7",
     kind: "spec", bucket: "needs-you", reason: "draft", since: hoursAgo(2), age: "2 h",
-    openQuestions: null, pr: null, labels: ["spec:draft"],
+    openQuestions: null, pr: null, waitsOn: null, labels: ["spec:draft"],
   });
 });
 
@@ -374,6 +374,76 @@ test("a PR doesn't land after a fork's PR whose branch has the same name as its 
   assert.equal(toCards("acme/app", [], prs, {}, NOW).find((c) => c.number === 21).landsAfter, null);
   const own = [branchPr(20, "feature", "main"), branchPr(21, "next", "feature")];
   assert.equal(toCards("acme/app", [], own, {}, NOW).find((c) => c.number === 21).landsAfter, 20);
+});
+
+test("dependsOn reads the issue numbers on a spec's Depends on line; none, or no line, gives none", () => {
+  assert.deepEqual(dependsOn("## Slicing\n\n- **Decision:** one PR\n- **Depends on:** #12"), [12]);
+  assert.deepEqual(dependsOn("- **Depends on:** #12, #14"), [12, 14]);
+  assert.deepEqual(dependsOn("**Depends on:** none"), []);
+  assert.deepEqual(dependsOn("Builds on #12 but no Depends on line"), []);
+  assert.deepEqual(dependsOn(null), []);
+});
+
+const withBody = (i, body) => ({ ...i, body });
+
+test("an open spec waits on the first open issue its Depends on names; a closed dependency or one not listed doesn't count", () => {
+  const issues = [
+    issue(12, ["spec:ready"]),
+    withBody(issue(13, ["spec:ready"]), "- **Depends on:** #12"),
+    withBody(issue(14, ["spec:ready"]), "- **Depends on:** #9"), // #9 closed, or not read
+    withBody(issue(15, ["spec:ready"]), "- **Depends on:** #9, #12"),
+    withBody(issue(16, ["spec:in-review"], { state: "CLOSED" }), "- **Depends on:** #12"),
+  ];
+  const by = Object.fromEntries(toCards("acme/app", issues, [], {}, NOW).map((c) => [c.number, c.waitsOn]));
+  assert.deepEqual(by, { 12: null, 13: { kind: "issue", number: 12 }, 14: null, 15: { kind: "issue", number: 12 }, 16: null });
+});
+
+test("a stacked PR waits on its parent PR; one on the default branch waits on nothing", () => {
+  const prs = [branchPr(10, "a", "main"), branchPr(11, "b", "a")];
+  const by = Object.fromEntries(toCards("acme/app", [], prs, {}, NOW).map((c) => [c.number, c.waitsOn]));
+  assert.deepEqual(by, { 10: null, 11: { kind: "pr", number: 10 } });
+});
+
+const nums = (cards) => cards.map((c) => [c.number, c.waiting.map((w) => w.number)]);
+
+test("groupWaiting hangs a stack under its root, in landing order, and takes it out of the buckets", () => {
+  const prs = [branchPr(10, "a", "main"), branchPr(11, "b", "a"), branchPr(12, "c", "b"), branchPr(13, "d", "a"), branchPr(20, "z", "main")];
+  const { cards, held } = groupWaiting(toCards("acme/app", [], prs, {}, NOW));
+  assert.deepEqual(nums(cards), [[10, [11, 12, 13]], [20, []]]);
+  assert.deepEqual(held, []);
+});
+
+test("groupWaiting: a spec waiting on a spec hangs under it, whatever bucket each is in", () => {
+  const issues = [issue(12, ["spec:building"]), withBody(issue(13, ["spec:ready"]), "- **Depends on:** #12")];
+  const { cards } = groupWaiting(toCards("acme/app", issues, [], {}, NOW));
+  assert.deepEqual(nums(cards), [[12, [13]]]);
+  assert.equal(cards[0].waiting[0].bucket, "ready", "a waiting card keeps its own bucket and reason");
+});
+
+test("groupWaiting: a card whose item isn't on the board is held, not shown in its bucket", () => {
+  // #12 is open but spec:in-review, so it has no card (its PR stands for it).
+  const issues = [issue(12, ["spec:in-review"]), withBody(issue(13, ["spec:ready"]), "- **Depends on:** #12")];
+  const { cards, held } = groupWaiting(toCards("acme/app", issues, [], {}, NOW));
+  assert.deepEqual(cards, []);
+  assert.deepEqual(nums(held), [[13, []]]);
+});
+
+test("groupWaiting: specs depending on each other in a loop stay in their buckets; one waiting on the loop hangs under it", () => {
+  const issues = [
+    withBody(issue(1, ["spec:ready"]), "- **Depends on:** #2"),
+    withBody(issue(2, ["spec:ready"]), "- **Depends on:** #1"),
+    withBody(issue(3, ["spec:ready"]), "- **Depends on:** #1"),
+  ];
+  const { cards, held } = groupWaiting(toCards("acme/app", issues, [], {}, NOW));
+  assert.deepEqual(nums(cards), [[1, [3]], [2, []]]);
+  assert.deepEqual(held, []);
+});
+
+test("groupWaiting keeps projects apart: #10 in one repo is not #10 in another", () => {
+  const a = toCards("acme/app", [], [branchPr(10, "a", "main"), branchPr(11, "b", "a")], {}, NOW);
+  const b = toCards("acme/web", [issue(10, ["spec:ready"])], [], {}, NOW);
+  const { cards } = groupWaiting([...a, ...b]);
+  assert.deepEqual(cards.map((c) => [c.project, c.number, c.waiting.map((w) => w.number)]), [["acme/app", 10, [11]], ["acme/web", 10, []]]);
 });
 
 test("a PR card carries its review, or null when the description has none", () => {
