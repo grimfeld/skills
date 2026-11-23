@@ -86,8 +86,8 @@ Round = fix every approved finding and every red CI check on the branch, push, w
 - A finding you think is wrong: record it in Decisions with your reason, and leave it.
 - **A `needs-person` finding** (pr-review's hand-off lists them under "Needs a person"): fix nothing for it and make no commit for it. Add a Decisions line, "finding <id> needs a person: <option names>", or "finding <id> contradicts the spec's '<quoted line>': not fixed". Run the rounds for the remaining approved findings as usual; with none left, no round is needed.
 - **Before fixing any approved finding,** check its fix against the lines the spec settles: its acceptance criteria, Out of scope, Implementation decisions, Decision records, and any "stays unchanged" or ruled-out statement. A fix that would change one is treated as `needs-person`, as above, with that line quoted.
-- A `needs-person` finding still open after the rounds is blocking, like an open major.
-- After round 2, anything still blocking makes the spec stuck. Name each blocking item and what you tried.
+- A `needs-person` finding still open is blocking, like an open major.
+- When the rounds end (after round 2, or straight away when no round was needed), anything still blocking, including a `needs-person` finding, makes the spec stuck. Name each blocking item and what you tried.
 - Without `unattended`, ask instead of going stuck: for each item still blocking after round 2, one question as in step 2, naming the choices (for example a fix you describe, accepting it as is with a note, or leaving the spec stuck) and your recommendation. Record the answer under Decisions as in step 2 ("<item>: decided by the owner: <choice>") and apply it, with no third review round: the two-round cap still holds. An item settled this way counts as closed for step 6; one the owner leaves stuck keeps the spec stuck.
 
 ### 6. Finish the spec

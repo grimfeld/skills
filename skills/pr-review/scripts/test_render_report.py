@@ -111,6 +111,13 @@ class NeedsPerson(unittest.TestCase):
             self.assertIn(tag, out[name], name)
         self.assertNotIn("needs-person", out["md"])
 
+    def test_without_options_no_dangling_colon(self):
+        f = finding("F1", "major")
+        f["decision"] = {"state": "needs-person", "reason": "", "date": ""}
+        pr = render(state([f]))["pr"]
+        self.assertIn("needs a person)", pr)
+        self.assertNotIn("needs a person:", pr)
+
     def test_other_decisions_unchanged(self):
         f = finding("F1", "major")
         f["decision"] = {"state": "approved", "reason": "unattended: fix before merge", "date": ""}
