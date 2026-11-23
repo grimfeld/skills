@@ -224,6 +224,19 @@ Runs a retro on a session (mattpocock's `retro`: navigation, automated checks, c
 
 `retro` is user-invoked only, so the skill reads its `SKILL.md` rather than calling it; install it from [mattpocock/skills](https://github.com/mattpocock/skills).
 
+### `/ship:version`
+
+Says which ship is installed: its version (the commit it was installed from, since `plugin.json` sets no `version`), scope and last update, read from Claude Code's plugin registry, or the branch and commit of a working copy loaded with `--plugin-dir`. It then checks `main` and, when it has moved on, gives the update command.
+
+```
+ship d3e22cf54201: ship@grimfeld, installed user
+Commit: d3e22cf54201d299d19fd5eb72feaf228738f83f
+Updated: 2026-11-23T17:56:53.353Z
+Up to date with main (d3e22cf54201).
+```
+
+Skills copied in by the cloud fallback below aren't a plugin, so their version can't be told.
+
 ## Install
 
 ```sh
