@@ -15,7 +15,7 @@ You must never:
 - add the `ship` label
 - push to the default branch
 - force-push a branch you didn't create tonight
-- touch another spec's branch, except the one in your own chain you build on
+- touch another spec's branch, except the specs in your own chain (the one you build on, and the children step 5 merges into)
 
 Read first:
 1. The project's `CLAUDE.md` (and `AGENTS.md`), `docs/agents/shipping.md`, `docs/agents/issue-tracker.md`. The project's rules apply to you: worktrees, commit email, migrations, docs to update.
