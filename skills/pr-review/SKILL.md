@@ -73,14 +73,14 @@ Two passes. Each lens runs as its own agent; never merge lenses into one agent.
 |---|---|---|
 | `standards-and-spec` | always | default |
 | `quality` | any code file changed | default |
-| `security` | any code file, dependency manifest or lockfile changed | default |
+| `security` | any code file, dependency manifest or lockfile changed, or any file under `skills/` (a ship skill's text is the code an agent runs) | default |
 | `performance` | server, data, query, worker or algorithmic code changed | `sonnet` |
 | `simplification` | any code file changed | `sonnet` |
 | `principles` | any code file changed | `sonnet` |
 | `web-quality` | front-end files changed (`.tsx .jsx .vue .svelte .astro .css .scss .html`, or under `pages/ app/ components/ public/ styles/`) | `sonnet` |
 | `design-fidelity` | front-end files changed and the spec has a "Design" section | default |
 
-A diff of only docs and config (Markdown, text, CI YAML, editor config) runs `standards-and-spec` alone. When a file's class is ambiguous, run the lens.
+A diff of only docs and config (Markdown, text, CI YAML, editor config) runs `standards-and-spec` alone, plus `security` when a file is under `skills/`. When a file's class is ambiguous, run the lens.
 
 **Pass 2: by content.** When fewer than ~40 code files changed, read the code hunks of the saved diff yourself. Skip any of `performance`, `simplification`, `principles` and `web-quality` that the hunks give clearly nothing to review: for example `performance` when no data access, query, loop over a collection or worker code changed, or `simplification` and `principles` when the code change is only renames, string or config values. `design-fidelity` follows pass 1 only. Decide `web-quality` after step 4, and never skip it by content when a live URL was found. When in doubt, run the lens. `standards-and-spec`, `quality` and `security` follow pass 1 only; never skip them by judgment.
 
