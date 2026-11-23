@@ -40,8 +40,10 @@ def build_view(state: dict) -> dict:
     for f in minors:
         themes.setdefault(f.get("theme") or "Other", []).append(f)
     themes = OrderedDict(sorted(themes.items(), key=lambda kv: (-len(kv[1]), kv[0])))
-    if nits:
-        themes["Polish"] = nits
+    polish = themes.pop("Polish", []) + nits  # nits join a minor's Polish theme, last
+    if polish:
+        themes["Polish"] = polish
+    smaller = sum(len(v) for v in themes.values())
 
     fixed_now = [f for f in findings if f.get("status") == "fixed" and f.get("fixed_in") == run["date"]]
     rejected = [f for f in findings if decision(f) == "rejected"]
@@ -58,19 +60,54 @@ def build_view(state: dict) -> dict:
 
     parts = []
     if ci.get("status") == "failing":
-        parts.append(f"{len(ci.get('failing') or [])} failing CI check(s)")
+        parts.append(ci_text(ci))
     parts.append(f"{len(must)} to fix before merge" if must else "nothing blocking")
-    if minors or nits:
-        parts.append(f"{len(minors) + len(nits)} smaller improvements")
-    parts.append({"passing": "CI green", "pending": "CI running", "none": "no CI (not a PR)"}.get(ci.get("status"), ""))
+    if smaller:
+        parts.append(f"{smaller} smaller improvements")
+    if ci.get("status") != "failing":
+        parts.append(ci_text(ci))
 
     return {
         "state": state, "run": run, "first_run": len(runs) == 1,
         "must": must, "themes": themes, "fixed_now": fixed_now,
         "rejected": rejected, "deferred": deferred,
         "verdict": verdict, "tone": tone, "headline": " · ".join(p for p in parts if p),
-        "all_shown": must + minors + nits, "decision": decision,
+        "all_shown": must + minors + nits, "decision": decision, "smaller": smaller,
+        "ci": ci, "ci_text": ci_text(ci), "failing_names": failing_names(ci),
     }
+
+
+CI_TEXT = {"passing": "CI green", "pending": "CI running", "none": "no CI (not a PR)",
+           "no-checks": "no CI checks configured"}
+
+
+def failing_names(ci: dict) -> list:
+    return (ci.get("failing") or []) if ci.get("status") == "failing" else []
+
+
+def ci_text(ci: dict) -> str:
+    """One phrase for the CI state, used by the headline of all three outputs."""
+    status = ci.get("status", "none")
+    if status == "failing":
+        n = len(ci.get("failing") or [])
+        return f"{n} failing CI check(s)" if n else "CI failing" + (f" ({ci['note']})" if ci.get("note") else "")
+    return CI_TEXT.get(status, status)
+
+
+def ci_note_text(ci: dict) -> str:
+    """The CI line under Review notes: the plain phrase for no-checks, else the status and note."""
+    if ci.get("status") == "no-checks":
+        return CI_TEXT["no-checks"] + (f" ({ci['note']})" if ci.get("note") else "")
+    return ci.get("status", "none") + (f" ({ci['note']})" if ci.get("note") else "")
+
+
+LENS_MARK = {"ran": "", "stale": " (stale)", "unverified": " (unverified)"}
+
+
+def reviewers(run: dict) -> str:
+    """Every lens that reviewed the diff, marking the ones run un-synced or unverified."""
+    names = [l["lens"] + LENS_MARK[l.get("status")] for l in run.get("lenses") or [] if l.get("status") in LENS_MARK]
+    return ", ".join(names) or "none"
 
 
 def tag_for(view, f) -> str:
@@ -101,10 +138,10 @@ def render_md(view) -> str:
     if s.get("artifact_url"):
         out += [f"Page: {s['artifact_url']}", ""]
 
-    ci = run.get("ci") or {}
-    if ci.get("status") == "failing":
+    ci = view["ci"]
+    if view["failing_names"]:
         out += ["## Failing CI", ""]
-        out += [f"- {c['name']}" + (f" ({c['url']})" if c.get("url") else "") for c in ci.get("failing") or []]
+        out += [f"- {c['name']}" + (f" ({c['url']})" if c.get("url") else "") for c in view["failing_names"]]
         out += [""]
 
     if view["must"]:
@@ -115,8 +152,7 @@ def render_md(view) -> str:
                     f"**Fix:** {f['fix']}", "", " · ".join(f"`{loc}`" for loc in f.get("locations") or []), ""]
 
     if view["themes"]:
-        total = sum(len(v) for v in view["themes"].values())
-        out += [f"## Worth fixing ({total})", ""]
+        out += [f"## Worth fixing ({view['smaller']})", ""]
         for theme, items in view["themes"].items():
             out += [f"**{theme} ({len(items)})**", ""]
             for f in items:
@@ -130,7 +166,7 @@ def render_md(view) -> str:
         out += [f"- {f['title']} · {f['id']}" for f in view["fixed_now"]] + [""]
 
     out += ["## Review notes", ""]
-    out += [f"**CI:** {ci.get('status', 'none')}" + (f" ({ci['note']})" if ci.get("note") else ""), ""]
+    out += [f"**CI:** {ci_note_text(ci)}", ""]
     if run.get("spec"):
         out += [f"**Spec:** {run['spec']}", ""]
     out += ["| Reviewer | Status | Note |", "|---|---|---|"]
@@ -192,9 +228,8 @@ def render_pr(view) -> str:
         out += ["### Screens", ""]
         out += [f"![{sc.get('caption', '')}]({sc['url']})" + (f"  \n_{sc['caption']}_" if sc.get("caption") else "") for sc in brief["screens"]] + [""]
 
-    ci = run.get("ci") or {}
-    if ci.get("status") == "failing":
-        out += ["### Failing CI", ""] + [f"- {c['name']}" for c in ci.get("failing") or []] + [""]
+    if view["failing_names"]:
+        out += ["### Failing CI", ""] + [f"- {c['name']}" for c in view["failing_names"]] + [""]
 
     if view["must"]:
         out += ["### Fix before merge", ""]
@@ -204,14 +239,12 @@ def render_pr(view) -> str:
         out.append("")
 
     if view["themes"]:
-        total = sum(len(v) for v in view["themes"].values())
-        out += [f"<details><summary>Worth fixing later ({total})</summary>", ""]
+        out += [f"<details><summary>Worth fixing later ({view['smaller']})</summary>", ""]
         for theme, items in view["themes"].items():
             out += [f"- **{theme}:** " + "; ".join(f["title"] for f in items)]
         out += ["", "</details>", ""]
 
-    ran = [l["lens"] for l in run.get("lenses") or [] if l.get("status") == "ran"]
-    out += [f"<sub>pr-review · head `{run.get('head', '?')}` · {run['date']} · reviewers: {', '.join(ran) or 'none'}</sub>", "", PR_END]
+    out += [f"<sub>pr-review · head `{run.get('head', '?')}` · {run['date']} · reviewers: {reviewers(run)}</sub>", "", PR_END]
     return "\n".join(out) + "\n"
 
 
@@ -325,10 +358,10 @@ def render_html(view) -> str:
           f'<div class="verdict {view["tone"]}"><strong>{html.escape(view["verdict"])}</strong><span>{html.escape(view["headline"])}</span></div>',
           "</header>"]
 
-    ci = run.get("ci") or {}
-    if ci.get("status") == "failing":
+    ci = view["ci"]
+    if view["failing_names"]:
         h += ["<section><h2>Failing CI</h2><ul class=\"list\">"]
-        for c in ci.get("failing") or []:
+        for c in view["failing_names"]:
             name = html.escape(c["name"])
             h.append(f'<li><a href="{html.escape(c["url"])}">{name}</a></li>' if c.get("url") else f"<li>{name}</li>")
         h += ["</ul></section>"]
@@ -344,8 +377,7 @@ def render_html(view) -> str:
         h += ["</ol></section>"]
 
     if view["themes"]:
-        total = sum(len(v) for v in view["themes"].values())
-        h += [f"<section><h2>Worth fixing <span class=\"fid\">({total})</span></h2>"]
+        h += [f"<section><h2>Worth fixing <span class=\"fid\">({view['smaller']})</span></h2>"]
         for theme, items in view["themes"].items():
             h += ['<div class="theme">', f"<h3>{html.escape(theme)} <span>{len(items)}</span></h3>", '<ul class="list">']
             for f in items:
@@ -363,7 +395,7 @@ def render_html(view) -> str:
         h += ["</ul></section>"]
 
     h += ["<section><h2>Review notes</h2><div class=\"notes\">"]
-    ci_line = html.escape(ci.get("status", "none")) + (f" · {html.escape(ci['note'])}" if ci.get("note") else "")
+    ci_line = html.escape(ci_note_text(ci))
     h.append(f"<p><b>CI</b> {ci_line}" + (f"<br><b>Spec</b> {inline(run['spec'])}" if run.get("spec") else "") + "</p>")
     h += ['<div class="table-wrap"><table><thead><tr><th>Reviewer</th><th>Status</th><th>Note</th></tr></thead><tbody>']
     h += [f"<tr><td>{html.escape(l['lens'])}</td><td>{html.escape(l['status'])}</td><td>{inline(l.get('note', ''))}</td></tr>"

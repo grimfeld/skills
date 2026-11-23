@@ -60,7 +60,7 @@ Parse the arguments: a PR number or URL, an optional `base=`, an optional `paths
 2. **Checkout.** Reviewers need the head's files on disk. If the working tree is already at the head commit, use it. Otherwise `git fetch origin pull/<n>/head` and `git worktree add .scratch/pr-review/wt-<id> <headRefOid>`; that worktree is `REVIEW_ROOT`. Never switch the user's current branch.
 3. **Diff.** `git diff --shortstat <base>...<head>` and `git diff --name-status`. Over ~3000 changed lines, show the stats and ask: continue, or narrow to paths. Apply `paths=` if given. Write the diff once to `.scratch/pr-review/<id>.diff` (`git -C <REVIEW_ROOT> diff <base>...<head> [-- <paths>] > …`); reviewers read that file instead of running their own diffs.
 4. **Spec.** Look in order: issues referenced in commit messages or the PR body (fetch with `gh issue view`), a path the user passed, a file under `docs/`, `specs/` or `.scratch/` matching the branch or feature. Record the spec text, or "no spec available".
-5. **CI.** With a PR: `gh pr checks <n>`. Failing checks become blockers at the top of the report.
+5. **CI.** With a PR: `gh pr checks <n>`. Failing checks become blockers at the top of the report. Leave out the `ship` commit status and the Ship workflow's own jobs (`gate`, `dependabot`): they are approval gates, not CI. With nothing else left, record `ci.status` `no-checks`.
 6. **Previous state.** Read `.scratch/pr-review/<id>.json` if it exists: its open findings, decisions and `artifact_url`. If only a legacy `<id>.md` exists, seed state from it as `references/state-format.md` describes.
 7. **Scratch is untracked.** If `git check-ignore -q .scratch` fails, append `.scratch/` to `.git/info/exclude`.
 
