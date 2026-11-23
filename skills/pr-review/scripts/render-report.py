@@ -99,6 +99,11 @@ def ci_label(ci: dict) -> str:
     return CI_TEXT[status] if status == "no-checks" else status
 
 
+def fix_round(run: dict) -> bool:
+    """A run that re-checked only the fix diff (`mode: fix-round`); absent means a full review."""
+    return run.get("mode") == "fix-round"
+
+
 LENS_MARK = {"ran": "", "stale": " (stale)", "unverified": " (unverified)"}
 
 
@@ -134,7 +139,7 @@ def render_md(view) -> str:
     s, run = view["state"], view["run"]
     out = [f"# Review: {s.get('title', s['id'])}", ""]
     meta = f"{s['url']} · " if s.get("url") else ""
-    out += [f"{meta}base `{s.get('base', '?')}` · head `{run.get('head', '?')}` · {run['date']}", ""]
+    out += [f"{meta}base `{s.get('base', '?')}` · head `{run.get('head', '?')}` · {run['date']}" + (" · Fix round" if fix_round(run) else ""), ""]
     out += [f"**{view['verdict']}.** {view['headline']}", ""]
     if s.get("artifact_url"):
         out += [f"Page: {s['artifact_url']}", ""]
@@ -245,7 +250,8 @@ def render_pr(view) -> str:
             out += [f"- **{theme}:** " + "; ".join(f["title"] for f in items)]
         out += ["", "</details>", ""]
 
-    out += [f"<sub>pr-review · head `{run.get('head', '?')}` · {run['date']} · reviewers: {reviewers(run)}</sub>", "", PR_END]
+    mode = " · fix round" if fix_round(run) else ""
+    out += [f"<sub>pr-review · head `{run.get('head', '?')}` · {run['date']}{mode} · reviewers: {reviewers(run)}</sub>", "", PR_END]
     return "\n".join(out) + "\n"
 
 
@@ -355,7 +361,7 @@ def render_html(view) -> str:
     link = f'<a href="{html.escape(s["url"])}">{html.escape(ident)}</a>' if s.get("url") else html.escape(ident)
     h += ["<header>", f'<div class="eyebrow">Code review · {link}</div>', f"<h1>{inline(s.get('title', s['id']))}</h1>",
           f'<div class="meta"><span>base <code>{html.escape(s.get("base", "?"))}</code></span>'
-          f'<span>head <code>{html.escape(run.get("head", "?"))}</code></span><span>{html.escape(run["date"])}</span></div>',
+          f'<span>head <code>{html.escape(run.get("head", "?"))}</code></span><span>{html.escape(run["date"])}</span>' + ("<span>Fix round</span>" if fix_round(run) else "") + '</div>',
           f'<div class="verdict {view["tone"]}"><strong>{html.escape(view["verdict"])}</strong><span>{html.escape(view["headline"])}</span></div>',
           "</header>"]
 

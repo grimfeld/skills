@@ -117,6 +117,25 @@ class NeedsPerson(unittest.TestCase):
         self.assertIn("approved: unattended: fix before merge", render(state([f]))["pr"])
 
 
+class FixRound(unittest.TestCase):
+    def test_run_line_and_fixed_list(self):
+        fixed = finding("F1", "major", title="The lookup skips the owner check")
+        fixed.update(status="fixed", fixed_in="2026-11-23 21:00")
+        st = state([fixed, finding("F2", "minor")])
+        st["runs"].append(dict(st["runs"][0], date="2026-11-23 21:00", head="fff", mode="fix-round"))
+        out = render(st)
+        self.assertIn("· Fix round", out["md"].split("\n\n", 2)[1])
+        self.assertIn("<span>Fix round</span>", out["html"])
+        self.assertIn("· fix round ·", out["pr"])
+        self.assertIn("## Fixed since last run", out["md"])
+        self.assertIn("The lookup skips the owner check · F1", out["md"])
+
+    def test_full_run_has_no_fix_round_text(self):
+        out = render(state([finding("F1", "minor")]))
+        for name in ("md", "html", "pr"):
+            self.assertNotIn("ix round", out[name], name)
+
+
 class Footer(unittest.TestCase):
     def footer(self, lenses):
         pr = render(state(lenses=lenses))["pr"]

@@ -39,6 +39,7 @@ The flow:
 /pr-review                     # current branch vs. its merge-base with main
 /pr-review base=develop        # current branch vs. another base
 /pr-review 123 paths=src/api   # narrow the review
+/pr-review 123 fix-round      # after fixes: re-check the approved findings and the fix diff only
 ```
 
 #### Requirements

@@ -81,7 +81,7 @@ Run `pr-review` with `<pr> unattended`, as `${CLAUDE_PLUGIN_ROOT}/references/run
 
 ### 5. Fix rounds, at most two
 
-Round = fix every approved finding and every red CI check on the branch, push, wait for CI, and run `pr-review <pr> unattended` again.
+Round = fix every approved finding and every red CI check on the branch, push, wait for CI, and run `pr-review <pr> fix-round unattended`: it re-checks the approved findings and the fix diff, not the whole PR. No full review runs after the last round: the first full review plus the fix-round reviews cover the final head.
 
 - A finding you think is wrong: record it in Decisions with your reason, and leave it.
 - **A `needs-person` finding** (pr-review's hand-off lists them under "Needs a person"): fix nothing for it and make no commit for it. Add a Decisions line, "finding <id> needs a person: <option names>", or "finding <id> contradicts the spec's '<quoted line>': not fixed". Run the rounds for the remaining approved findings as usual; with none left, no round is needed.

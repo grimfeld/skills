@@ -2,7 +2,7 @@
 name: pr-review
 description: Review a PR or branch with up to eight parallel lens reviewers, dedupe and verify their findings, then turn the approved ones into a fix spec and tickets.
 disable-model-invocation: true
-argument-hint: "[PR number or URL] [base=<ref>] [paths=<glob,...>] [unattended]"
+argument-hint: "[PR number or URL] [base=<ref>] [paths=<glob,...>] [fix-round] [unattended]"
 ---
 
 # PR review
@@ -39,6 +39,30 @@ The argument `unattended` means no person is present, for example during a night
 
 GitHub: `${CLAUDE_PLUGIN_ROOT}/references/github.md` says what to use when `gh` isn't available, as in some cloud sessions.
 
+## Fix round
+
+The argument `fix-round` (with or without `unattended`) re-checks a fix round instead of reviewing the whole PR again. It is never chosen from state alone: a re-run after new work, without the argument, is a full review.
+
+**Fall back to a full review**, and say why in the terminal summary and the run's `spec` line, when:
+- there is no previous state for this target,
+- no finding is open with `decision.state` `approved`, or
+- the range from the previous run's `head` to the current head contains a merge commit from the base (`git rev-list --merges <previous head>..<head>` finds one whose other parent is on the base).
+
+Otherwise the steps below change as follows; every other step runs as usual.
+
+- **Step 2.3, the diff:** the fix diff, `git diff <previous run's head> <head>`, written to `.scratch/pr-review/<id>.fix.diff`. The changed-file list is that diff's.
+- **Step 3, routing:** no routing by type or content. Dispatch only the lenses named in the `source_skill`s of open approved findings (match each lens's `source` front matter), plus `quality`, always, for regressions the fixes bring. Every other lens is recorded `skipped` with note `fix round`.
+- **Step 5, dispatch:** each lens prompt adds, after the spec line, the findings to confirm: its own open approved findings (`quality` gets all of them), each with id, title, locations and fix:
+
+```
+Fix round. Diff: <absolute path of .scratch/pr-review/<id>.fix.diff> (previous head to this head). Confirm each finding below against the current code, then review only this diff for new problems.
+Findings to confirm: <id> · <title> · <locations> · <fix>, one per line.
+Return the coverage line, then one line per finding: `<id>: fixed` or `<id>: still open`, each with its evidence, then the JSON findings array for new problems in this diff.
+```
+
+- **Steps 6–7:** new findings are deduped against open ones, verified and (step 9) approved like any other.
+- **Step 8.2, state:** append the run with `mode: "fix-round"`. A finding whose lens says `fixed` becomes `fixed` with `fixed_in` = this run's date; `still open` keeps it open. Findings from lenses not dispatched carry over unchanged: never mark one fixed for going unreported. The report shows "Fix round" in its run line and the confirmed fixes under "Fixed since last run".
+
 ## 1. Drift check
 
 Run `uv run --no-project python ${CLAUDE_SKILL_DIR}/scripts/check-drift.py`. It prints one line per lens:
@@ -55,7 +79,7 @@ Done when the script prints no `DRIFT` lines, or every drifted lens is synced or
 
 ## 2. Prepare the shared context
 
-Parse the arguments: a PR number or URL, an optional `base=`, an optional `paths=`.
+Parse the arguments: a PR number or URL, an optional `base=`, an optional `paths=`, and `fix-round` (see "Fix round").
 
 1. **Target and id.** With a PR: `gh pr view <n> --json number,title,body,baseRefName,headRefName,headRefOid,url`; id is `pr-<n>`. Without: the current branch; base is `base=` or the merge-base with `main` (fall back to `master`); id is the branch name slugified.
 2. **Checkout.** Reviewers need the head's files on disk. If the working tree is already at the head commit, use it. Otherwise `git fetch origin pull/<n>/head` and `git worktree add .scratch/pr-review/wt-<id> <headRefOid>`; that worktree is `REVIEW_ROOT`. Never switch the user's current branch.
