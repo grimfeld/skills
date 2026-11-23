@@ -34,7 +34,7 @@ Every publish passes these capabilities. They are the connector tools the page c
 {
   "mcp": {
     "servers": [
-      { "server": "github", "tools": ["list_issues", "list_pull_requests", "pull_request_read", "get_file_contents"] },
+      { "server": "github", "tools": ["list_issues", "list_pull_requests", "pull_request_read", "get_file_contents", "issue_read"] },
       { "server": "Claude Code Remote", "tools": ["list_repos"] }
     ]
   }

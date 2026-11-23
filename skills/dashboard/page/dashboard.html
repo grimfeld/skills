@@ -93,6 +93,9 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
 .projects > h2 + .project { border-top: 0; }
 .project .name { font-family: var(--font-mono); font-size: 14px; font-weight: 500; overflow-wrap: anywhere; min-width: 0; }
 .project .name a { text-decoration: none; }
+.project .name a.morning {
+  margin-left: 12px; font-family: var(--font-body); font-size: 13px; font-weight: 400; color: var(--accent); white-space: nowrap;
+}
 .project .name a:hover { text-decoration: underline; }
 .project .updated { color: var(--muted); font-size: 13px; white-space: nowrap; }
 .empty { padding: 20px 16px; color: var(--muted); margin: 0; }
@@ -256,7 +259,7 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
   // The connector tools this page calls. Keep in step with the `mcp` capabilities in SKILL.md
   // (build.test.mjs checks they match).
   const CONNECTORS = {
-    github: { server: "github", tools: ["list_issues", "list_pull_requests", "pull_request_read", "get_file_contents"] },
+    github: { server: "github", tools: ["list_issues", "list_pull_requests", "pull_request_read", "get_file_contents", "issue_read"] },
     remote: { server: "Claude Code Remote", tools: ["list_repos"] },
   };
   const GH = CONNECTORS.github.server;
@@ -531,7 +534,7 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
   function watchProject(full) {
     stopProject(full);
     const reads = Object.entries(readsFor(full));
-    const load = { full, watched: watchesInUse + reads.length <= WATCH_BUDGET, unsubs: [], poll: null, parts: {}, errors: {}, checks: {}, checkReads: {}, storedAt: null };
+    const load = { full, watched: watchesInUse + reads.length <= WATCH_BUDGET, unsubs: [], poll: null, parts: {}, errors: {}, checks: {}, checkReads: {}, comments: {}, commentReads: {}, storedAt: null };
     loads.set(full, load);
     const current = () => loads.get(full) === load;
     const deliver = (part, result) => {
@@ -540,6 +543,7 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
       delete load.errors[part];
       load.storedAt = Math.max(load.storedAt ?? 0, result.cache?.storedAt ?? Date.now());
       if (part === "prsOpen") readChecks(load);
+      if (part.startsWith("issues")) readComments(load);
       scheduleRender();
     };
     const fail = (part, error) => {
@@ -594,6 +598,31 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
         // Not "no failing checks": unknown, and the project's row says so.
         load.checks[p.number] = { unknown: true, code: codeOf(e) };
       }).finally(() => {
+        read.pending = false;
+        if (loads.get(load.full) === load) scheduleRender();
+      });
+    }
+  }
+
+  // Comments for the morning-page link: only on the specs board.mjs's morningSpecs picks (updated
+  // in the last 7 days, at most 10), one-shot through the pool, after an issue list arrives, never
+  // per render. A spec is read again only when it changed since (a new comment updates it) or
+  // when its last read failed.
+  function readComments(load) {
+    const { issuesOpen, issuesClosed } = load.parts;
+    if (!state.tools.github.has("issue_read") || !issuesOpen || !issuesClosed) return;
+    const { owner, repo } = splitRepo(load.full);
+    const specs = morningSpecs([...issuesOpen, ...issuesClosed], Date.now());
+    const keep = new Set(specs.map((i) => String(i.number)));
+    for (const n of Object.keys(load.commentReads)) if (!keep.has(n)) { delete load.commentReads[n]; delete load.comments[n]; }
+    for (const i of specs) {
+      const prev = load.commentReads[i.number];
+      if (prev && (prev.pending || (prev.updatedAt === i.updated_at && !prev.failed))) continue;
+      const read = { updatedAt: i.updated_at, pending: true, failed: false };
+      load.commentReads[i.number] = read;
+      readOnce("issue_read", { method: "get_comments", owner, repo, issue_number: i.number, perPage: 100 }).then((r) => {
+        load.comments[i.number] = listOf(r.payload, "comments");
+      }, () => { read.failed = true; }).finally(() => {
         read.pending = false;
         if (loads.get(load.full) === load) scheduleRender();
       });
@@ -663,6 +692,11 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
     const key = `${card.project}#${card.number}`;
     const rows = [];
     const facts = [];
+    if (card.kind === "spec") {
+      if (card.openQuestions > 0) facts.push(el("span", { class: "fact-warn", text: plural(card.openQuestions, "open question") }));
+      if (card.pr) facts.push(outLink(card.pr.url, `PR #${card.pr.number}`, `pr:${key}`));
+    }
+    if (card.kind === "design") facts.push(outLink(card.designUrl, "Open design", `design:${key}`));
     if (card.kind === "pr") {
       const r = card.review;
       if (r?.line) {
@@ -705,7 +739,12 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
 
   function projectRow(full, cards) {
     const load = loads.get(full);
-    const name = el("div", { class: "name" }, el("a", { href: `https://github.com/${full}`, target: "_blank", rel: "noopener", text: full, "data-key": `project:${full}` }));
+    // The newest morning page on the project's recent specs (no link without one).
+    const morning = morningPage(Object.values(load?.comments ?? {}).flat());
+    const morningLink = morning ? outLink(morning.url, "Morning page", `morning:${full}`) : null;
+    morningLink?.classList.add("morning");
+    if (morningLink) morningLink.title = `Posted ${new Date(morning.at).toLocaleString()}`;
+    const name = el("div", { class: "name" }, el("a", { href: `https://github.com/${full}`, target: "_blank", rel: "noopener", text: full, "data-key": `project:${full}` }), morningLink);
     const errors = errorsOf(load);
     const phase = phaseOf(load);
     if (phase === "failed") {
@@ -803,7 +842,10 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
     // On a phone the chip filters what shows; desktop always shows every project.
     const shownProjects = phone.matches && view.project !== "all" ? [view.project] : list;
     const rows = list.map((full) => projectRow(full, cardsBy.get(full)));
-    rows.forEach((row) => row.classList.toggle("phone-hide", !(row.classList.contains("is-error") && shownProjects.includes(row.dataset.project))));
+    // Phone: a row shows for an error, or, once its chip is picked, for its morning-page link.
+    const picked = view.project !== "all";
+    rows.forEach((row) => row.classList.toggle("phone-hide", !shownProjects.includes(row.dataset.project) ||
+      !(row.classList.contains("is-error") || (picked && row.querySelector("a.morning")))));
     box.append(...rows);
     box.classList.toggle("phone-hide", rows.every((r) => r.classList.contains("phone-hide")));
     const cards = shownProjects.flatMap((full) => cardsBy.get(full));

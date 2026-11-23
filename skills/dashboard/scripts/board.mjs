@@ -37,14 +37,38 @@ const ISSUE_RULES = [
   { when: (i, now) => !i.open && [...i.l].some((n) => n.startsWith("spec:")) && now - Date.parse(i.updatedAt) < WEEK, kind: "spec", bucket: "landed", reason: "closed" },
 ];
 
-function issueCard(project, issue, now) {
+function issueCard(project, issue, now, prs) {
   const i = { l: new Set(names(issue.labels)), open: String(issue.state).toUpperCase() === "OPEN", updatedAt: issue.updated_at };
   const rule = ISSUE_RULES.find((r) => r.when(i, now));
   if (!rule) return null;
   return {
     project, number: issue.number, title: issue.title, url: `https://github.com/${project}/issues/${issue.number}`,
     kind: rule.kind, bucket: rule.bucket, reason: rule.reason, since: issue.updated_at, age: ago(now - Date.parse(issue.updated_at)),
+    ...(rule.kind === "spec" ? { openQuestions: openQuestions(issue.body), pr: specPr(project, issue.number, prs) } : {}),
+    ...(rule.kind === "design" ? { designUrl: designLink(issue.body) } : {}),
   };
+}
+
+// A spec's PR: one whose description closes it ("Closes #n", as GitHub reads closing keywords) or
+// whose branch is the night shift's spec/<n>-…. An open PR first, else the latest merged one;
+// a PR closed unmerged never. → { number, url } or null.
+function specPr(project, n, prs) {
+  const closes = new RegExp(`\\b(close[sd]?|fix(e[sd])?|resolve[sd]?)\\s+#${n}(?!\\d)`, "i");
+  const mine = (prs ?? []).filter((p) => closes.test(String(p.body ?? "")) || new RegExp(`^spec/${n}-`).test(p.head?.ref ?? ""));
+  const open = mine.find((p) => String(p.state).toLowerCase() === "open");
+  const merged = mine.filter((p) => p.merged_at).sort((a, b) => Date.parse(b.merged_at) - Date.parse(a.merged_at))[0];
+  const hit = open ?? merged;
+  return hit ? { number: hit.number, url: `https://github.com/${project}/pull/${hit.number}` } : null;
+}
+
+// The specs whose comments are read for the latest morning page: spec issues, open or closed,
+// updated in the last 7 days (a morning comment updates its spec), newest first, at most 10.
+const MORNING_SPECS = 10;
+export function morningSpecs(issues, now) {
+  return (issues ?? [])
+    .filter((i) => names(i.labels).some((n) => n.startsWith("spec:")) && now - Date.parse(i.updated_at) < WEEK)
+    .sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at))
+    .slice(0, MORNING_SPECS);
 }
 
 // A stacked PR: its base branch is the head branch of another open PR in this repo (a fork's
@@ -111,13 +135,15 @@ function prCard(project, pr, check, now, openPrs) {
 //            (or couldn't be: an unread PR counts as not failing, and the page says so on its row)
 //   now:     epoch ms
 // Each card: { project, number, title, url, kind: "spec"|"design"|"pr", bucket, reason, since, age }, plus
+//   spec cards:   openQuestions (a count, or null without the section), pr ({ number, url } or null)
+//   design cards: designUrl (https, or null)
 //   PR cards:     review (parseReview, or null), landsAfter (the PR it is stacked on, or null)
 // Items that need nothing from the dashboard (spec:in-review specs, unreviewed ready PRs,
 // PRs closed unmerged, anything older than a week in Landed) get no card.
 export function toCards(project, issues, prs, checks, now) {
   const openPrs = (prs ?? []).filter((p) => String(p.state).toLowerCase() === "open");
   return [
-    ...(issues ?? []).map((i) => issueCard(project, i, now)),
+    ...(issues ?? []).map((i) => issueCard(project, i, now, prs)),
     ...(prs ?? []).map((p) => prCard(project, p, checks?.[p.number], now, openPrs)),
   ].filter(Boolean);
 }
@@ -225,4 +251,40 @@ export function parseReview(body) {
     reportUrl: linkTo(review, "Full report"),
     previewUrl: linkTo(review, "Preview"),
   };
+}
+
+// The spec template's "## Open questions" section (skills/spec-me/templates/spec.md): one top-level
+// item per open question, or "None". → the count (sub-points not counted; prose that isn't
+// "None" counts as one question), or null when the body has no such section.
+export function openQuestions(body) {
+  const lines = section(body, /^##\s+Open questions\b/i);
+  if (!lines) return null;
+  const text = lines.join("\n").trim();
+  if (!text || /^([-*+]\s+)?none\b/i.test(text)) return 0;
+  return topItems(lines).length || 1;
+}
+
+// A design issue's artifact (skills/design-me/templates/design-issue.md): the first link on its
+// "- **Artifact:** <link>" line, bare, in <angle brackets> or as [text](link). → https URL or null.
+export function designLink(body) {
+  const line = String(body ?? "").split(/\r?\n/).find((l) => /^\s*[-*]\s+\*\*Artifact:\*\*/i.test(l));
+  const value = line?.replace(/^.*?\*\*Artifact:\*\*\s*/i, "") ?? "";
+  const link = value.match(/^\[[^\]]*\]\(([^)\s]+)\)/) ?? value.match(/^<([^>\s]+)>/) ?? value.match(/^(\S+)/);
+  return link ? safeUrl(link[1]) : null;
+}
+
+// night-shift's morning comment on each spec it collected (skills/night-shift/SKILL.md, morning step 5):
+// "<!-- ship:morning-page -->" then "Reviewed on this morning's page: <url>". A new one is posted
+// every morning, so the newest is current. comments: issue_read get_comments items { body, created_at },
+// any order, from any number of specs. → { url, at } of the newest with an https link, or null.
+const MORNING_MARK = "<!-- ship:morning-page -->";
+export function morningPage(comments) {
+  let best = null;
+  for (const c of comments ?? []) {
+    const body = String(c?.body ?? "");
+    if (!body.includes(MORNING_MARK)) continue;
+    const url = safeUrl(body.slice(body.indexOf(MORNING_MARK)).match(/page:\s*<?(\S+?)>?(\s|$)/)?.[1]);
+    if (url && (!best || Date.parse(c.created_at) > Date.parse(best.at))) best = { url, at: c.created_at };
+  }
+  return best;
 }

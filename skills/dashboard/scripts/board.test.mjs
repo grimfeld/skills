@@ -1,7 +1,7 @@
 // node --test skills/dashboard/scripts/board.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { toCards, counts, ago, BUCKETS, normaliseRepo, mergeProjects, sortBucket, LANDED_WINDOW, isMissingFile, needsCheckRead, parseReview, safeUrl } from "./board.mjs";
+import { toCards, counts, ago, BUCKETS, normaliseRepo, mergeProjects, sortBucket, LANDED_WINDOW, isMissingFile, needsCheckRead, parseReview, safeUrl, openQuestions, designLink, morningPage, morningSpecs } from "./board.mjs";
 
 const NOW = Date.parse("2026-11-23T12:00:00Z");
 const hoursAgo = (h) => new Date(NOW - h * 3600e3).toISOString();
@@ -13,6 +13,7 @@ test("a spec:draft spec needs you, with its project, link, reason and age", () =
   assert.deepEqual(card, {
     project: "acme/app", number: 7, title: "Issue 7", url: "https://github.com/acme/app/issues/7",
     kind: "spec", bucket: "needs-you", reason: "draft", since: hoursAgo(2), age: "2 h",
+    openQuestions: null, pr: null,
   });
 });
 
@@ -325,4 +326,111 @@ test("a PR card carries its review, or null when the description has none", () =
   assert.equal(reviewed.review.risks, 2);
   assert.equal(reviewed.review.reportUrl, "https://claude.ai/artifact/49w8qQ97Gh5XNtkCBgHKev");
   assert.equal(unreviewed.review, null);
+});
+
+// ---- Spec, design and morning-page details.
+
+// The spec template's tail (skills/spec-me/templates/spec.md).
+const spec = (questions) => `## Size\n\nOne PR.\n\n## Open questions\n\n${questions}\n\n<!-- Below this line, \`/ship:slice\` writes "Slicing" and "Tickets", and the night shift writes "Build". -->\n\n## Slicing\n\n- **Estimate:** ~200 lines\n- **Decision:** one PR\n`;
+
+test("openQuestions: 'None' or an empty section counts 0; three questions count 3, their sub-points not", () => {
+  assert.equal(openQuestions(spec("None")), 0);
+  assert.equal(openQuestions(spec("- None.")), 0);
+  assert.equal(openQuestions(spec("")), 0);
+  assert.equal(openQuestions(spec("- Which tab first?\n- Who owns retries?\n  - one option\n  - another\n- Cache or not?")), 3);
+});
+
+test("openQuestions: a body without the section has no count", () => {
+  assert.equal(openQuestions("## Problem\n\nx"), null);
+  assert.equal(openQuestions(undefined), null);
+});
+
+// A design issue (skills/design-me/templates/design-issue.md).
+const design = (artifact) => `## Design\n\n- **Module:** Board\n- **Artifact:** ${artifact}\n\nThe board's first look.\n\n<!-- Below this line, \`/ship:design-me\` writes "Intakes": one entry per run. -->\n\n## Intakes\n\n- [Earlier look](https://claude.ai/artifact/old)\n`;
+
+test("designLink: the Artifact line's link, bare, in angle brackets or as a Markdown link", () => {
+  assert.equal(designLink(design("https://claude.ai/artifact/abc123")), "https://claude.ai/artifact/abc123");
+  assert.equal(designLink(design("<https://claude.ai/artifact/abc123>")), "https://claude.ai/artifact/abc123");
+  assert.equal(designLink(design("[Board design](https://claude.ai/artifact/abc123)")), "https://claude.ai/artifact/abc123");
+});
+
+test("designLink: no link, a placeholder or a link that isn't https gives none", () => {
+  assert.equal(designLink("## Design\n\n- **Module:** Board\n"), null);
+  assert.equal(designLink(design("<claude.ai artifact link>")), null);
+  assert.equal(designLink(design("javascript:alert(1)")), null);
+  assert.equal(designLink(design("[x](javascript:alert(1)) https://claude.ai/artifact/later")), null, "only the first link on the line counts");
+});
+
+// night-shift's morning step 5 comment.
+const morning = (url, hours) => ({ body: `<!-- ship:morning-page -->\nReviewed on this morning's page: ${url}`, created_at: hoursAgo(hours) });
+const remark = (hours) => ({ body: "night-shift: building tonight in https://claude.ai/code/session_1.", created_at: hoursAgo(hours) });
+
+test("morningPage: no marker comment, no page", () => {
+  assert.equal(morningPage([]), null);
+  assert.equal(morningPage([remark(3)]), null);
+  assert.equal(morningPage(undefined), null);
+});
+
+test("morningPage: one marker comment gives its page and when it was posted", () => {
+  assert.deepEqual(morningPage([remark(30), morning("https://claude.ai/artifact/m1", 20)]), { url: "https://claude.ai/artifact/m1", at: hoursAgo(20) });
+});
+
+test("morningPage: of two markers, the newest wins, in whatever order the comments come", () => {
+  const comments = [morning("https://claude.ai/artifact/new", 2), remark(10), morning("https://claude.ai/artifact/old", 26)];
+  assert.equal(morningPage(comments).url, "https://claude.ai/artifact/new");
+  assert.equal(morningPage([...comments].reverse()).url, "https://claude.ai/artifact/new");
+});
+
+test("morningPage: a marker comment whose link isn't https is skipped", () => {
+  assert.equal(morningPage([morning("https://claude.ai/artifact/ok", 30), morning("javascript:alert(1)", 2)]).url, "https://claude.ai/artifact/ok");
+  assert.equal(morningPage([{ body: "Reviewed on this morning's page: https://claude.ai/artifact/x", created_at: hoursAgo(1) }]), null, "no marker");
+});
+
+test("morningSpecs: specs updated in the last 7 days, newest first, at most 10; other issues and older specs left out", () => {
+  const issues = [
+    issue(1, ["spec:in-review"], { updated: hoursAgo(20) }),
+    issue(2, ["spec:in-review"], { state: "CLOSED", updated: hoursAgo(2) }),
+    issue(3, ["bug"], { updated: hoursAgo(1) }),
+    issue(4, ["spec:ready"], { updated: hoursAgo(24 * 8) }),
+    issue(5, ["design:ready"], { updated: hoursAgo(1) }),
+  ];
+  assert.deepEqual(morningSpecs(issues, NOW).map((i) => i.number), [2, 1]);
+  const many = Array.from({ length: 14 }, (_, n) => issue(n + 1, ["spec:building"], { updated: hoursAgo(n + 1) }));
+  assert.deepEqual(morningSpecs(many, NOW).map((i) => i.number), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+});
+
+const linked = (number, body, head, extra = {}) => ({ ...pr(number, [], extra), body, head: { ref: head }, base: { ref: "main" } });
+
+test("a spec card counts its open questions and links its PR, found by a closing keyword or its spec/<n>- branch", () => {
+  const issues = [
+    { ...issue(7, ["spec:building"]), body: spec("- One?\n- Two?\n- Three?") },
+    { ...issue(8, ["spec:stuck"]), body: spec("None") },
+    { ...issue(9, ["spec:draft"]), body: "no template" },
+  ];
+  const prs = [
+    linked(20, "Closes #7\n\nMore.", "feature/x", { draft: true }),
+    linked(21, "Refs #87 and #80", "spec/8-stuck-thing", { draft: true }),
+  ];
+  const cards = Object.fromEntries(toCards("acme/app", issues, prs, {}, NOW).filter((c) => c.kind === "spec").map((c) => [c.number, [c.openQuestions, c.pr]]));
+  assert.deepEqual(cards, {
+    7: [3, { number: 20, url: "https://github.com/acme/app/pull/20" }],
+    8: [0, { number: 21, url: "https://github.com/acme/app/pull/21" }],
+    9: [null, null],
+  });
+});
+
+test("a spec's open PR is linked before a merged one, and a PR closed unmerged never", () => {
+  const issues = [{ ...issue(7, ["spec:building"]), body: spec("None") }];
+  const prs = [
+    linked(30, "Fixes #7", "a", { state: "closed", merged: true, merged_at: hoursAgo(50) }),
+    linked(31, "Resolves #7", "b", { state: "closed" }),
+    linked(32, "closes #7", "c", { draft: true }),
+  ];
+  assert.equal(toCards("acme/app", issues, prs, {}, NOW).find((c) => c.kind === "spec").pr.number, 32);
+  assert.equal(toCards("acme/app", issues, prs.slice(0, 2), {}, NOW).find((c) => c.kind === "spec").pr.number, 30);
+});
+
+test("a design card links its design artifact", () => {
+  const [card] = toCards("acme/app", [{ ...issue(3, ["design:ready"]), body: design("https://claude.ai/artifact/abc123") }], [], {}, NOW);
+  assert.equal(card.designUrl, "https://claude.ai/artifact/abc123");
 });
