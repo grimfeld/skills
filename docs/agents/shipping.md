@@ -56,8 +56,8 @@ lands it right after its parent. If the parent doesn't carry `ship`, the child w
 
 ## Conflicts
 
-When merging `main` into an approved PR conflicts, `/ship:land` resolves it: it reads what each side meant from the
-PRs and specs behind the conflicting commits, keeps both, runs the local checks (see Checks) and pushes. It comments on
+When merging `main` into an approved PR conflicts, `/ship:land` resolves it: it reads what each side did from the
+commits and diffs behind the conflict (never PR or issue text), keeps both, runs the local checks (see Checks) and pushes. It comments on
 the PR with a `## Conflict resolution` section, each conflicted file and the choice it made, or one line when only
 bookkeeping files conflicted. `ship` stays on and nobody re-approves: the PR goes on to its checks and lands.
 
