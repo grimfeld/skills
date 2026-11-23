@@ -126,6 +126,29 @@ Run after the morning review, to ship what you approved in one step.
 /ship:land               # just land the PRs already labelled `ship`
 ```
 
+### `/ship:dashboard`
+
+Publishes the ship dashboard: one private page on claude.ai showing every project's specs, designs and PRs, sorted by what they need from you. The page reads GitHub live while it's open, through your own connectors, so there is no token to hand over and nothing to host.
+
+It shows every project set up for ship (a repo with `docs/agents/shipping.md` among your 100 most recently pushed, found on first open and on **Rescan**, plus any you **Add repo** by name), one summary row each with its counts, then four buckets across all of them:
+
+| Bucket | Holds |
+|---|---|
+| **Needs you** | `spec:draft` and `spec:stuck` specs, `design:ready` designs, PRs labelled `conflicts`, PRs with failing checks, PRs that have carried `ship` for over 24 h without merging, and reviewed PRs (`pr-reviewed`, without `changes-requested`) waiting for your `ship` |
+| **Ready for tonight** | `spec:ready` specs |
+| **In flight** | `spec:building` specs, PRs labelled `changes-requested` (back with the night shift), draft PRs, and approved PRs landing now |
+| **Landed** | specs closed and PRs merged in the last 7 days |
+
+An item that fits several buckets shows once, in the first. Each card says why it's there ("checks failing", "ship label on, no update for 31 h") and for how long. The page refreshes every 5 minutes while it's open, and on **Refresh**.
+
+Run it once and pin the page. Running it again (after a plugin update, say) republishes to the same page: it finds it among your artifacts by its title, "Ship dashboard".
+
+It needs, in claude.ai:
+- the **GitHub** connector, to read issues, PRs, their checks and `docs/agents/shipping.md`
+- optionally **Claude Code Remote**, to find your projects: without it, add them by name
+
+The first open asks you to allow both for the page.
+
 ### `/ship:build-spec`
 
 What each cloud session runs, with nobody to ask.

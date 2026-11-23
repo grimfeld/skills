@@ -1,0 +1,809 @@
+<title>Ship dashboard</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: a header strip, one summary row per project, then the four buckets as columns
+   (phone: project chips, bucket tabs, one column). Neutrals lean toward harbour slate. */
+:root {
+  --bg: #f3f6f7;
+  --surface: #ffffff;
+  --fg: #14212b;
+  --muted: #566775;
+  --line: #d8e0e5;
+  --accent: #1d5bb8;
+  --needs: #b8410e;
+  --ready: #4a3fc4;
+  --flight: #0e6f68;
+  --landed: #2d7a34;
+  --danger: #b42318;
+  --skeleton: #e4eaee;
+  --font-body: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e151b; --surface: #151e26; --fg: #e2e9ee; --muted: #93a4b2; --line: #26333e; --accent: #82acff;
+    --needs: #fb9a5b; --ready: #aaa4ff; --flight: #5fd8cb; --landed: #8bdc8f; --danger: #f98d84; --skeleton: #1e2a34;
+    color-scheme: dark;
+  }
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font: 15px/1.45 var(--font-body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 0 48px;
+}
+a { color: inherit; }
+button, input { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+.wrap { max-width: 1440px; margin: 0 auto; display: grid; gap: 20px; }
+
+header.top {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px;
+  padding-block: 20px 4px;
+}
+header.top h1 { font-size: 22px; font-weight: 600; letter-spacing: -0.01em; margin: 0; text-wrap: balance; }
+header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-width: 0; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.btn {
+  min-height: 44px; padding: 0 14px; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--surface);
+  font-weight: 500; font-size: 14px;
+}
+.btn:hover { border-color: var(--muted); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+.btn[disabled] { opacity: 0.55; cursor: default; }
+
+.notice {
+  border: 1px solid var(--line); background: var(--surface); border-radius: 10px;
+  padding: 20px; display: grid; gap: 10px; max-width: 64ch;
+}
+.notice h2 { margin: 0; font-size: 17px; font-weight: 600; }
+.notice p { margin: 0; color: var(--muted); }
+.notice .actions { margin-top: 4px; }
+.hint { font-size: 13px; color: var(--muted); }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.addrepo { display: flex; gap: 8px; flex: 1 1 320px; min-width: 0; max-width: 460px; }
+.addrepo input {
+  flex: 1 1 auto; min-width: 0; min-height: 44px; padding: 0 12px; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--surface); font-family: var(--font-mono); font-size: 14px;
+}
+.addrepo input::placeholder { color: var(--muted); }
+.note { font-size: 13px; color: var(--muted); margin: 0; }
+.note.error { color: var(--danger); }
+
+.projects { display: grid; gap: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); overflow: hidden; }
+.projects h2, .board h2 { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin: 0; }
+.projects > h2 { padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.project {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 8px 16px;
+  padding: 10px 16px; min-height: 52px; border-top: 1px solid var(--line);
+}
+.projects > h2 + .project { border-top: 0; }
+.project .name { font-family: var(--font-mono); font-size: 14px; font-weight: 500; overflow-wrap: anywhere; min-width: 0; }
+.project .name a { text-decoration: none; }
+.project .name a:hover { text-decoration: underline; }
+.project .updated { color: var(--muted); font-size: 13px; white-space: nowrap; }
+.empty { padding: 20px 16px; color: var(--muted); margin: 0; }
+.empty code { font-family: var(--font-mono); color: var(--fg); }
+
+.btn.small { min-height: 36px; padding: 0 12px; font-size: 13px; }
+.counts { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.pill {
+  display: inline-flex; align-items: baseline; gap: 6px; padding: 3px 9px; border-radius: 999px;
+  font-size: 12px; color: var(--muted); border: 1px solid var(--line); white-space: nowrap;
+}
+.pill-n { font-weight: 500; color: var(--tone); }
+.pill:not(.zero) { border-color: color-mix(in srgb, var(--tone) 40%, var(--line)); }
+.pill.zero .pill-n { color: var(--muted); }
+.b-needs { --tone: var(--needs); }
+.b-ready { --tone: var(--ready); }
+.b-flight { --tone: var(--flight); }
+.b-landed { --tone: var(--landed); }
+.row-error { color: var(--danger); font-size: 13px; min-width: 0; overflow-wrap: anywhere; }
+.row-stale { color: var(--danger); }
+.row-warn { display: block; color: var(--danger); font-size: 12px; white-space: normal; }
+.project.is-error .btn { justify-self: start; }
+.skeleton { display: flex; gap: 6px; justify-content: flex-end; }
+.skeleton span { width: 72px; height: 22px; border-radius: 999px; background: var(--skeleton); animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.5; } }
+
+.board { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.col { display: grid; gap: 10px; min-width: 0; }
+.col > h2 { display: flex; align-items: center; gap: 8px; padding: 4px 2px; color: var(--fg); }
+.col .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--tone); flex: none; }
+.col-n { margin-left: auto; color: var(--muted); font-weight: 500; letter-spacing: 0; }
+.col-empty { margin: 0; padding: 12px; color: var(--muted); font-size: 13px; border: 1px dashed var(--line); border-radius: 8px; }
+.cards { display: grid; gap: 8px; }
+.card {
+  display: grid; gap: 6px; padding: 12px; border-radius: 8px; min-width: 0;
+  background: var(--surface); border: 1px solid var(--line);
+}
+.card-meta { display: flex; gap: 8px; align-items: baseline; font-size: 12px; color: var(--muted); min-width: 0; }
+.card-project { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.card-kind { margin-left: auto; flex: none; text-transform: uppercase; letter-spacing: 0.06em; font-size: 11px; }
+.card-title {
+  min-height: 44px; font-weight: 500; text-decoration: none; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden;
+}
+.card-title:hover { text-decoration: underline; }
+.card-title:focus-visible { -webkit-line-clamp: unset; line-clamp: none; }
+.card-num { color: var(--muted); font-weight: 400; }
+.card-foot { display: flex; gap: 8px; align-items: baseline; font-size: 13px; }
+.card-reason { color: var(--tone); font-weight: 500; min-width: 0; }
+.card-age { margin-left: auto; color: var(--muted); font-size: 12px; flex: none; }
+
+@media (max-width: 720px) {
+  .board { grid-template-columns: minmax(0, 1fr); }
+  .project { grid-template-columns: minmax(0, 1fr) auto; }
+  .project .counts, .project .skeleton { grid-column: 1 / -1; justify-content: flex-start; grid-row: 2; }
+  .project .name a { display: inline-flex; align-items: center; min-height: 44px; }
+}
+
+.chips, .tabs { display: none; }
+@media (max-width: 720px) {
+  .phone-hide, .projects .phone-hide { display: none; }
+  .projects > h2 { display: none; }
+  .project.is-error { border-top: 0; }
+  .btn.small { min-height: 44px; }
+  .chips, .tabs {
+    display: flex; gap: 8px; overflow-x: auto; overscroll-behavior-x: contain;
+    scrollbar-width: none; min-width: 0; padding-block: 2px;
+  }
+  .chips::-webkit-scrollbar, .tabs::-webkit-scrollbar { display: none; }
+  .chip {
+    flex: none; display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px;
+    border-radius: 999px; border: 1px solid var(--line); background: var(--surface); cursor: pointer;
+    font-family: var(--font-mono); font-size: 13px;
+  }
+  .chip[aria-pressed="true"] { background: var(--fg); border-color: var(--fg); color: var(--bg); }
+  .chip-n { color: var(--needs); font-weight: 500; }
+  .chip[aria-pressed="true"] .chip-n { color: inherit; }
+  .chip-flag { font-family: var(--font-body); font-size: 11px; color: var(--muted); }
+  .chip[aria-pressed="true"] .chip-flag { color: inherit; opacity: 0.8; }
+  .tabs { gap: 0; border-bottom: 1px solid var(--line); }
+  .tab {
+    flex: none; min-height: 44px; padding: 0 12px; border: 0; background: none; cursor: pointer;
+    font-weight: 500; font-size: 14px; color: var(--muted); white-space: nowrap;
+    border-bottom: 2px solid transparent; margin-bottom: -1px;
+  }
+  .tab[aria-pressed="true"] { color: var(--fg); border-bottom-color: var(--tone); }
+  .tab-n { color: var(--tone); margin-left: 2px; }
+  .board .col { display: none; }
+  .board[data-tab="needs-you"] .col[data-bucket="needs-you"],
+  .board[data-tab="ready"] .col[data-bucket="ready"],
+  .board[data-tab="in-flight"] .col[data-bucket="in-flight"],
+  .board[data-tab="landed"] .col[data-bucket="landed"] { display: grid; }
+  .col > h2 { display: none; }
+}
+
+/* Four columns down to 721px: there, let names and reasons wrap rather than cut. */
+@media (min-width: 721px) and (max-width: 1080px) {
+  .board { gap: 10px; }
+  .card { padding: 10px; }
+  .card-meta, .card-foot { flex-wrap: wrap; }
+  .card-project { white-space: normal; overflow: visible; overflow-wrap: anywhere; }
+}
+
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <h1>Ship dashboard</h1>
+    <div class="status" id="status" aria-live="polite">Connecting to GitHub…</div>
+    <div class="actions">
+      <button class="btn" id="refresh" type="button">Refresh</button>
+    </div>
+  </header>
+
+  <section class="notice" id="connector" hidden>
+    <h2 id="connector-title">Connect GitHub</h2>
+    <p id="connector-text"></p>
+    <div class="actions">
+      <button class="btn primary" id="permissions" type="button">Open Permissions</button>
+    </div>
+    <p class="hint" id="permissions-hint" hidden>The Permissions panel didn't open. Use this page's Permissions menu in claude.ai instead.</p>
+  </section>
+
+  <main id="app" class="wrap" hidden>
+    <div class="toolbar">
+      <form class="addrepo" id="addrepo" autocomplete="off">
+        <label class="sr-only" for="addrepo-name">Repository to add</label>
+        <input id="addrepo-name" name="repo" placeholder="owner/name" spellcheck="false" autocapitalize="off">
+        <button class="btn" type="submit" id="addrepo-go">Add repo</button>
+      </form>
+      <button class="btn" id="rescan" type="button" hidden>Rescan</button>
+      <p class="note" id="note" aria-live="polite"></p>
+    </div>
+    <section class="projects" id="projects" aria-label="Projects"></section>
+    <nav class="chips" id="chips" aria-label="Filter by project"></nav>
+    <div class="tabs" id="tabs" role="group" aria-label="Show bucket"></div>
+    <div id="board"></div>
+  </main>
+</div>
+
+<script>
+/*@@BOARD@@*/
+</script>
+<script>
+(() => {
+  // The connector tools this page calls. Keep in step with the `mcp` capabilities in SKILL.md
+  // (build.test.mjs checks they match).
+  const CONNECTORS = {
+    github: { server: "github", tools: ["list_issues", "list_pull_requests", "pull_request_read", "get_file_contents"] },
+    remote: { server: "Claude Code Remote", tools: ["list_repos"] },
+  };
+  const GH = CONNECTORS.github.server;
+
+  // Codes that mean the viewer has to act before a connector answers.
+  const DENIED = new Set(["needs_reauth", "server_not_connected", "selection_required", "server_not_found", "not_in_manifest", "blocked_by_policy", "approval_required", "not_granted", "capability_disabled", "capability_removed", "consent_required"]);
+  // Of those, the ones that refuse one tool for this page rather than the whole connector.
+  // On get_file_contents they turn off Add repo and discovery, not the page.
+  const TOOL_REFUSED = new Set(["not_in_manifest", "blocked_by_policy", "approval_required", "consent_required"]);
+
+  const $ = (id) => document.getElementById(id);
+  const state = { mcp: null, tools: { github: new Set(), remote: new Set() }, fileReads: null };
+
+  async function use(name) {
+    try { return window.claude?.use ? await window.claude.use(name) : null; } catch { return null; }
+  }
+
+  // The full-page state when GitHub can't be read: everything on the page hangs on it.
+  // It drops the connector, so Refresh (and Open Permissions) go back through boot().
+  function showConnector(code) {
+    stopAll();
+    state.mcp = null;
+    const [title, text] = {
+      needs_reauth: ["Reconnect GitHub", "Your GitHub connector needs signing in again. Reconnect it in claude.ai Settings → Connectors, then refresh."],
+      blocked_by_policy: ["GitHub is blocked", "Your organization's policy blocks the GitHub connector tools this page reads. Ask an admin to allow them."],
+      not_in_manifest: ["Allow GitHub", "This page reads your specs and PRs through the GitHub connector, which isn't allowed for this page. Turn it on in Permissions."],
+      approval_required: ["Allow GitHub", "This page reads your specs and PRs through the GitHub connector. Allow it in Permissions."],
+    }[code] ?? ["Connect GitHub", "This page reads your specs and PRs through the GitHub connector. Add it in claude.ai Settings → Connectors, or allow it for this page in Permissions."];
+    $("connector-title").textContent = title;
+    $("connector-text").textContent = text;
+    $("connector").hidden = false;
+    $("app").hidden = true;
+    $("status").textContent = "Not connected to GitHub";
+  }
+  const connectorShowing = () => !$("connector").hidden;
+
+  $("permissions").addEventListener("click", async () => {
+    const permissions = await use("permissions");
+    $("permissions-hint").hidden = true;
+    try {
+      if (!permissions) throw new Error("unavailable");
+      await permissions.manage();
+      boot();
+    } catch {
+      $("permissions-hint").hidden = false;
+    }
+  });
+
+  // Resolves null when GitHub is usable, else the code to explain.
+  async function connect() {
+    const mcp = await use("mcp");
+    if (!mcp) return "server_not_connected";
+    let listed;
+    try { listed = await mcp.listTools(); } catch (e) { return e?.code ?? "server_not_connected"; }
+    const find = (name) => listed.servers.find((s) => s.server.toLowerCase() === name.toLowerCase());
+    for (const [key, c] of Object.entries(CONNECTORS)) {
+      const entry = find(c.server);
+      state.tools[key] = new Set(entry && entry.authStatus !== "needs_reauth" ? entry.tools.map((t) => t.name) : []);
+    }
+    if (find(GH)?.authStatus === "needs_reauth") return "needs_reauth";
+    if (!state.tools.github.has("list_issues") || !state.tools.github.has("list_pull_requests")) return "server_not_connected";
+    state.mcp = mcp;
+    return null;
+  }
+
+  // Per-viewer browser storage. It can throw or come back empty: the page works without it.
+  // Browser storage when the page has it; a copy in memory always, so a page without storage
+  // (private window, blocked site data) still keeps what it found for as long as it's open.
+  const memory = new Map();
+  const store = {
+    get(key, fallback) {
+      try {
+        const saved = JSON.parse(localStorage.getItem(`ship-dashboard:${key}`));
+        if (saved != null) return saved;
+      } catch {}
+      return memory.has(key) ? memory.get(key) : fallback;
+    },
+    set(key, value) {
+      memory.set(key, value);
+      try { localStorage.setItem(`ship-dashboard:${key}`, JSON.stringify(value)); } catch {}
+    },
+  };
+
+  const el = (tag, attrs = {}, ...kids) => {
+    const node = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) {
+      if (k === "class") node.className = v;
+      else if (k === "text") node.textContent = v;
+      else node.setAttribute(k, v);
+    }
+    node.append(...kids.filter((k) => k != null));
+    return node;
+  };
+  const note = (text, error = false) => { $("note").textContent = text; $("note").classList.toggle("error", error); };
+  const splitRepo = (full) => { const [owner, repo] = full.split("/"); return { owner, repo }; };
+  const codeOf = (e) => e?.code ?? "upstream_error";
+  const since = (t) => (Date.now() - t < 60e3 ? "just now" : `${ago(Date.now() - t)} ago`);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  // ---- One-shot reads: one shared pool of six, so a page of projects never floods the connector.
+
+  function pool(size) {
+    const queue = [];
+    let active = 0;
+    const next = () => {
+      while (active < size && queue.length) {
+        const { job, resolve, reject } = queue.shift();
+        active += 1;
+        Promise.resolve().then(job).then(resolve, reject).finally(() => { active -= 1; next(); });
+      }
+    };
+    return (job) => new Promise((resolve, reject) => { queue.push({ job, resolve, reject }); next(); });
+  }
+  const inPool = pool(6);
+
+  const READ_CACHE = { staleTime: 4 * 60e3, gcTime: 10 * 60e3 };
+  // A GitHub read through the pool. A rate_limited (or otherwise retryable) refusal is retried
+  // once, after the wait it asks for; anything else rejects with its code.
+  async function readOnce(tool, input, { refresh = false, cache = READ_CACHE } = {}) {
+    const options = { cache: cache && refresh ? { ...cache, refresh: true } : cache };
+    const call = () => inPool(() => (state.mcp ? state.mcp.callTool(GH, tool, input, options) : Promise.reject({ code: "cancelled", message: "" })));
+    try {
+      return await call();
+    } catch (e) {
+      if (!(e?.code === "rate_limited" || e?.retryable)) throw e;
+      await sleep(e.retryAfterMs ?? 2000 + Math.random() * 2000);
+      return call();
+    }
+  }
+
+  // ---- Projects: discovered (cached with its scan time) plus the ones added by name.
+
+  const SCAN_LIMIT = 100;
+  const projects = () => mergeProjects(store.get("found", null)?.repos ?? [], store.get("added", []));
+
+  // true when the repo has docs/agents/shipping.md on its default branch (no ref reads that branch),
+  // false when GitHub says there's no such file or repo. Rejects with the code otherwise.
+  async function hasShipping(full) {
+    try {
+      await readOnce("get_file_contents", { ...splitRepo(full), path: "docs/agents/shipping.md" }, { cache: false });
+      return true;
+    } catch (e) {
+      if (isMissingFile(e)) return false;
+      throw e;
+    }
+  }
+
+  const fileReadsOk = () => state.tools.github.has("get_file_contents") && !state.fileReads;
+  const canDiscover = () => state.tools.remote.has("list_repos") && fileReadsOk();
+
+  // get_file_contents refused for this page: the board still works, adding and finding repos don't.
+  function refuseFileReads(code) {
+    state.fileReads = code;
+    syncToolbar();
+  }
+
+  function syncToolbar() {
+    $("addrepo").hidden = !fileReadsOk();
+    $("rescan").hidden = !canDiscover();
+    if (state.fileReads) {
+      note(`GitHub won't let this page read files (${state.fileReads}), so repos can't be added or found. Allow the GitHub connector's file reads for this page in Permissions, then Refresh.`, true);
+    } else if (!state.tools.github.has("get_file_contents")) {
+      note("Your GitHub connector has no file reads, so repos can't be added or found.", true);
+    }
+  }
+
+  // A failed get_file_contents: a tool refusal turns off adding; a connector denial takes the page.
+  // Returns true when it handled the error.
+  function fileReadRefused(e) {
+    const code = codeOf(e);
+    if (TOOL_REFUSED.has(code)) { refuseFileReads(code); return true; }
+    if (DENIED.has(code)) { showConnector(code); return true; }
+    return false;
+  }
+
+  // Rejects only when GitHub refuses (the caller decides between Add repo off and the connector state).
+  async function discover() {
+    $("rescan").disabled = true;
+    try {
+      note("Looking for your repos…");
+      let repos;
+      try {
+        const result = await state.mcp.callTool(CONNECTORS.remote.server, "list_repos", { limit: SCAN_LIMIT }, { cache: false });
+        repos = (result.payload?.repos ?? []).map((r) => r?.full_name).filter((n) => n && normaliseRepo(n) === n).slice(0, SCAN_LIMIT);
+      } catch (e) {
+        return note(`Claude Code Remote couldn't list your repos (${codeOf(e)}). Add repos by name, or try Rescan.`, true);
+      }
+      const found = new Set();
+      // Only GitHub saying the file is missing drops a project found before; a failed check keeps it.
+      const before = new Set(store.get("found", null)?.repos ?? []);
+      let done = 0;
+      let unchecked = 0;
+      let refused = null;
+      const queue = [...repos];
+      const worker = async () => {
+        for (let full; !refused && (full = queue.shift()); ) {
+          try {
+            if (await hasShipping(full)) found.add(full);
+          } catch (e) {
+            if (DENIED.has(codeOf(e))) { refused ??= e; return; }
+            unchecked += 1; // a transient failure on one repo: keep it if it was found before, and say so
+            if (before.has(full)) found.add(full);
+          }
+          note(`Checking ${++done} of ${repos.length} repos for docs/agents/shipping.md…`);
+        }
+      };
+      await Promise.all(Array.from({ length: 6 }, worker));
+      if (refused) throw refused;
+      const ordered = repos.filter((r) => found.has(r)); // most recently pushed first
+      store.set("found", { repos: ordered, scannedAt: Date.now() });
+      const missed = unchecked ? ` ${unchecked} ${unchecked === 1 ? "repo" : "repos"} couldn't be checked: Rescan to try again.` : "";
+      note(`Scanned your ${repos.length} most recently pushed repos just now: ${ordered.length} set up for ship.${missed}`, Boolean(unchecked));
+    } finally {
+      $("rescan").disabled = false;
+    }
+  }
+
+  async function runDiscover() {
+    try { await discover(); } catch (e) { if (!fileReadRefused(e)) note(`Couldn't scan your repos (${codeOf(e)}). Try Rescan.`, true); }
+    if (state.mcp) render();
+  }
+
+  function scanNote() {
+    if (state.fileReads || !state.tools.github.has("get_file_contents")) return syncToolbar();
+    if (!state.tools.remote.has("list_repos")) return note("Claude Code Remote isn't connected, so projects are added by name.");
+    const found = store.get("found", null);
+    if (found?.scannedAt) note(`Last scanned ${since(found.scannedAt)}. Rescan to find repos newly set up for ship.`);
+  }
+
+  $("rescan").addEventListener("click", () => runDiscover());
+
+  $("addrepo").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const input = $("addrepo-name");
+    const full = normaliseRepo(input.value);
+    if (!full) return note("Type the repo as owner/name, for example acme/app.", true);
+    if (projects().some((p) => p.toLowerCase() === full.toLowerCase())) return note(`${full} is already on the dashboard.`);
+    $("addrepo-go").disabled = true;
+    note(`Checking ${full} for docs/agents/shipping.md…`);
+    try {
+      if (!(await hasShipping(full))) return note(`${full} isn't set up for ship: it has no docs/agents/shipping.md on its default branch, or GitHub can't find it. Run /ship:setup-ship in it first.`, true);
+      store.set("added", mergeProjects(store.get("added", []), [full]));
+      input.value = "";
+      note(`Added ${full}.`);
+      render();
+    } catch (e) {
+      if (!fileReadRefused(e)) note(`Couldn't check ${full} (${codeOf(e)}). Try again.`, true);
+    } finally {
+      $("addrepo-go").disabled = false;
+    }
+  });
+
+  // ---- Loading: four reads per project. The first projects watch them; past the watch budget,
+  // projects read once and are re-read by one page-level timer. Either way they look the same.
+
+  const REFETCH = 5 * 60e3;
+  const DAY = 24 * 3600e3;
+  // The runtime allows 64 watches per view; keep well under it.
+  const WATCH_BUDGET = 48;
+  let watchesInUse = 0;
+  const ISSUE_FIELDS = ["number", "title", "state", "labels", "created_at", "updated_at"];
+  const PR_FIELDS = ["number", "title", "state", "draft", "merged", "merged_at", "labels", "created_at", "updated_at"];
+  const PARTS = ["issuesOpen", "issuesClosed", "prsOpen", "prsClosed"];
+  const PR_PAGE = { open: 100, closed: 50 };
+  const loads = new Map(); // "owner/name" -> { full, watched, unsubs, poll, parts, errors, checks, checkReads, storedAt }
+
+  function readsFor(full) {
+    const { owner, repo } = splitRepo(full);
+    // Landed's window plus a day, from the start of the UTC day: a stable input, so the cache
+    // and the poll keep one identity all day.
+    const closedSince = new Date(Math.floor(Date.now() / DAY) * DAY - LANDED_WINDOW - DAY).toISOString();
+    return {
+      issuesOpen: ["list_issues", { owner, repo, state: "OPEN", perPage: 100, orderBy: "UPDATED_AT", direction: "DESC", fields: ISSUE_FIELDS }],
+      issuesClosed: ["list_issues", { owner, repo, state: "CLOSED", since: closedSince, perPage: 50, orderBy: "UPDATED_AT", direction: "DESC", fields: ISSUE_FIELDS }],
+      // Open PRs on their own, least recently updated first, so the ones waiting longest are never
+      // pushed out by busy ones; closed PRs (for Landed) newest first.
+      prsOpen: ["list_pull_requests", { owner, repo, state: "open", perPage: PR_PAGE.open, sort: "updated", direction: "asc", fields: PR_FIELDS }],
+      prsClosed: ["list_pull_requests", { owner, repo, state: "closed", perPage: PR_PAGE.closed, sort: "updated", direction: "desc", fields: PR_FIELDS }],
+    };
+  }
+  const listOf = (payload, key) => (Array.isArray(payload) ? payload : Array.isArray(payload?.[key]) ? payload[key] : []);
+
+  function watchProject(full) {
+    stopProject(full);
+    const reads = Object.entries(readsFor(full));
+    const load = { full, watched: watchesInUse + reads.length <= WATCH_BUDGET, unsubs: [], poll: null, parts: {}, errors: {}, checks: {}, checkReads: {}, storedAt: null };
+    loads.set(full, load);
+    const current = () => loads.get(full) === load;
+    const deliver = (part, result) => {
+      if (!current()) return;
+      load.parts[part] = listOf(result.payload, part.startsWith("prs") ? "pull_requests" : "issues");
+      delete load.errors[part];
+      load.storedAt = Math.max(load.storedAt ?? 0, result.cache?.storedAt ?? Date.now());
+      if (part === "prsOpen") readChecks(load);
+      scheduleRender();
+    };
+    const fail = (part, error) => {
+      if (!current()) return;
+      const code = codeOf(error);
+      if (code === "cancelled") return;
+      // GitHub refused outright: the whole page hangs on it, so say so once, page-wide.
+      if (DENIED.has(code)) return showConnector(code);
+      // Anything else: this part's error shows on the project's row, which keeps the cards it has.
+      load.errors[part] = { code, message: error?.message ?? "" };
+      scheduleRender();
+    };
+    if (load.watched) {
+      for (const [part, [tool, input]] of reads) {
+        watchesInUse += 1;
+        let live = true;
+        const unsub = state.mcp.watchTool(GH, tool, input, (ev) => (ev.type === "error" ? fail(part, ev.error) : deliver(part, ev.result)), { refetchInterval: REFETCH });
+        load.unsubs.push(() => { if (live) { live = false; unsub(); watchesInUse -= 1; } });
+      }
+    } else {
+      load.poll = (refresh = false) => {
+        for (const [part, [tool, input]] of reads) readOnce(tool, input, { refresh }).then((r) => deliver(part, r), (e) => fail(part, e));
+      };
+      load.poll();
+    }
+  }
+
+  function stopProject(full) {
+    const load = loads.get(full);
+    if (!load) return;
+    load.unsubs.forEach((u) => u());
+    loads.delete(full);
+  }
+
+  // Checks for each ready open PR (drafts are still being built), as one-shot reads through the pool.
+  // board.mjs's needsCheckRead decides which PRs are read again.
+
+  function readChecks(load, refresh = false) {
+    if (!state.tools.github.has("pull_request_read")) return;
+    const { owner, repo } = splitRepo(load.full);
+    const ready = (load.parts.prsOpen ?? []).filter((p) => String(p.state).toLowerCase() === "open" && !p.draft);
+    const live = new Set(ready.map((p) => String(p.number)));
+    for (const n of Object.keys(load.checkReads)) if (!live.has(n)) { delete load.checkReads[n]; delete load.checks[n]; }
+    for (const p of ready) {
+      if (!needsCheckRead(load.checkReads[p.number], load.checks[p.number], p, refresh)) continue;
+      const read = { updatedAt: p.updated_at, pending: true };
+      load.checkReads[p.number] = read;
+      const one = (method) => readOnce("pull_request_read", { method, owner, repo, pullNumber: p.number }, { refresh });
+      Promise.all([one("get_check_runs"), one("get_status")]).then(([runs, status]) => {
+        load.checks[p.number] = { check_runs: runs.payload?.check_runs ?? [], statuses: status.payload?.statuses ?? [] };
+      }, (e) => {
+        // Not "no failing checks": unknown, and the project's row says so.
+        load.checks[p.number] = { unknown: true, code: codeOf(e) };
+      }).finally(() => {
+        read.pending = false;
+        if (loads.get(load.full) === load) scheduleRender();
+      });
+    }
+  }
+
+  const loaded = (load) => load && PARTS.every((k) => load.parts[k]);
+  const errorsOf = (load) => Object.values(load?.errors ?? {});
+  // A project is "ready" once every read has answered (later failures show on its row),
+  // "failed" when a read failed before that, "loading" otherwise.
+  const phaseOf = (load) => (loaded(load) ? "ready" : errorsOf(load).length ? "failed" : "loading");
+  // A read that came back full may have left PRs out: open ones past the page, or closed ones
+  // still inside Landed's window.
+  const prsCut = (load) => {
+    const { prsOpen = [], prsClosed = [] } = load.parts;
+    const last = prsClosed[prsClosed.length - 1];
+    return prsOpen.length >= PR_PAGE.open ||
+      (prsClosed.length >= PR_PAGE.closed && last && Date.now() - Date.parse(last.updated_at) < LANDED_WINDOW);
+  };
+  const uncheckedOf = (load) => Object.values(load?.checks ?? {}).filter((c) => c.unknown).length;
+
+  function cardsOf(full) {
+    const load = loads.get(full);
+    if (!loaded(load)) return [];
+    const { issuesOpen, issuesClosed, prsOpen, prsClosed } = load.parts;
+    return toCards(full, [...issuesOpen, ...issuesClosed], [...prsOpen, ...prsClosed], load.checks, Date.now());
+  }
+
+  function stopAll() {
+    for (const full of [...loads.keys()]) stopProject(full);
+  }
+
+  // Start reading new projects, stop reading ones no longer listed.
+  function syncWatches() {
+    const list = projects();
+    for (const full of [...loads.keys()]) if (!list.includes(full)) stopProject(full);
+    for (const full of list) if (!loads.has(full)) watchProject(full);
+  }
+
+  // The read-once projects' poll: one timer for the page, paused while the page is hidden.
+  setInterval(() => {
+    if (!state.mcp || document.hidden) return;
+    for (const load of loads.values()) load.poll?.();
+  }, REFETCH);
+
+  // A file-read refusal (or a lost connector) is re-tested from the start: boot() asks the
+  // connector for its tools again and clears the refusal, so Add repo and Rescan come back if allowed.
+  async function refresh() {
+    if (!state.mcp || connectorShowing() || state.fileReads) return boot();
+    try { await state.mcp.invalidate(GH); } catch { stopAll(); syncWatches(); }
+    for (const load of loads.values()) { load.poll?.(true); readChecks(load, true); }
+  }
+
+  // ---- Rendering
+
+  const TONE = Object.fromEntries(BUCKETS.map((b) => [b.id, b.tone]));
+  const KIND_LABEL = { spec: "Spec", design: "Design", pr: "PR" };
+
+  // One card. Sibling specs extend the dashboard here: details, actions and sessions hang off the card.
+  function renderCard(card) {
+    return el("article", { class: `card b-${TONE[card.bucket]}`, "data-project": card.project, "data-kind": card.kind },
+      el("div", { class: "card-meta" },
+        el("span", { class: "card-project mono", title: card.project, text: card.project }),
+        el("span", { class: "card-kind", text: KIND_LABEL[card.kind] }),
+      ),
+      el("a", { class: "card-title", href: card.url, target: "_blank", rel: "noopener", title: `#${card.number} ${card.title}`, "data-key": `card:${card.project}#${card.number}` },
+        el("span", { class: "card-num mono", text: `#${card.number}` }), " ", card.title),
+      el("div", { class: "card-foot" },
+        el("span", { class: "card-reason", text: card.reason }),
+        el("time", { class: "card-age mono", datetime: card.since, title: new Date(card.since).toLocaleString(), text: card.age }),
+      ),
+    );
+  }
+
+  function countPills(tally) {
+    return BUCKETS.map((b) => el("span", { class: `pill b-${b.tone}${tally[b.id] ? "" : " zero"}`, title: b.title },
+      el("span", { class: "pill-n mono", text: String(tally[b.id]) }), el("span", { class: "pill-label", text: b.title })));
+  }
+
+  function projectRow(full, cards) {
+    const load = loads.get(full);
+    const name = el("div", { class: "name" }, el("a", { href: `https://github.com/${full}`, target: "_blank", rel: "noopener", text: full, "data-key": `project:${full}` }));
+    const errors = errorsOf(load);
+    const phase = phaseOf(load);
+    if (phase === "failed") {
+      const retry = el("button", { class: "btn small", type: "button", text: "Retry", "data-key": `retry:${full}` });
+      retry.addEventListener("click", () => { watchProject(full); scheduleRender(); });
+      return el("div", { class: "project is-error", "data-project": full }, name,
+        el("div", { class: "row-error", text: `Couldn't load: ${errors[0].message || errors[0].code}` }), retry);
+    }
+    if (phase === "loading") {
+      return el("div", { class: "project is-loading", "data-project": full, "aria-busy": "true" }, name,
+        el("div", { class: "skeleton", "aria-label": "Loading" }, el("span"), el("span"), el("span"), el("span")),
+        el("div", { class: "updated", text: "loading…" }));
+    }
+    const stale = errors.length ? el("span", { class: "row-stale", text: ` · refresh failed (${errors.map((e) => e.code).join(", ")})` }) : null;
+    const unchecked = uncheckedOf(load);
+    const warn = unchecked ? el("span", { class: "row-warn", text: `checks couldn't be read for ${unchecked} ${unchecked === 1 ? "PR" : "PRs"}` }) : null;
+    const cut = prsCut(load) ? el("span", { class: "row-warn", text: "some PRs not shown" }) : null;
+    return el("div", { class: "project", "data-project": full }, name,
+      el("div", { class: "counts" }, ...countPills(counts(cards))),
+      el("div", { class: "updated" }, load.storedAt ? `updated ${since(load.storedAt)}` : "", stale, warn, cut));
+  }
+
+  function renderBoard(cards, stillLoading) {
+    const board = el("section", { class: "board", "aria-label": "Buckets" });
+    for (const b of BUCKETS) {
+      const mine = sortBucket(cards.filter((c) => c.bucket === b.id), b.id);
+      const empty = el("p", { class: "col-empty", text: stillLoading ? "Loading…" : b.empty });
+      board.append(el("section", { class: `col b-${b.tone}`, "data-bucket": b.id, "aria-label": b.title },
+        el("h2", {}, el("span", { class: "dot", "aria-hidden": "true" }), b.title, el("span", { class: "col-n mono", text: String(mine.length) })),
+        mine.length ? el("div", { class: "cards" }, ...mine.map(renderCard)) : empty));
+    }
+    return board;
+  }
+
+  // ---- Phone: projects become filter chips, buckets become toggle buttons. Remembered per viewer.
+
+  const phone = window.matchMedia("(max-width: 720px)");
+  phone.addEventListener?.("change", () => { if (state.mcp) scheduleRender(); });
+  const view = { tab: "needs-you", project: "all", ...store.get("view", {}) };
+  const setView = (patch) => { Object.assign(view, patch); store.set("view", view); scheduleRender(); };
+
+  function renderChips(list, cardsBy) {
+    const chip = (value, label, extra) => {
+      const b = el("button", { class: "chip", type: "button", "aria-pressed": String(view.project === value), "data-key": `chip:${value}` }, label, extra);
+      b.addEventListener("click", () => setView({ project: value }));
+      return b;
+    };
+    return [chip("all", "All"), ...list.map((full) => {
+      const phase = phaseOf(loads.get(full));
+      const mark = phase === "ready" ? el("span", { class: "chip-n mono", text: String(counts(cardsBy.get(full))["needs-you"] || "") })
+        : el("span", { class: "chip-flag", text: phase });
+      const short = full.split("/")[1];
+      const clash = list.filter((other) => other.split("/")[1] === short).length > 1;
+      return chip(full, clash ? full : short, mark);
+    })];
+  }
+
+  function renderTabs(tally) {
+    return BUCKETS.map((b) => {
+      const t = el("button", { class: `tab b-${b.tone}`, type: "button", "aria-pressed": String(view.tab === b.id), "aria-controls": "board", "data-key": `tab:${b.id}` },
+        b.title, " ", el("span", { class: "tab-n mono", text: String(tally[b.id]) }));
+      t.addEventListener("click", () => setView({ tab: b.id }));
+      return t;
+    });
+  }
+
+  // Renders are coalesced to one per frame. Rebuilding drops the focused node, so the focus is
+  // moved to its replacement (matched by data-key).
+  let frame = 0;
+  function scheduleRender() {
+    if (frame) return;
+    frame = requestAnimationFrame(() => { frame = 0; if (state.mcp && !$("app").hidden) renderAll(); });
+  }
+
+  function renderAll() {
+    const focused = document.activeElement;
+    const key = focused?.closest?.("[data-key]")?.dataset.key;
+    paint();
+    if (key && !focused.isConnected) document.querySelector(`[data-key="${CSS.escape(key)}"]`)?.focus({ preventScroll: true });
+  }
+
+  function paint() {
+    const list = projects();
+    const box = $("projects");
+    box.replaceChildren(el("h2", { text: "Projects" }));
+    if (!list.length) {
+      box.append(el("p", { class: "empty" }, "No repo set up for ship yet: run ", el("code", { text: "/ship:setup-ship" }), " in one."));
+      box.classList.remove("phone-hide");
+      for (const id of ["board", "chips", "tabs"]) $(id).replaceChildren();
+      $("status").textContent = "0 projects";
+      return;
+    }
+    if (view.project !== "all" && !list.includes(view.project)) view.project = "all";
+    const cardsBy = new Map(list.map((full) => [full, cardsOf(full)]));
+    // On a phone the chip filters what shows; desktop always shows every project.
+    const shownProjects = phone.matches && view.project !== "all" ? [view.project] : list;
+    const rows = list.map((full) => projectRow(full, cardsBy.get(full)));
+    rows.forEach((row) => row.classList.toggle("phone-hide", !(row.classList.contains("is-error") && shownProjects.includes(row.dataset.project))));
+    box.append(...rows);
+    box.classList.toggle("phone-hide", rows.every((r) => r.classList.contains("phone-hide")));
+    const cards = shownProjects.flatMap((full) => cardsBy.get(full));
+    const stillLoading = shownProjects.some((full) => phaseOf(loads.get(full)) === "loading");
+    const board = renderBoard(cards, stillLoading);
+    board.dataset.tab = view.tab;
+    $("board").replaceChildren(board);
+    $("chips").replaceChildren(...renderChips(list, cardsBy));
+    $("tabs").replaceChildren(...renderTabs(counts(cards)));
+    const newest = Math.max(0, ...list.map((full) => loads.get(full)?.storedAt ?? 0));
+    $("status").textContent = `${list.length} ${list.length === 1 ? "project" : "projects"}` + (newest ? ` · updated ${since(newest)}` : "");
+  }
+
+  function render() {
+    syncWatches();
+    scheduleRender();
+  }
+
+  async function boot() {
+    stopAll();
+    state.mcp = null;
+    state.fileReads = null;
+    note("");
+    const problem = await connect();
+    if (problem) return showConnector(problem);
+    $("connector").hidden = true;
+    $("app").hidden = false;
+    syncToolbar();
+    render();
+    if (canDiscover() && !store.get("found", null)) await runDiscover();
+    else scanNote();
+  }
+
+  $("refresh").addEventListener("click", () => refresh());
+  setInterval(() => scheduleRender(), 60e3); // ages and "updated" times move on
+  boot();
+})();
+</script>
