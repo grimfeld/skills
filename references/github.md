@@ -18,6 +18,10 @@ Some repositories fail on `gh pr edit` with a GraphQL error about Projects (clas
 | Open a draft PR | `gh pr create --draft --base … --head … --title … --body-file …` | `create_pull_request` with `draft: true` |
 | Read a PR | `gh api repos/{owner}/{repo}/pulls/<n>` | `pull_request_read` `get` |
 | A PR's checks | `gh pr checks <n> --json name,state,link` | `pull_request_read` `get_status`, or `get_check_runs` |
+| A commit's checks | `gh api repos/{owner}/{repo}/commits/<sha>/check-runs`, `.../commits/<sha>/status` | `get_commit`, then `pull_request_read` `get_check_runs` on its PR |
+| List open PRs | `gh api --paginate 'repos/{owner}/{repo}/pulls?state=open&per_page=100'` | `list_pull_requests` with `state: open` |
+| Merge a PR | `gh api -X PUT repos/{owner}/{repo}/pulls/<n>/merge -f merge_method=<m> -f sha=<sha>` | `merge_pull_request` |
+| Retarget a PR | `gh api -X PATCH repos/{owner}/{repo}/pulls/<n> -f base=<branch>` | `update_pull_request` with `base` |
 | Edit a PR's body | `jq -Rs '{body: .}' body.md \| gh api -X PATCH repos/{owner}/{repo}/pulls/<n> --input -` | `update_pull_request` with `body` |
 | Mark a PR ready | `gh pr ready <n>` | `update_pull_request` with `draft: false` |
 | Label a PR | as for an issue: PRs share the issues API | as for an issue |

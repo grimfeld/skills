@@ -107,25 +107,25 @@ Sizes each `spec:ready` spec against prior PRs in the same areas. The rule is on
 - designs whose specs have all merged are closed
 - stuck specs, and what each needs from you
 - what each spec, each session and the whole night would have cost at API prices, counted by each builder from its own transcript (`scripts/token-usage.mjs`, prices in `scripts/prices.json`)
-- the `/ship:land` command to run once you've reviewed: it ships the PRs you approve and sends the commented ones back for tonight
+- the `/ship:land` command to run once you've reviewed: it approves the PRs you name and lands every PR carrying `ship`
 
 Each collected spec gets a comment linking that morning's page, marked `<!-- ship:morning-page -->`, so the page can be found from the spec.
 
 ### `/ship:land`
 
-Run after the morning review, to ship what you approved in one step.
+Lands every approved PR, with no more input from you. `ship` is the whole approval: adding it means you have read the PR and its comments.
 
-1. Checks `ship.yml` is version 2 or later; otherwise it stops and points at `/ship:setup-ship`.
-2. Sorts last night's PRs: the ones you named are **approved**; the others you commented on are **sent back**; the rest are **not reviewed yet** and left alone.
-3. Runs `resolve-conflicts` on the `conflicts` PRs in the batch first.
-4. Labels the approved PRs `ship`. A stacked PR is labelled too and lands once its parent is in; approving a child never approves its parent.
-5. Labels the sent-back PRs `changes-requested` and puts their specs back to `spec:ready`, so tonight's night shift rebuilds them.
-6. Starts one landing run of `ship.yml`, and lists what lands now, what lands after its parent, what waits, and what went back.
+1. Checks `ship.yml` is version 3 or later; otherwise it stops and points at `/ship:setup-ship`.
+2. Adds `ship` to the PRs you name. It refuses a draft or closed one, with the reason.
+3. Lands every open PR carrying `ship`, parents before the PRs stacked on them. For each, it merges the default branch in (never a rebase or force-push), waits for CI, merges it with the project's merge method, and retargets its children so they land in the same run.
+4. When it can't land a PR (a conflict, a red check, a merge GitHub refuses), it leaves a comment saying why, keeps `ship`, and lands the rest. The PRs stacked on it wait.
+5. Ends with one line per PR: merged, stopped or skipped, with the reason.
+
+The label approves the PR, not a commit: pushes after it land with it. Remove `ship` before pushing more work to an approved PR.
 
 ```
-/ship:land 512 515 520   # these PRs
-/ship:land all           # every ready, reviewed PR from last night
-/ship:land               # just land the PRs already labelled `ship`
+/ship:land 512 515 520   # approve these, then land everything carrying `ship`
+/ship:land               # land the PRs already labelled `ship`
 ```
 
 ### `/ship:dashboard`
@@ -191,41 +191,20 @@ Every choice the spec left open goes in the PR's Decisions section. The PR ends 
 
 ### `/ship:setup-ship`
 
-Run once per project. Afterwards, a person approves a reviewed PR with the **`ship`** label and starts landing; the repository does the rest. The label alone lands nothing, so a morning's batch can be approved PR by PR and land as one.
+Run once per project. Afterwards, a person approves a reviewed PR with the **`ship`** label, and `/ship:land` lands it.
 
-- **Required `ship` status:** a commit status, required by the default branch's ruleset, that stays pending until the label is on, so nothing unreviewed merges.
-- **Landing:** a run of `ship.yml`, started by a dispatch (`/ship:land`), by the landing schedule in `command` mode, or by a merge. It lands the labelled PRs that target the default branch: GitHub auto-merge once CI is green (`auto-merge` mode), or the project's own landing command (`command` mode, for example a batching script).
-- **Stacked PRs:** a labelled PR built on another PR's branch waits. When its parent merges, it is retargeted to the default branch, has the default branch merged in, and lands: in the same run in `auto-merge` mode, with the next scheduled run in `command` mode.
-- **Dependabot:** patch updates and GitHub Actions updates are labelled `ship` and land without review.
-- **Approval:** the label approves the PR, not a commit. Pushes after it land with it, so remove `ship` before pushing more work to an approved PR.
-- **Conflicts:** before each landing run and whenever the default branch moves, a labelled PR that conflicts with it loses `ship`, gets `conflicts`, and a comment listing the files. Without this, landing would skip it on every run.
-- **Labels:** `ship`, `pr-reviewed`, `conflicts`, `changes-requested`, and the `spec:*` and `design:*` labels the pipeline uses.
+- **Required `ship` status:** a commit status, required by the default branch's ruleset, that stays pending until the label is on, so nothing unreviewed merges. It is the only job of `ship.yml`, apart from Dependabot's label: the workflow merges nothing.
+- **Landing:** `/ship:land`, an agent that merges every `ship` PR itself, parents before their stacked children. Nothing merges on its own: no auto-merge, no scheduled run.
+- **Dependabot:** patch updates and GitHub Actions updates are labelled `ship` and land with the next `/ship:land`.
+- **Labels:** `ship`, `pr-reviewed`, `changes-requested`, and the `spec:*` and `design:*` labels the pipeline uses.
 - **`docs/agents/shipping.md`:** the rules, written down for people and for the other skills.
 - **The project's `.claude/settings.json`:** enables the plugin.
 
-Run it again in a project set up by an older version and it offers an upgrade: it re-renders `ship.yml` and `shipping.md` with the values already installed, keeps your own edits to them, and shows the diff first.
+Run it again in a project set up by an older version and it offers an upgrade: it re-renders `ship.yml` and `shipping.md` with the values already installed, keeps your own edits to them, and shows the diff first. Upgrading from version 2 also turns auto-merge off and retires the `conflicts` label.
 
 GitHub settings are shown first and applied only after you approve them. You create the `SHIP_TOKEN` secret yourself: the skill never handles tokens. Deploys stay with the project's CD.
 
 `pr-review` writes its review into the PR description: what changes by area, risks, preview, screens, and what to fix before merge. That is the page you read before adding `ship`.
-
-### `/ship:resolve-conflicts`
-
-Resolves the PRs labelled `conflicts`, by hand or from a scheduled routine. For each one it:
-1. merges the default branch in (never a rebase or force-push)
-2. reads what both sides meant, from the PRs behind the conflicting commits
-3. resolves each hunk to keep both intents
-4. runs the local checks and pushes
-
-Then:
-- **Only bookkeeping files conflicted** (the glossary, docs indexes: the list is in `shipping.md`): the PR gets `ship` back and lands with the next landing run.
-- **Code conflicted:** `pr-review` runs, a comment explains each resolution, and you re-review before adding `ship`.
-- **The two sides contradict each other:** nothing is pushed, and a comment names the decision to make.
-
-```
-/ship:resolve-conflicts            # every open PR labelled `conflicts`
-/ship:resolve-conflicts 540 528    # these PRs
-```
 
 ### `/ship:retro-issues`
 
