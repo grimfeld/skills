@@ -1,7 +1,7 @@
 // node --test skills/dashboard/scripts/board.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { toCards, counts, ago, BUCKETS, normaliseRepo, mergeProjects, sortBucket, LANDED_WINDOW } from "./board.mjs";
+import { toCards, counts, ago, BUCKETS, normaliseRepo, mergeProjects, sortBucket, LANDED_WINDOW, isMissingFile, needsCheckRead } from "./board.mjs";
 
 const NOW = Date.parse("2026-11-23T12:00:00Z");
 const hoursAgo = (h) => new Date(NOW - h * 3600e3).toISOString();
@@ -168,4 +168,60 @@ test("Landed covers the last 7 days", () => {
   assert.equal(LANDED_WINDOW, 7 * 24 * 3600e3);
   const prs = [pr(70, [], { state: "closed", merged_at: hoursAgo(24 * 7 - 1) }), pr(71, [], { state: "closed", merged_at: hoursAgo(24 * 7 + 1) })];
   assert.deepEqual(pick(toCards("acme/app", [], prs, {}, NOW)).map((c) => c[0]), [70]);
+});
+
+// The GitHub connector's answer for a path that isn't there, as observed.
+const MISSING = "Failed to get file contents. The path does not point to a file or directory, or the file does not exist in the repository.";
+
+test("isMissingFile: the GitHub connector's missing-file tool_error means the file isn't there", () => {
+  assert.equal(isMissingFile({ code: "tool_error", message: MISSING }), true);
+  assert.equal(isMissingFile({ code: "tool_error", message: "GET .../contents/docs/agents/shipping.md: 404 Not Found []" }), true);
+});
+
+test("isMissingFile: a GitHub hiccup or another refusal is not a missing file", () => {
+  assert.equal(isMissingFile({ code: "tool_error", message: "GET .../contents/docs/agents/shipping.md: 502 Bad Gateway []" }), false);
+  assert.equal(isMissingFile({ code: "tool_error", message: "API rate limit exceeded for user." }), false);
+  assert.equal(isMissingFile({ code: "rate_limited", message: "not found" }), false);
+  assert.equal(isMissingFile({ code: "upstream_error", message: MISSING }), false);
+  assert.equal(isMissingFile(undefined), false);
+});
+
+// needsCheckRead(prevRead, check, pr, refresh): whether a ready PR's checks are read (again).
+const PR = { number: 4, state: "open", updated_at: hoursAgo(3) };
+const lastRead = { updatedAt: PR.updated_at, pending: false };
+const passed = { check_runs: [{ name: "test", status: "completed", conclusion: "success" }], statuses: [{ context: "ship", state: "pending" }] };
+
+test("needsCheckRead: a PR never read is read", () => {
+  assert.equal(needsCheckRead(undefined, undefined, PR, false), true);
+});
+
+test("needsCheckRead: an unchanged PR whose checks finished is not read again; Refresh reads it", () => {
+  assert.equal(needsCheckRead(lastRead, passed, PR, false), false);
+  assert.equal(needsCheckRead(lastRead, passed, PR, true), true);
+});
+
+test("needsCheckRead: the pending ship status alone doesn't make a PR re-read", () => {
+  const onlyShip = { check_runs: [], statuses: [{ context: "ship", state: "pending" }] };
+  assert.equal(needsCheckRead(lastRead, onlyShip, PR, false), false);
+});
+
+test("needsCheckRead: an unchanged PR with a run queued or in progress, or another status pending, is re-read", () => {
+  for (const status of ["queued", "in_progress"]) {
+    assert.equal(needsCheckRead(lastRead, { check_runs: [{ name: "test", status, conclusion: null }], statuses: [] }, PR, false), true, status);
+  }
+  assert.equal(needsCheckRead(lastRead, { check_runs: [], statuses: [{ context: "ci/build", state: "pending" }] }, PR, false), true);
+});
+
+test("needsCheckRead: checks that couldn't be read are read again", () => {
+  assert.equal(needsCheckRead(lastRead, { unknown: true, code: "upstream_error" }, PR, false), true);
+});
+
+test("needsCheckRead: a PR updated since its last read is re-read", () => {
+  assert.equal(needsCheckRead(lastRead, passed, { ...PR, updated_at: hoursAgo(1) }, false), true);
+});
+
+test("needsCheckRead: a read still in flight is never doubled, even on Refresh", () => {
+  const inFlight = { updatedAt: hoursAgo(5), pending: true };
+  assert.equal(needsCheckRead(inFlight, undefined, { ...PR, updated_at: hoursAgo(1) }, false), false);
+  assert.equal(needsCheckRead(inFlight, undefined, PR, true), false);
 });

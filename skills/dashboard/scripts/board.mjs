@@ -139,3 +139,25 @@ export function sortBucket(cards, bucket) {
   const dir = bucket === "landed" ? -1 : 1;
   return [...cards].sort((a, b) => dir * (Date.parse(a.since) - Date.parse(b.since)));
 }
+
+// get_file_contents rejects with tool_error both for a missing file and for a GitHub hiccup.
+// True only for the missing-file answer, so a repo is "not set up" only when GitHub says so.
+const MISSING_FILE = /\b404\b|not found|does not exist|does not point to a file/i;
+export function isMissingFile(error) {
+  return error?.code === "tool_error" && MISSING_FILE.test(String(error?.message ?? ""));
+}
+
+// A check run not yet completed, or a commit status other than `ship` still pending.
+const stillRunning = (c) => !!c && (
+  (c.check_runs ?? []).some((r) => r?.status && r.status !== "completed") ||
+  (c.statuses ?? []).some((s) => s?.context !== "ship" && s?.state === "pending"));
+
+// Whether a ready PR's checks are read now. prevRead is { updatedAt, pending } from the last read
+// (undefined if none), check what it returned ({ check_runs, statuses } or { unknown: true }).
+// A read in flight is never doubled. Otherwise the PR is read when never read, on Refresh, when it
+// changed since (updated_at moved), when the last read failed, or when a check was still running
+// (a check finishing doesn't move updated_at).
+export function needsCheckRead(prevRead, check, pr, refresh) {
+  if (prevRead?.pending) return false;
+  return !prevRead || refresh || prevRead.updatedAt !== pr.updated_at || !check || Boolean(check.unknown) || stillRunning(check);
+}
