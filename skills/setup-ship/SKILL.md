@@ -50,7 +50,7 @@ Read only. Collect:
    - an existing `docs/agents/shipping.md`, which means this is a re-run: update it, don't overwrite it
 6. **Labels.** `gh label list`.
 7. **Bookkeeping files.** These are files most PRs touch, so they conflict often and need no review once merged together: glossaries, changelogs, docs indexes. Count how many of the last 30 merged PRs touch each file (`gh pr view <n> --json files`). Files touched by about 30% or more that are docs or indexes, not code or tests, are the candidates.
-8. **Upgrade only: what goes away.** List the open PRs with auto-merge on (`gh pr list --state open --limit 1000 --json number,autoMergeRequest`) and the open PRs labelled `conflicts` (`gh pr list --state open --limit 1000 --label conflicts`). Version 2 took `ship` off a `conflicts` PR, so putting it back re-approves the PR, including anything pushed since: in the plan, list each one, and put `ship` back only on those the user confirms.
+8. **Upgrade only: what goes away.** List the open PRs with auto-merge on (`gh pr list --state open --limit 1000 --json number,autoMergeRequest`) and the open PRs labelled `conflicts` (`gh pr list --state open --limit 1000 --label conflicts`), and in `command` mode the open landing-batch PRs (head branch starting with the installed `LAND_BRANCH_PREFIX`). Version 2 took `ship` off a `conflicts` PR, so putting it back re-approves the PR, including anything pushed since: in the plan, list each one, and put `ship` back only on those the user confirms.
 
 Done when you hold every item above.
 
@@ -153,7 +153,7 @@ Work in a branch, through a worktree if the project's docs say so.
 After the user says the PR has merged, apply step 3's repository settings in the order listed: the upgrade steps, then labels, then the ruleset. The upgrade steps come after the merge, so the old `ship.yml` can't turn auto-merge back on. Applying the ruleset last means a missing `ship` status can't block the setup PR. On an upgrade, apply only what step 3 listed.
 
 Re-read each setting to confirm it took:
-- on an upgrade, each upgrade step: for version 3, no open PR with `autoMergeRequest`, `allow_auto_merge` false, `ship` on the PRs that carried `conflicts`, and no `conflicts` label
+- on an upgrade, each upgrade step: for version 3, no open PR with `autoMergeRequest`, `allow_auto_merge` false, `ship` on the `conflicts` PRs the user confirmed, and no `conflicts` label; in `command` mode, the landing-batch PRs the user agreed to close are closed
 - the labels
 - the ruleset's rules
 

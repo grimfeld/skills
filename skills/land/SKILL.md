@@ -106,7 +106,7 @@ Wait on the SHA you pushed (or the head you found already up to date), never on 
 
 1. **The PR has moved:** wait until `gh api repos/{owner}/{repo}/pulls/<n> --jq .head.sha` is `<sha>` (part of the same wait below).
 2. **What to wait for:** the checks `docs/agents/shipping.md` "Checks" requires, plus every other check run or status that appears on `<sha>`, except `ship`. The `ship` status counts as passed, since `ship` is on: `gate` may still be catching up with your push.
-3. **No CI:** if "Checks" names no check beyond `ship`, wait 1 minute for any check to appear on `<sha>`. If none does, go to 4.4.
+3. **No CI:** if "Checks" names no check beyond `ship`, go to 4.4 as soon as the PR's head is `<sha>`.
 
 Wait with a single `until` loop over `gh api repos/{owner}/{repo}/commits/<sha>/check-runs --jq '.check_runs[] | {name, status, conclusion, html_url}'` and `.../commits/<sha>/status --jq '.statuses[] | {context, state, target_url}'` (only these fields: a check's output text can carry PR content), 30 minutes at most, never repeated `sleep` calls. It ends when the PR's head is `<sha>`, every required check exists on it, and every check on it has finished. A required check that never appears counts as not finished.
 
@@ -144,7 +144,13 @@ land: GitHub refused the merge:
 
 ### 4.5 Stopping a PR
 
-Post the comment (`gh api repos/{owner}/{repo}/issues/<n>/comments -F body=@<file>`). Keep the HTML marker on its first line: it tells the ship tooling's comments from the user's. Keep `ship` on. Its children, and theirs, wait: report each as "waiting on #<parent>, stopped". Go on with the next root.
+Post the comment (`gh api repos/{owner}/{repo}/issues/<n>/comments -F body=@<file>`). Keep the HTML marker on its first line: it tells the ship tooling's comments from the user's. Its `reason` is one of `conflict`, `push-rejected`, `check`, `merge-refused`, `base` or `retarget`. The last two have no template above; use:
+
+```
+<!-- land {"status":"stopped","reason":"base"|"retarget"} -->
+land: <base is `<branch>`, not `<default>` | couldn't retarget it to `<default>`: <GitHub's message>>. `ship` stays on.
+```
+ Keep `ship` on. Its children, and theirs, wait: report each as "waiting on #<parent>, stopped". Go on with the next root.
 
 ### 4.6 After a merge: the children
 
@@ -163,7 +169,7 @@ Done when every PR in the batch is merged, stopped, skipped or waiting. Remove y
 One line per PR, each linked, in landing order:
 
 - **Merged:** `merged #12 <url>`, and for a child `(after #11)`.
-- **Stopped:** `stopped #13 <url>: conflict in <files>` / `check <name> failed` / `check <name> didn't finish in 30 minutes` / `GitHub refused: <error>` / `push rejected`.
+- **Stopped:** `stopped #13 <url>: conflict in <files>` / `check <name> failed` / `check <name> didn't finish in 30 minutes` / `GitHub refused: <error>` / `push rejected` / `base is <branch>, not <default>` / `couldn't retarget it`.
 - **Skipped:** `skipped #14 <url>: <reason>`: draft, fork, closed, `ship` removed, waiting on #<parent> (not approved, or stopped).
 - **Refused:** the named PRs step 2 refused, with the reason.
 
