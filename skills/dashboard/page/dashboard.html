@@ -1,8 +1,5 @@
 <title>Ship dashboard</title>
 <meta name="claude:viewport-fit-sides" content="cover">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <style>
 /* Layout: a header strip, one summary row per project, then the four buckets as columns
    (phone: project chips, bucket tabs, one column). Neutrals lean toward harbour slate. */
@@ -19,8 +16,8 @@
   --landed: #2d7a34;
   --danger: #b42318;
   --skeleton: #e4eaee;
-  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --font-body: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", Menlo, monospace;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
@@ -119,6 +116,7 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
 .b-landed { --tone: var(--landed); }
 .row-error { color: var(--danger); font-size: 13px; min-width: 0; overflow-wrap: anywhere; }
 .row-stale { color: var(--danger); }
+.row-warn { display: block; color: var(--danger); font-size: 12px; white-space: normal; }
 .project.is-error .btn { justify-self: start; }
 .skeleton { display: flex; gap: 6px; justify-content: flex-end; }
 .skeleton span { width: 72px; height: 22px; border-radius: 999px; background: var(--skeleton); animation: pulse 1.4s ease-in-out infinite; }
@@ -149,11 +147,11 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
 .card-reason { color: var(--tone); font-weight: 500; min-width: 0; }
 .card-age { margin-left: auto; color: var(--muted); font-size: 12px; flex: none; }
 
-@media (max-width: 1080px) { .board { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 720px) {
   .board { grid-template-columns: minmax(0, 1fr); }
   .project { grid-template-columns: minmax(0, 1fr) auto; }
   .project .counts, .project .skeleton { grid-column: 1 / -1; justify-content: flex-start; grid-row: 2; }
+  .project .name a { display: inline-flex; align-items: center; min-height: 44px; }
 }
 
 .chips, .tabs { display: none; }
@@ -183,7 +181,7 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
     font-weight: 500; font-size: 14px; color: var(--muted); white-space: nowrap;
     border-bottom: 2px solid transparent; margin-bottom: -1px;
   }
-  .tab[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--tone); }
+  .tab[aria-pressed="true"] { color: var(--fg); border-bottom-color: var(--tone); }
   .tab-n { color: var(--tone); margin-left: 2px; }
   .board .col { display: none; }
   .board[data-tab="needs-you"] .col[data-bucket="needs-you"],
@@ -227,7 +225,7 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
     </div>
     <section class="projects" id="projects" aria-label="Projects"></section>
     <nav class="chips" id="chips" aria-label="Filter by project"></nav>
-    <div class="tabs" id="tabs" role="tablist" aria-label="Buckets"></div>
+    <div class="tabs" id="tabs" role="group" aria-label="Show bucket"></div>
     <div id="board"></div>
   </main>
 </div>
@@ -237,24 +235,32 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
 </script>
 <script>
 (() => {
-  // The connector tools this page calls. Keep in step with the `mcp` capabilities in SKILL.md.
+  // The connector tools this page calls. Keep in step with the `mcp` capabilities in SKILL.md
+  // (build.test.mjs checks they match).
   const CONNECTORS = {
     github: { server: "github", tools: ["list_issues", "list_pull_requests", "pull_request_read", "get_file_contents"] },
     remote: { server: "Claude Code Remote", tools: ["list_repos"] },
   };
+  const GH = CONNECTORS.github.server;
 
   // Codes that mean the viewer has to act before a connector answers.
   const DENIED = new Set(["needs_reauth", "server_not_connected", "selection_required", "server_not_found", "not_in_manifest", "blocked_by_policy", "approval_required", "not_granted", "capability_disabled", "capability_removed", "consent_required"]);
+  // Of those, the ones that refuse one tool for this page rather than the whole connector.
+  // On get_file_contents they turn off Add repo and discovery, not the page.
+  const TOOL_REFUSED = new Set(["not_in_manifest", "blocked_by_policy", "approval_required", "consent_required"]);
 
   const $ = (id) => document.getElementById(id);
-  const state = { mcp: null, tools: { github: new Set(), remote: new Set() } };
+  const state = { mcp: null, tools: { github: new Set(), remote: new Set() }, fileReads: null };
 
   async function use(name) {
     try { return window.claude?.use ? await window.claude.use(name) : null; } catch { return null; }
   }
 
   // The full-page state when GitHub can't be read: everything on the page hangs on it.
+  // It drops the connector, so Refresh (and Open Permissions) go back through boot().
   function showConnector(code) {
+    stopAll();
+    state.mcp = null;
     const [title, text] = {
       needs_reauth: ["Reconnect GitHub", "Your GitHub connector needs signing in again. Reconnect it in claude.ai Settings → Connectors, then refresh."],
       blocked_by_policy: ["GitHub is blocked", "Your organization's policy blocks the GitHub connector tools this page reads. Ask an admin to allow them."],
@@ -267,6 +273,7 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
     $("app").hidden = true;
     $("status").textContent = "Not connected to GitHub";
   }
+  const connectorShowing = () => !$("connector").hidden;
 
   $("permissions").addEventListener("click", async () => {
     const permissions = await use("permissions");
@@ -291,7 +298,7 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
       const entry = find(c.server);
       state.tools[key] = new Set(entry && entry.authStatus !== "needs_reauth" ? entry.tools.map((t) => t.name) : []);
     }
-    if (find(CONNECTORS.github.server)?.authStatus === "needs_reauth") return "needs_reauth";
+    if (find(GH)?.authStatus === "needs_reauth") return "needs_reauth";
     if (!state.tools.github.has("list_issues") || !state.tools.github.has("list_pull_requests")) return "server_not_connected";
     state.mcp = mcp;
     return null;
@@ -317,28 +324,89 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
   const splitRepo = (full) => { const [owner, repo] = full.split("/"); return { owner, repo }; };
   const codeOf = (e) => e?.code ?? "upstream_error";
   const since = (t) => (Date.now() - t < 60e3 ? "just now" : `${ago(Date.now() - t)} ago`);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  // ---- One-shot reads: one shared pool of six, so a page of projects never floods the connector.
+
+  function pool(size) {
+    const queue = [];
+    let active = 0;
+    const next = () => {
+      while (active < size && queue.length) {
+        const { job, resolve, reject } = queue.shift();
+        active += 1;
+        Promise.resolve().then(job).then(resolve, reject).finally(() => { active -= 1; next(); });
+      }
+    };
+    return (job) => new Promise((resolve, reject) => { queue.push({ job, resolve, reject }); next(); });
+  }
+  const inPool = pool(6);
+
+  const READ_CACHE = { staleTime: 4 * 60e3, gcTime: 10 * 60e3 };
+  // A GitHub read through the pool. A rate_limited (or otherwise retryable) refusal is retried
+  // once, after the wait it asks for; anything else rejects with its code.
+  async function readOnce(tool, input, { refresh = false, cache = READ_CACHE } = {}) {
+    const options = { cache: cache && refresh ? { ...cache, refresh: true } : cache };
+    const call = () => inPool(() => (state.mcp ? state.mcp.callTool(GH, tool, input, options) : Promise.reject({ code: "cancelled", message: "" })));
+    try {
+      return await call();
+    } catch (e) {
+      if (!(e?.code === "rate_limited" || e?.retryable)) throw e;
+      await sleep(e.retryAfterMs ?? 2000 + Math.random() * 2000);
+      return call();
+    }
+  }
 
   // ---- Projects: discovered (cached with its scan time) plus the ones added by name.
 
   const SCAN_LIMIT = 100;
-  const projects = () => {
-    const found = store.get("found", null)?.repos ?? [];
-    const added = store.get("added", []);
-    return [...new Set([...found, ...added])];
-  };
+  const projects = () => mergeProjects(store.get("found", null)?.repos ?? [], store.get("added", []));
 
-  // true when the repo has docs/agents/shipping.md on its default branch (no ref reads that branch).
+  // get_file_contents fails with a tool_error both for a missing file and for a GitHub hiccup;
+  // only a not-found answer means "not set up".
+  const notFound = (e) => /\b404\b|not found/i.test(`${e?.message ?? ""} ${JSON.stringify(e?.result ?? "")}`);
+
+  // true when the repo has docs/agents/shipping.md on its default branch (no ref reads that branch),
+  // false when GitHub says there's no such file or repo. Rejects with the code otherwise.
   async function hasShipping(full) {
     try {
-      await state.mcp.callTool(CONNECTORS.github.server, "get_file_contents", { ...splitRepo(full), path: "docs/agents/shipping.md" });
+      await readOnce("get_file_contents", { ...splitRepo(full), path: "docs/agents/shipping.md" }, { cache: false });
       return true;
     } catch (e) {
-      if (codeOf(e) === "tool_error") return false; // GitHub answered: no such file, or no such repo
+      if (codeOf(e) === "tool_error" && notFound(e)) return false;
       throw e;
     }
   }
 
-  // Throws only when GitHub itself refuses (the caller shows the connector state).
+  const fileReadsOk = () => state.tools.github.has("get_file_contents") && !state.fileReads;
+  const canDiscover = () => state.tools.remote.has("list_repos") && fileReadsOk();
+
+  // get_file_contents refused for this page: the board still works, adding and finding repos don't.
+  function refuseFileReads(code) {
+    state.fileReads = code;
+    syncToolbar();
+  }
+
+  function syncToolbar() {
+    $("addrepo").hidden = !fileReadsOk();
+    $("rescan").hidden = !canDiscover();
+    if (state.fileReads) {
+      note(`GitHub won't let this page read files (${state.fileReads}), so repos can't be added or found. Allow the GitHub connector's file reads for this page in Permissions, then Refresh.`, true);
+    } else if (!state.tools.github.has("get_file_contents")) {
+      note("Your GitHub connector has no file reads, so repos can't be added or found.", true);
+    }
+  }
+
+  // A failed get_file_contents: a tool refusal turns off adding; a connector denial takes the page.
+  // Returns true when it handled the error.
+  function fileReadRefused(e) {
+    const code = codeOf(e);
+    if (TOOL_REFUSED.has(code)) { refuseFileReads(code); return true; }
+    if (DENIED.has(code)) { showConnector(code); return true; }
+    return false;
+  }
+
+  // Rejects only when GitHub refuses (the caller decides between Add repo off and the connector state).
   async function discover() {
     $("rescan").disabled = true;
     try {
@@ -346,172 +414,220 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
       let repos;
       try {
         const result = await state.mcp.callTool(CONNECTORS.remote.server, "list_repos", { limit: SCAN_LIMIT }, { cache: false });
-        repos = (result.payload?.repos ?? []).map((r) => r.full_name).filter(Boolean).slice(0, SCAN_LIMIT);
+        repos = (result.payload?.repos ?? []).map((r) => r?.full_name).filter((n) => n && normaliseRepo(n) === n).slice(0, SCAN_LIMIT);
       } catch (e) {
         return note(`Claude Code Remote couldn't list your repos (${codeOf(e)}). Add repos by name, or try Rescan.`, true);
       }
       const found = new Set();
       let done = 0;
+      let unchecked = 0;
+      let refused = null;
       const queue = [...repos];
       const worker = async () => {
-        for (let full; (full = queue.shift()); ) {
+        for (let full; !refused && (full = queue.shift()); ) {
           try {
             if (await hasShipping(full)) found.add(full);
           } catch (e) {
-            if (DENIED.has(codeOf(e))) throw e;
-            // A transient failure on one repo: leave it out of this scan.
+            if (DENIED.has(codeOf(e))) { refused ??= e; return; }
+            unchecked += 1; // a transient failure on one repo: leave it out of this scan, and say so
           }
           note(`Checking ${++done} of ${repos.length} repos for docs/agents/shipping.md…`);
         }
       };
       await Promise.all(Array.from({ length: 6 }, worker));
+      if (refused) throw refused;
       const ordered = repos.filter((r) => found.has(r)); // most recently pushed first
       store.set("found", { repos: ordered, scannedAt: Date.now() });
-      note(`Scanned your ${repos.length} most recently pushed repos just now: ${ordered.length} set up for ship.`);
+      const missed = unchecked ? ` ${unchecked} ${unchecked === 1 ? "repo" : "repos"} couldn't be checked: Rescan to try again.` : "";
+      note(`Scanned your ${repos.length} most recently pushed repos just now: ${ordered.length} set up for ship.${missed}`, Boolean(unchecked));
     } finally {
       $("rescan").disabled = false;
     }
   }
 
+  async function runDiscover() {
+    try { await discover(); } catch (e) { if (!fileReadRefused(e)) note(`Couldn't scan your repos (${codeOf(e)}). Try Rescan.`, true); }
+    if (state.mcp) render();
+  }
+
   function scanNote() {
+    if (state.fileReads || !state.tools.github.has("get_file_contents")) return syncToolbar();
+    if (!state.tools.remote.has("list_repos")) return note("Claude Code Remote isn't connected, so projects are added by name.");
     const found = store.get("found", null);
-    if (!canDiscover()) return note("Claude Code Remote isn't connected, so projects are added by name.");
     if (found?.scannedAt) note(`Last scanned ${since(found.scannedAt)}. Rescan to find repos newly set up for ship.`);
   }
 
-  const canDiscover = () => state.tools.remote.has("list_repos") && state.tools.github.has("get_file_contents");
-
-  $("rescan").addEventListener("click", async () => {
-    try { await discover(); render(); } catch (e) { showConnector(codeOf(e)); }
-  });
+  $("rescan").addEventListener("click", () => runDiscover());
 
   $("addrepo").addEventListener("submit", async (event) => {
     event.preventDefault();
     const input = $("addrepo-name");
-    const full = input.value.trim().replace(/^https:\/\/github\.com\//, "").replace(/\.git$|\/$/g, "");
-    if (!/^[\w.-]+\/[\w.-]+$/.test(full)) return note("Type the repo as owner/name, for example acme/app.", true);
+    const full = normaliseRepo(input.value);
+    if (!full) return note("Type the repo as owner/name, for example acme/app.", true);
     if (projects().some((p) => p.toLowerCase() === full.toLowerCase())) return note(`${full} is already on the dashboard.`);
     $("addrepo-go").disabled = true;
     note(`Checking ${full} for docs/agents/shipping.md…`);
     try {
       if (!(await hasShipping(full))) return note(`${full} isn't set up for ship: it has no docs/agents/shipping.md on its default branch, or GitHub can't find it. Run /ship:setup-ship in it first.`, true);
-      store.set("added", [...store.get("added", []), full]);
+      store.set("added", mergeProjects(store.get("added", []), [full]));
       input.value = "";
       note(`Added ${full}.`);
       render();
     } catch (e) {
-      if (DENIED.has(codeOf(e))) return showConnector(codeOf(e));
-      note(`Couldn't check ${full} (${codeOf(e)}). Try again.`, true);
+      if (!fileReadRefused(e)) note(`Couldn't check ${full} (${codeOf(e)}). Try again.`, true);
     } finally {
       $("addrepo-go").disabled = false;
     }
   });
 
-  // ---- Loading: four watched reads per project, each project on its own.
+  // ---- Loading: three reads per project. The first projects watch them; past the watch budget,
+  // projects read once and are re-read by one page-level timer. Either way they look the same.
 
   const REFETCH = 5 * 60e3;
   const DAY = 24 * 3600e3;
+  // The runtime allows 64 watches per view; keep well under it.
+  const WATCH_BUDGET = 48;
+  let watchesInUse = 0;
   const ISSUE_FIELDS = ["number", "title", "state", "labels", "created_at", "updated_at"];
-  const PR_FIELDS = ["number", "title", "state", "draft", "merged", "merged_at", "html_url", "labels", "created_at", "updated_at"];
-  const loads = new Map(); // "owner/name" -> { unsubs, parts, checks, error, storedAt }
+  const PR_FIELDS = ["number", "title", "state", "draft", "merged", "merged_at", "labels", "created_at", "updated_at"];
+  const PARTS = ["issuesOpen", "issuesClosed", "prs"];
+  const loads = new Map(); // "owner/name" -> { full, watched, unsubs, poll, parts, errors, checks, checkReads, storedAt }
 
   function readsFor(full) {
     const { owner, repo } = splitRepo(full);
-    // Start of the UTC day a week and a day ago: a stable input, so the cache and the poll keep one identity all day.
-    const closedSince = new Date(Math.floor(Date.now() / DAY) * DAY - 8 * DAY).toISOString();
+    // Landed's window plus a day, from the start of the UTC day: a stable input, so the cache
+    // and the poll keep one identity all day.
+    const closedSince = new Date(Math.floor(Date.now() / DAY) * DAY - LANDED_WINDOW - DAY).toISOString();
     return {
       issuesOpen: ["list_issues", { owner, repo, state: "OPEN", perPage: 100, orderBy: "UPDATED_AT", direction: "DESC", fields: ISSUE_FIELDS }],
       issuesClosed: ["list_issues", { owner, repo, state: "CLOSED", since: closedSince, perPage: 50, orderBy: "UPDATED_AT", direction: "DESC", fields: ISSUE_FIELDS }],
-      prsOpen: ["list_pull_requests", { owner, repo, state: "open", perPage: 100, sort: "updated", direction: "desc", fields: PR_FIELDS }],
-      prsClosed: ["list_pull_requests", { owner, repo, state: "closed", perPage: 50, sort: "updated", direction: "desc", fields: PR_FIELDS }],
+      // Open and recently closed PRs in one read: the 100 most recently updated.
+      prs: ["list_pull_requests", { owner, repo, state: "all", perPage: 100, sort: "updated", direction: "desc", fields: PR_FIELDS }],
     };
   }
   const listOf = (payload, key) => (Array.isArray(payload) ? payload : Array.isArray(payload?.[key]) ? payload[key] : []);
 
   function watchProject(full) {
-    loads.get(full)?.unsubs.forEach((u) => u());
-    const load = { unsubs: [], parts: {}, checks: {}, error: null, storedAt: null };
+    stopProject(full);
+    const reads = Object.entries(readsFor(full));
+    const load = { full, watched: watchesInUse + reads.length <= WATCH_BUDGET, unsubs: [], poll: null, parts: {}, errors: {}, checks: {}, checkReads: {}, storedAt: null };
     loads.set(full, load);
-    for (const [part, [tool, input]] of Object.entries(readsFor(full))) {
-      const unsub = state.mcp.watchTool(CONNECTORS.github.server, tool, input, (ev) => {
-        if (loads.get(full) !== load) return;
-        if (ev.type === "error") return onError(full, load, part, ev.error);
-        load.parts[part] = listOf(ev.result.payload, part.startsWith("issues") ? "issues" : "pull_requests");
-        load.error = null;
-        load.storedAt = Math.max(load.storedAt ?? 0, ev.result.cache?.storedAt ?? Date.now());
-        if (part === "prsOpen") readChecks(full, load);
-        renderAll();
-      }, { refetchInterval: REFETCH });
-      load.unsubs.push(unsub);
+    const current = () => loads.get(full) === load;
+    const deliver = (part, result) => {
+      if (!current()) return;
+      load.parts[part] = listOf(result.payload, part === "prs" ? "pull_requests" : "issues");
+      delete load.errors[part];
+      load.storedAt = Math.max(load.storedAt ?? 0, result.cache?.storedAt ?? Date.now());
+      if (part === "prs") readChecks(load);
+      scheduleRender();
+    };
+    const fail = (part, error) => {
+      if (!current()) return;
+      const code = codeOf(error);
+      if (code === "cancelled") return;
+      // GitHub refused outright: the whole page hangs on it, so say so once, page-wide.
+      if (DENIED.has(code)) return showConnector(code);
+      // Anything else: this part's error shows on the project's row, which keeps the cards it has.
+      load.errors[part] = { code, message: error?.message ?? "" };
+      scheduleRender();
+    };
+    if (load.watched) {
+      for (const [part, [tool, input]] of reads) {
+        watchesInUse += 1;
+        let live = true;
+        const unsub = state.mcp.watchTool(GH, tool, input, (ev) => (ev.type === "error" ? fail(part, ev.error) : deliver(part, ev.result)), { refetchInterval: REFETCH });
+        load.unsubs.push(() => { if (live) { live = false; unsub(); watchesInUse -= 1; } });
+      }
+    } else {
+      load.poll = (refresh = false) => {
+        for (const [part, [tool, input]] of reads) readOnce(tool, input, { refresh }).then((r) => deliver(part, r), (e) => fail(part, e));
+      };
+      load.poll();
     }
   }
 
-  function onError(full, load, part, error) {
-    const code = codeOf(error);
-    // GitHub refused outright: the whole page hangs on it, so say so once, page-wide.
-    if (DENIED.has(code)) { stopAll(); return showConnector(code); }
-    // Anything else: this project shows an error row, and keeps cards it already has.
-    load.error = { part, code, message: error?.message ?? "" };
-    renderAll();
+  function stopProject(full) {
+    const load = loads.get(full);
+    if (!load) return;
+    load.unsubs.forEach((u) => u());
+    loads.delete(full);
   }
 
-  // Checks for each ready open PR (drafts are still being built). One-shot reads, cached a few minutes:
-  // a watch per PR would run past the page's limit of 64 watches.
-  async function readChecks(full, load, refresh = false) {
+  // Checks for each ready open PR (drafts are still being built), as one-shot reads through the pool.
+  // A PR is read again only when it has changed since (its updated_at moved), its last read failed,
+  // or the viewer pressed Refresh.
+  function readChecks(load, refresh = false) {
     if (!state.tools.github.has("pull_request_read")) return;
-    const { owner, repo } = splitRepo(full);
-    const ready = (load.parts.prsOpen ?? []).filter((p) => !p.draft);
-    const cache = { staleTime: 4 * 60e3, gcTime: 10 * 60e3, ...(refresh ? { refresh: true } : {}) };
-    const read = (method, pullNumber) => state.mcp
-      .callTool(CONNECTORS.github.server, "pull_request_read", { method, owner, repo, pullNumber }, { cache })
-      .then((r) => r.payload, () => null); // unreadable checks count as none failing
-    await Promise.all(ready.map(async (p) => {
-      const [runs, status] = await Promise.all([read("get_check_runs", p.number), read("get_status", p.number)]);
-      load.checks[p.number] = { check_runs: runs?.check_runs ?? [], statuses: status?.statuses ?? [] };
-    }));
-    if (loads.get(full) === load) renderAll();
+    const { owner, repo } = splitRepo(load.full);
+    const ready = (load.parts.prs ?? []).filter((p) => String(p.state).toLowerCase() === "open" && !p.draft);
+    const live = new Set(ready.map((p) => String(p.number)));
+    for (const n of Object.keys(load.checkReads)) if (!live.has(n)) { delete load.checkReads[n]; delete load.checks[n]; }
+    for (const p of ready) {
+      const last = load.checkReads[p.number];
+      if (last?.pending) continue;
+      if (!refresh && last && last.updatedAt === p.updated_at && !load.checks[p.number]?.unknown) continue;
+      const read = { updatedAt: p.updated_at, pending: true };
+      load.checkReads[p.number] = read;
+      const one = (method) => readOnce("pull_request_read", { method, owner, repo, pullNumber: p.number }, { refresh });
+      Promise.all([one("get_check_runs"), one("get_status")]).then(([runs, status]) => {
+        load.checks[p.number] = { check_runs: runs.payload?.check_runs ?? [], statuses: status.payload?.statuses ?? [] };
+      }, (e) => {
+        // Not "no failing checks": unknown, and the project's row says so.
+        load.checks[p.number] = { unknown: true, code: codeOf(e) };
+      }).finally(() => {
+        read.pending = false;
+        if (loads.get(load.full) === load) scheduleRender();
+      });
+    }
   }
 
-  const loaded = (load) => load && ["issuesOpen", "issuesClosed", "prsOpen", "prsClosed"].every((k) => load.parts[k]);
+  const loaded = (load) => load && PARTS.every((k) => load.parts[k]);
+  const errorsOf = (load) => Object.values(load?.errors ?? {});
+  const uncheckedOf = (load) => Object.values(load?.checks ?? {}).filter((c) => c.unknown).length;
 
   function cardsOf(full) {
     const load = loads.get(full);
     if (!loaded(load)) return [];
-    const { issuesOpen, issuesClosed, prsOpen, prsClosed } = load.parts;
-    return toCards(full, [...issuesOpen, ...issuesClosed], [...prsOpen, ...prsClosed], load.checks, Date.now());
+    const { issuesOpen, issuesClosed, prs } = load.parts;
+    return toCards(full, [...issuesOpen, ...issuesClosed], prs, load.checks, Date.now());
   }
 
   function stopAll() {
-    for (const load of loads.values()) load.unsubs.forEach((u) => u());
-    loads.clear();
+    for (const full of [...loads.keys()]) stopProject(full);
   }
 
-  // Start watching new projects, stop watching ones no longer listed.
+  // Start reading new projects, stop reading ones no longer listed.
   function syncWatches() {
     const list = projects();
-    for (const full of [...loads.keys()]) if (!list.includes(full)) { loads.get(full).unsubs.forEach((u) => u()); loads.delete(full); }
+    for (const full of [...loads.keys()]) if (!list.includes(full)) stopProject(full);
     for (const full of list) if (!loads.has(full)) watchProject(full);
   }
 
+  // The read-once projects' poll: one timer for the page, paused while the page is hidden.
+  setInterval(() => {
+    if (!state.mcp || document.hidden) return;
+    for (const load of loads.values()) load.poll?.();
+  }, REFETCH);
+
   async function refresh() {
-    if (!state.mcp) return boot();
-    try { await state.mcp.invalidate(CONNECTORS.github.server); } catch { stopAll(); syncWatches(); }
-    for (const [full, load] of loads) readChecks(full, load, true);
+    if (!state.mcp || connectorShowing()) return boot();
+    try { await state.mcp.invalidate(GH); } catch { stopAll(); syncWatches(); }
+    for (const load of loads.values()) { load.poll?.(true); readChecks(load, true); }
   }
 
   // ---- Rendering
 
-  const BUCKET_TOKEN = { "needs-you": "needs", ready: "ready", "in-flight": "flight", landed: "landed" };
+  const TONE = Object.fromEntries(BUCKETS.map((b) => [b.id, b.tone]));
   const KIND_LABEL = { spec: "Spec", design: "Design", pr: "PR" };
 
   // One card. Sibling specs extend the dashboard here: details, actions and sessions hang off the card.
   function renderCard(card) {
-    return el("article", { class: `card b-${BUCKET_TOKEN[card.bucket]}`, "data-project": card.project, "data-kind": card.kind },
+    return el("article", { class: `card b-${TONE[card.bucket]}`, "data-project": card.project, "data-kind": card.kind },
       el("div", { class: "card-meta" },
         el("span", { class: "card-project mono", text: card.project }),
         el("span", { class: "card-kind", text: KIND_LABEL[card.kind] }),
       ),
-      el("a", { class: "card-title", href: card.url, target: "_blank", rel: "noopener", title: `#${card.number} ${card.title}` },
+      el("a", { class: "card-title", href: card.url, target: "_blank", rel: "noopener", title: `#${card.number} ${card.title}`, "data-key": `card:${card.project}#${card.number}` },
         el("span", { class: "card-num mono", text: `#${card.number}` }), " ", card.title),
       el("div", { class: "card-foot" },
         el("span", { class: "card-reason", text: card.reason }),
@@ -520,65 +636,64 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
     );
   }
 
-  function countPills(counts) {
-    return BUCKETS.map((b) => el("span", { class: `pill b-${BUCKET_TOKEN[b.id]}${counts[b.id] ? "" : " zero"}`, title: b.title },
-      el("span", { class: "pill-n mono", text: String(counts[b.id]) }), el("span", { class: "pill-label", text: b.title })));
+  function countPills(tally) {
+    return BUCKETS.map((b) => el("span", { class: `pill b-${b.tone}${tally[b.id] ? "" : " zero"}`, title: b.title },
+      el("span", { class: "pill-n mono", text: String(tally[b.id]) }), el("span", { class: "pill-label", text: b.title })));
   }
 
-  function projectRow(full) {
+  function projectRow(full, cards) {
     const load = loads.get(full);
-    const name = el("div", { class: "name" }, el("a", { href: `https://github.com/${full}`, target: "_blank", rel: "noopener", text: full }));
-    const updated = load?.storedAt ? `updated ${since(load.storedAt)}` : "";
-    if (load?.error && !loaded(load)) {
-      const retry = el("button", { class: "btn small", type: "button", text: "Retry" });
-      retry.addEventListener("click", () => { watchProject(full); renderAll(); });
+    const name = el("div", { class: "name" }, el("a", { href: `https://github.com/${full}`, target: "_blank", rel: "noopener", text: full, "data-key": `project:${full}` }));
+    const errors = errorsOf(load);
+    if (errors.length && !loaded(load)) {
+      const retry = el("button", { class: "btn small", type: "button", text: "Retry", "data-key": `retry:${full}` });
+      retry.addEventListener("click", () => { watchProject(full); scheduleRender(); });
       return el("div", { class: "project is-error", "data-project": full }, name,
-        el("div", { class: "row-error", text: `Couldn't load: ${load.error.message || load.error.code}` }), retry);
+        el("div", { class: "row-error", text: `Couldn't load: ${errors[0].message || errors[0].code}` }), retry);
     }
     if (!loaded(load)) {
       return el("div", { class: "project is-loading", "data-project": full, "aria-busy": "true" }, name,
         el("div", { class: "skeleton", "aria-label": "Loading" }, el("span"), el("span"), el("span"), el("span")),
         el("div", { class: "updated", text: "loading…" }));
     }
-    const stale = load.error ? el("span", { class: "row-stale", text: ` · refresh failed (${load.error.code})` }) : null;
+    const stale = errors.length ? el("span", { class: "row-stale", text: ` · refresh failed (${errors.map((e) => e.code).join(", ")})` }) : null;
+    const unchecked = uncheckedOf(load);
+    const warn = unchecked ? el("span", { class: "row-warn", text: `checks couldn't be read for ${unchecked} ${unchecked === 1 ? "PR" : "PRs"}` }) : null;
     return el("div", { class: "project", "data-project": full }, name,
-      el("div", { class: "counts" }, ...countPills(counts(cardsOf(full)))),
-      el("div", { class: "updated" }, updated, stale));
+      el("div", { class: "counts" }, ...countPills(counts(cards))),
+      el("div", { class: "updated" }, load.storedAt ? `updated ${since(load.storedAt)}` : "", stale, warn));
   }
-
-  // Within a bucket: what has waited longest first; Landed shows the newest first.
-  const order = (bucket) => (a, b) => (bucket === "landed" ? -1 : 1) * (Date.parse(a.since) - Date.parse(b.since));
 
   function renderBoard(cards, stillLoading) {
     const board = el("section", { class: "board", "aria-label": "Buckets" });
     for (const b of BUCKETS) {
-      const mine = cards.filter((c) => c.bucket === b.id).sort(order(b.id));
+      const mine = sortBucket(cards.filter((c) => c.bucket === b.id), b.id);
       const empty = el("p", { class: "col-empty", text: stillLoading ? "Loading…" : b.empty });
-      board.append(el("section", { class: `col b-${BUCKET_TOKEN[b.id]}`, "data-bucket": b.id, "aria-label": b.title },
+      board.append(el("section", { class: `col b-${b.tone}`, "data-bucket": b.id, "aria-label": b.title },
         el("h2", {}, el("span", { class: "dot", "aria-hidden": "true" }), b.title, el("span", { class: "col-n mono", text: String(mine.length) })),
         mine.length ? el("div", { class: "cards" }, ...mine.map(renderCard)) : empty));
     }
     return board;
   }
 
-  // ---- Phone: projects become filter chips, buckets become tabs. Remembered per viewer.
+  // ---- Phone: projects become filter chips, buckets become toggle buttons. Remembered per viewer.
 
   const phone = window.matchMedia("(max-width: 720px)");
-  phone.addEventListener?.("change", () => { if (state.mcp) renderAll(); });
+  phone.addEventListener?.("change", () => { if (state.mcp) scheduleRender(); });
   const view = { tab: "needs-you", project: "all", ...store.get("view", {}) };
-  const setView = (patch) => { Object.assign(view, patch); store.set("view", view); renderAll(); };
+  const setView = (patch) => { Object.assign(view, patch); store.set("view", view); scheduleRender(); };
 
-  function renderChips(list) {
+  function renderChips(list, cardsBy) {
     const chip = (value, label, extra) => {
-      const b = el("button", { class: "chip", type: "button", "aria-pressed": String(view.project === value) }, label, extra);
+      const b = el("button", { class: "chip", type: "button", "aria-pressed": String(view.project === value), "data-key": `chip:${value}` }, label, extra);
       b.addEventListener("click", () => setView({ project: value }));
       return b;
     };
     return [chip("all", "All"), ...list.map((full) => {
       const load = loads.get(full);
-      const mark = load?.error && !loaded(load) ? el("span", { class: "chip-flag", text: "failed" })
+      const mark = errorsOf(load).length && !loaded(load) ? el("span", { class: "chip-flag", text: "failed" })
         : !loaded(load) ? el("span", { class: "chip-flag", text: "loading" })
-        : el("span", { class: "chip-n mono", text: String(counts(cardsOf(full))["needs-you"] || "") });
+        : el("span", { class: "chip-n mono", text: String(counts(cardsBy.get(full))["needs-you"] || "") });
       const short = full.split("/")[1];
       const clash = list.filter((other) => other.split("/")[1] === short).length > 1;
       return chip(full, clash ? full : short, mark);
@@ -587,14 +702,29 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
 
   function renderTabs(tally) {
     return BUCKETS.map((b) => {
-      const t = el("button", { class: `tab b-${BUCKET_TOKEN[b.id]}`, type: "button", role: "tab", id: `tab-${b.id}`, "aria-selected": String(view.tab === b.id), "aria-controls": "board" },
+      const t = el("button", { class: `tab b-${b.tone}`, type: "button", "aria-pressed": String(view.tab === b.id), "aria-controls": "board", "data-key": `tab:${b.id}` },
         b.title, " ", el("span", { class: "tab-n mono", text: String(tally[b.id]) }));
       t.addEventListener("click", () => setView({ tab: b.id }));
       return t;
     });
   }
 
+  // Renders are coalesced to one per frame. Rebuilding drops the focused node, so the focus is
+  // moved to its replacement (matched by data-key).
+  let frame = 0;
+  function scheduleRender() {
+    if (frame) return;
+    frame = requestAnimationFrame(() => { frame = 0; if (state.mcp && !$("app").hidden) renderAll(); });
+  }
+
   function renderAll() {
+    const focused = document.activeElement;
+    const key = focused?.closest?.("[data-key]")?.dataset.key;
+    paint();
+    if (key && !focused.isConnected) document.querySelector(`[data-key="${CSS.escape(key)}"]`)?.focus({ preventScroll: true });
+  }
+
+  function paint() {
     const list = projects();
     const box = $("projects");
     box.replaceChildren(el("h2", { text: "Projects" }));
@@ -602,23 +732,23 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
       box.append(el("p", { class: "empty" }, "No repo set up for ship yet: run ", el("code", { text: "/ship:setup-ship" }), " in one."));
       box.classList.remove("phone-hide");
       for (const id of ["board", "chips", "tabs"]) $(id).replaceChildren();
+      $("status").textContent = "0 projects";
       return;
     }
     if (view.project !== "all" && !list.includes(view.project)) view.project = "all";
-    const narrow = phone.matches;
+    const cardsBy = new Map(list.map((full) => [full, cardsOf(full)]));
     // On a phone the chip filters what shows; desktop always shows every project.
-    const shownProjects = narrow && view.project !== "all" ? [view.project] : list;
-    const rows = list.map(projectRow);
+    const shownProjects = phone.matches && view.project !== "all" ? [view.project] : list;
+    const rows = list.map((full) => projectRow(full, cardsBy.get(full)));
     rows.forEach((row) => row.classList.toggle("phone-hide", !(row.classList.contains("is-error") && shownProjects.includes(row.dataset.project))));
     box.append(...rows);
     box.classList.toggle("phone-hide", rows.every((r) => r.classList.contains("phone-hide")));
-    const cards = shownProjects.flatMap(cardsOf);
-    const stillLoading = shownProjects.some((full) => !loaded(loads.get(full)) && !loads.get(full)?.error);
+    const cards = shownProjects.flatMap((full) => cardsBy.get(full));
+    const stillLoading = shownProjects.some((full) => !loaded(loads.get(full)) && !errorsOf(loads.get(full)).length);
     const board = renderBoard(cards, stillLoading);
     board.dataset.tab = view.tab;
-    board.setAttribute("aria-labelledby", `tab-${view.tab}`);
     $("board").replaceChildren(board);
-    $("chips").replaceChildren(...renderChips(list));
+    $("chips").replaceChildren(...renderChips(list, cardsBy));
     $("tabs").replaceChildren(...renderTabs(counts(cards)));
     const newest = Math.max(0, ...list.map((full) => loads.get(full)?.storedAt ?? 0));
     $("status").textContent = `${list.length} ${list.length === 1 ? "project" : "projects"}` + (newest ? ` · updated ${since(newest)}` : "");
@@ -626,27 +756,25 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
 
   function render() {
     syncWatches();
-    renderAll();
+    scheduleRender();
   }
 
   async function boot() {
     stopAll();
+    state.mcp = null;
+    state.fileReads = null;
     const problem = await connect();
     if (problem) return showConnector(problem);
     $("connector").hidden = true;
     $("app").hidden = false;
-    $("rescan").hidden = !canDiscover();
+    syncToolbar();
     render();
-    if (canDiscover() && !store.get("found", null)) {
-      try { await discover(); } catch (e) { stopAll(); return showConnector(codeOf(e)); }
-      render();
-    } else {
-      scanNote();
-    }
+    if (canDiscover() && !store.get("found", null)) await runDiscover();
+    else scanNote();
   }
 
   $("refresh").addEventListener("click", () => refresh());
-  setInterval(() => { if (state.mcp && !$("app").hidden) renderAll(); }, 60e3); // ages and "updated" times move on
+  setInterval(() => scheduleRender(), 60e3); // ages and "updated" times move on
   boot();
 })();
 </script>
