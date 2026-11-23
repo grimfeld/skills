@@ -15,6 +15,8 @@
   --flight: #0e6f68;
   --landed: #2d7a34;
   --danger: #b42318;
+  --good: #2d7a34;
+  --warn: #8a5a00;
   --skeleton: #e4eaee;
   --font-body: system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: ui-monospace, "SFMono-Regular", Menlo, monospace;
@@ -22,7 +24,7 @@
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #0e151b; --surface: #151e26; --fg: #e2e9ee; --muted: #93a4b2; --line: #26333e; --accent: #82acff;
-    --needs: #fb9a5b; --ready: #aaa4ff; --flight: #5fd8cb; --landed: #8bdc8f; --danger: #f98d84; --skeleton: #1e2a34;
+    --needs: #fb9a5b; --ready: #aaa4ff; --flight: #5fd8cb; --landed: #8bdc8f; --danger: #f98d84; --good: #8bdc8f; --warn: #f0c063; --skeleton: #1e2a34;
     color-scheme: dark;
   }
 }
@@ -91,6 +93,10 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
 .projects > h2 + .project { border-top: 0; }
 .project .name { font-family: var(--font-mono); font-size: 14px; font-weight: 500; overflow-wrap: anywhere; min-width: 0; }
 .project .name a { text-decoration: none; }
+.project .name a.morning {
+  display: inline-flex; align-items: center; min-height: 44px; vertical-align: middle;
+  margin-left: 12px; font-family: var(--font-body); font-size: 13px; font-weight: 400; color: var(--accent); white-space: nowrap;
+}
 .project .name a:hover { text-decoration: underline; }
 .project .updated { color: var(--muted); font-size: 13px; white-space: nowrap; }
 .empty { padding: 20px 16px; color: var(--muted); margin: 0; }
@@ -141,6 +147,23 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
 .card-foot { display: flex; gap: 8px; align-items: baseline; font-size: 13px; }
 .card-reason { color: var(--tone); font-weight: 500; min-width: 0; }
 .card-age { margin-left: auto; color: var(--muted); font-size: 12px; flex: none; }
+/* Details under the title: the review's verdict line (one line, cut; in full on keyboard focus or
+   once tapped open), then short facts and links that wrap onto as many lines as they need. Every
+   link and the verdict are 44px tall, so each is a full tap target. */
+.card-details { display: grid; gap: 0; font-size: 13px; min-width: 0; }
+.card-verdict {
+  display: block; width: 100%; min-width: 0; min-height: 44px; padding: 12px 0; line-height: 20px; margin: 0; border: 0; background: none;
+  font: inherit; color: inherit; text-align: left; cursor: pointer;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-radius: 4px;
+}
+.card-verdict[aria-expanded="true"] { white-space: normal; overflow-wrap: anywhere; }
+.card-verdict b { font-weight: 600; }
+.card-verdict.v-good b { color: var(--good); }
+.card-verdict.v-warn b { color: var(--warn); }
+.card-verdict.v-bad b { color: var(--danger); }
+.card-facts { display: flex; flex-wrap: wrap; align-items: center; gap: 0 12px; color: var(--muted); min-width: 0; }
+.card-facts a { display: inline-flex; align-items: center; min-height: 44px; color: var(--accent); }
+.card-facts .fact-warn { color: var(--needs); }
 
 @media (max-width: 720px) {
   .board { grid-template-columns: minmax(0, 1fr); }
@@ -240,7 +263,7 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
   // The connector tools this page calls. Keep in step with the `mcp` capabilities in SKILL.md
   // (build.test.mjs checks they match).
   const CONNECTORS = {
-    github: { server: "github", tools: ["list_issues", "list_pull_requests", "pull_request_read", "get_file_contents"] },
+    github: { server: "github", tools: ["list_issues", "list_pull_requests", "pull_request_read", "get_file_contents", "issue_read"] },
     remote: { server: "Claude Code Remote", tools: ["list_repos"] },
   };
   const GH = CONNECTORS.github.server;
@@ -341,27 +364,34 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   // ---- One-shot reads: one shared pool of six, so a page of projects never floods the connector.
+  // Low-priority jobs (comment reads, for the morning-page link) start only when no other job is
+  // waiting, and hold at most lowMax of the slots, so they never hold up the lists and check reads
+  // the cards depend on.
 
-  function pool(size) {
+  function pool(size, lowMax) {
     const queue = [];
+    const low = [];
     let active = 0;
-    const next = () => {
-      while (active < size && queue.length) {
-        const { job, resolve, reject } = queue.shift();
-        active += 1;
-        Promise.resolve().then(job).then(resolve, reject).finally(() => { active -= 1; next(); });
-      }
+    let lowActive = 0;
+    const start = ({ job, resolve, reject }, isLow) => {
+      active += 1;
+      if (isLow) lowActive += 1;
+      Promise.resolve().then(job).then(resolve, reject).finally(() => { active -= 1; if (isLow) lowActive -= 1; next(); });
     };
-    return (job) => new Promise((resolve, reject) => { queue.push({ job, resolve, reject }); next(); });
+    const next = () => {
+      while (active < size && queue.length) start(queue.shift(), false);
+      while (active < size && lowActive < lowMax && low.length) start(low.shift(), true);
+    };
+    return (job, isLow = false) => new Promise((resolve, reject) => { (isLow ? low : queue).push({ job, resolve, reject }); next(); });
   }
-  const inPool = pool(6);
+  const inPool = pool(6, 2);
 
   const READ_CACHE = { staleTime: 4 * 60e3, gcTime: 10 * 60e3 };
   // A GitHub read through the pool. A rate_limited (or otherwise retryable) refusal is retried
   // once, after the wait it asks for; anything else rejects with its code.
-  async function readOnce(tool, input, { refresh = false, cache = READ_CACHE } = {}) {
+  async function readOnce(tool, input, { refresh = false, cache = READ_CACHE, low = false } = {}) {
     const options = { cache: cache && refresh ? { ...cache, refresh: true } : cache };
-    const call = () => inPool(() => (state.mcp ? state.mcp.callTool(GH, tool, input, options) : Promise.reject({ code: "cancelled", message: "" })));
+    const call = () => inPool(() => (state.mcp ? state.mcp.callTool(GH, tool, input, options) : Promise.reject({ code: "cancelled", message: "" })), low);
     try {
       return await call();
     } catch (e) {
@@ -501,8 +531,9 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
   // The runtime allows 64 watches per view; keep well under it.
   const WATCH_BUDGET = 48;
   let watchesInUse = 0;
-  const ISSUE_FIELDS = ["number", "title", "state", "labels", "created_at", "updated_at"];
-  const PR_FIELDS = ["number", "title", "state", "draft", "merged", "merged_at", "labels", "created_at", "updated_at"];
+  // body: the card details are parsed from it. head and base: stacked PRs.
+  const ISSUE_FIELDS = ["number", "title", "body", "state", "labels", "created_at", "updated_at"];
+  const PR_FIELDS = ["number", "title", "body", "state", "draft", "merged", "merged_at", "labels", "head", "base", "created_at", "updated_at"];
   const PARTS = ["issuesOpen", "issuesClosed", "prsOpen", "prsClosed"];
   const PR_PAGE = { open: 100, closed: 50 };
   const loads = new Map(); // "owner/name" -> { full, watched, unsubs, poll, parts, errors, checks, checkReads, storedAt }
@@ -526,7 +557,7 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
   function watchProject(full) {
     stopProject(full);
     const reads = Object.entries(readsFor(full));
-    const load = { full, watched: watchesInUse + reads.length <= WATCH_BUDGET, unsubs: [], poll: null, parts: {}, errors: {}, checks: {}, checkReads: {}, storedAt: null };
+    const load = { full, watched: watchesInUse + reads.length <= WATCH_BUDGET, unsubs: [], poll: null, parts: {}, errors: {}, checks: {}, checkReads: {}, comments: {}, commentReads: {}, storedAt: null };
     loads.set(full, load);
     const current = () => loads.get(full) === load;
     const deliver = (part, result) => {
@@ -535,6 +566,7 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
       delete load.errors[part];
       load.storedAt = Math.max(load.storedAt ?? 0, result.cache?.storedAt ?? Date.now());
       if (part === "prsOpen") readChecks(load);
+      if (part.startsWith("issues")) readComments(load);
       scheduleRender();
     };
     const fail = (part, error) => {
@@ -575,7 +607,7 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
   function readChecks(load, refresh = false) {
     if (!state.tools.github.has("pull_request_read")) return;
     const { owner, repo } = splitRepo(load.full);
-    const ready = (load.parts.prsOpen ?? []).filter((p) => String(p.state).toLowerCase() === "open" && !p.draft);
+    const ready = (load.parts.prsOpen ?? []).filter((p) => isOpenPr(p) && !p.draft);
     const live = new Set(ready.map((p) => String(p.number)));
     for (const n of Object.keys(load.checkReads)) if (!live.has(n)) { delete load.checkReads[n]; delete load.checks[n]; }
     for (const p of ready) {
@@ -589,6 +621,30 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
         // Not "no failing checks": unknown, and the project's row says so.
         load.checks[p.number] = { unknown: true, code: codeOf(e) };
       }).finally(() => {
+        read.pending = false;
+        if (loads.get(load.full) === load) scheduleRender();
+      });
+    }
+  }
+
+  // Comments for the morning-page link: only on the specs board.mjs's morningSpecs picks (updated
+  // in the last 7 days, at most 3), one-shot through the pool's low-priority lane (behind every
+  // list and check read, at most 2 at a time), after an issue list arrives, never per render.
+  // board.mjs's needsCommentRead decides which specs are read again.
+  function readComments(load) {
+    const { issuesOpen, issuesClosed } = load.parts;
+    if (!state.tools.github.has("issue_read") || !issuesOpen || !issuesClosed) return;
+    const { owner, repo } = splitRepo(load.full);
+    const specs = morningSpecs([...issuesOpen, ...issuesClosed], Date.now());
+    const keep = new Set(specs.map((i) => String(i.number)));
+    for (const n of Object.keys(load.commentReads)) if (!keep.has(n)) { delete load.commentReads[n]; delete load.comments[n]; }
+    for (const i of specs) {
+      if (!needsCommentRead(load.commentReads[i.number], i)) continue;
+      const read = { updatedAt: i.updated_at, pending: true, failed: false };
+      load.commentReads[i.number] = read;
+      readOnce("issue_read", { method: "get_comments", owner, repo, issue_number: i.number, perPage: 100 }, { low: true }).then((r) => {
+        load.comments[i.number] = listOf(r.payload, "comments");
+      }, () => { read.failed = true; }).finally(() => {
         read.pending = false;
         if (loads.get(load.full) === load) scheduleRender();
       });
@@ -647,6 +703,53 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
   const TONE = Object.fromEntries(BUCKETS.map((b) => [b.id, b.tone]));
   const KIND_LABEL = { spec: "Spec", design: "Design", pr: "PR" };
 
+  // A link out of a card. Its URL came from a body or comment, so board.mjs's safeUrl has already
+  // kept it to https (and to claude.ai where hosts says so); it is checked again here, where it becomes an href.
+  const CLAUDE_ONLY = ["claude.ai"];
+  const outLink = (url, text, key, hosts) => {
+    const href = safeUrl(url, hosts);
+    return href ? el("a", { href, target: "_blank", rel: "noopener noreferrer", text, "data-key": key }) : null;
+  };
+  const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+  // Verdict lines opened with a tap (or Enter), by data-key, so a re-render keeps them open.
+  const openVerdicts = new Set();
+
+  // The details under a card's title: what decides the next step, and links to read more.
+  function renderDetails(card) {
+    const key = `${card.project}#${card.number}`;
+    const rows = [];
+    const facts = [];
+    if (card.kind === "spec") {
+      if (card.openQuestions > 0) facts.push(el("span", { class: "fact-warn", text: plural(card.openQuestions, "open question") }));
+      if (card.pr) facts.push(outLink(card.pr.url, `PR #${card.pr.number}`, `pr:${key}`, ["github.com"]));
+    }
+    if (card.kind === "design") facts.push(outLink(card.designUrl, "Open design", `design:${key}`, CLAUDE_ONLY));
+    if (card.kind === "pr") {
+      const r = card.review;
+      if (r?.line) {
+        const vkey = `verdict:${key}`;
+        const rest = r.line.slice(r.verdict.length);
+        // One line, cut; a tap (or Enter, or Space) opens it in full and closes it again.
+        const verdict = el("button", { type: "button", class: `card-verdict${r.tone ? ` v-${r.tone}` : ""}`, "aria-expanded": String(openVerdicts.has(vkey)),
+          "aria-label": `Review verdict: ${r.line}`, title: r.line, "data-key": vkey }, el("b", { text: r.verdict }), rest);
+        verdict.addEventListener("click", () => {
+          const open = !openVerdicts.delete(vkey);
+          if (open) openVerdicts.add(vkey);
+          verdict.setAttribute("aria-expanded", String(open));
+        });
+        rows.push(verdict);
+      }
+      if (!r) facts.push(el("span", { text: "not reviewed yet" }));
+      else if (r.outOfDate) facts.push(el("span", { class: "fact-warn", text: "review out of date" }));
+      else if (r.risks != null) facts.push(el("span", { class: r.risks ? "fact-warn" : "", text: r.risks ? plural(r.risks, "risk") : "no risks" }));
+      if (card.landsAfter) facts.push(el("span", { text: `lands after #${card.landsAfter}` }));
+      facts.push(outLink(r?.reportUrl, "Full report", `report:${key}`, CLAUDE_ONLY), outLink(r?.previewUrl, "Preview", `preview:${key}`));
+    }
+    const shown = facts.filter(Boolean);
+    if (shown.length) rows.push(el("div", { class: "card-facts" }, ...shown));
+    return rows.length ? el("div", { class: "card-details" }, ...rows) : null;
+  }
+
   // One card. Sibling specs extend the dashboard here: details, actions and sessions hang off the card.
   function renderCard(card) {
     return el("article", { class: `card b-${TONE[card.bucket]}`, "data-project": card.project, "data-kind": card.kind },
@@ -656,6 +759,7 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
       ),
       el("a", { class: "card-title", href: card.url, target: "_blank", rel: "noopener", title: `#${card.number} ${card.title}`, "data-key": `card:${card.project}#${card.number}` },
         el("span", { class: "card-num mono", text: `#${card.number}` }), " ", card.title),
+      renderDetails(card),
       el("div", { class: "card-foot" },
         el("span", { class: "card-reason", text: card.reason }),
         el("time", { class: "card-age mono", datetime: card.since, title: new Date(card.since).toLocaleString(), text: card.age }),
@@ -670,7 +774,12 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
 
   function projectRow(full, cards) {
     const load = loads.get(full);
-    const name = el("div", { class: "name" }, el("a", { href: `https://github.com/${full}`, target: "_blank", rel: "noopener", text: full, "data-key": `project:${full}` }));
+    // The newest morning page on the project's recent specs (no link without one).
+    const morning = morningPage(Object.values(load?.comments ?? {}).flat());
+    const morningLink = morning ? outLink(morning.url, "Morning page", `morning:${full}`, CLAUDE_ONLY) : null;
+    morningLink?.classList.add("morning");
+    if (morningLink) morningLink.title = `Posted ${new Date(morning.at).toLocaleString()}`;
+    const name = el("div", { class: "name" }, el("a", { href: `https://github.com/${full}`, target: "_blank", rel: "noopener", text: full, "data-key": `project:${full}` }), morningLink);
     const errors = errorsOf(load);
     const phase = phaseOf(load);
     if (phase === "failed") {
@@ -768,7 +877,10 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
     // On a phone the chip filters what shows; desktop always shows every project.
     const shownProjects = phone.matches && view.project !== "all" ? [view.project] : list;
     const rows = list.map((full) => projectRow(full, cardsBy.get(full)));
-    rows.forEach((row) => row.classList.toggle("phone-hide", !(row.classList.contains("is-error") && shownProjects.includes(row.dataset.project))));
+    // Phone: a row shows for an error, or, once its chip is picked, for its morning-page link.
+    const picked = view.project !== "all";
+    rows.forEach((row) => row.classList.toggle("phone-hide", !shownProjects.includes(row.dataset.project) ||
+      !(row.classList.contains("is-error") || (picked && row.querySelector("a.morning")))));
     box.append(...rows);
     box.classList.toggle("phone-hide", rows.every((r) => r.classList.contains("phone-hide")));
     const cards = shownProjects.flatMap((full) => cardsBy.get(full));

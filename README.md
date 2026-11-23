@@ -143,10 +143,18 @@ It shows every project set up for ship (a repo with `docs/agents/shipping.md` am
 
 An item that fits several buckets shows once, in the first. Each card says why it's there ("checks failing", "ship label on, no update for 31 h") and for how long. The page refreshes every 5 minutes while it's open, and on **Refresh**.
 
+Cards carry the details that decide the next step, read from what the other ship skills write:
+- **PR cards** show the verdict line from the description's `/ship:pr-review` section (cut to one line, in full on hover or focus), its number of risks, and links to its **Full report** and **Preview** when the review has them. A PR without a review section says "not reviewed yet"; one built on another PR's branch says "lands after #n".
+- **Spec cards** say how many questions are still open, from the spec's "Open questions" section ("None" counts as none), and link the spec's PR when it has one.
+- **Design cards** link the design artifact named in the issue.
+- **Project rows** link the latest **Morning page** from `/ship:night-shift morning`, found in its comments on the project's specs updated in the last 7 days. On a phone, the link shows once you pick the project's chip.
+
+Links in descriptions and comments are only followed when they are `https://`.
+
 Run it once and pin the page. Running it again (after a plugin update, say) republishes to the same page: it finds it among your artifacts by its title, "Ship dashboard".
 
 It needs, in claude.ai:
-- the **GitHub** connector, to read issues, PRs, their checks and `docs/agents/shipping.md`
+- the **GitHub** connector, to read issues, PRs, their checks, recent specs' comments and `docs/agents/shipping.md`
 - optionally **Claude Code Remote**, to find your projects: without it, add them by name
 
 The first open asks you to allow both for the page.

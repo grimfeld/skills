@@ -22,7 +22,12 @@ export function ago(ms) {
   return `${Math.floor(h / 24)} d`;
 }
 
+// An open PR, and one whose branch lives in the project itself (not a fork: GitHub names ignore case).
+export const isOpenPr = (pr) => String(pr?.state).toLowerCase() === "open";
+const isOwnPr = (project, pr) => String(pr?.head?.repo?.full_name ?? "").toLowerCase() === project.toLowerCase();
+
 const names = (labels) => (labels ?? []).map((l) => (typeof l === "string" ? l : l?.name)).filter(Boolean);
+const isSpec = (labels) => names(labels).some((n) => n.startsWith("spec:"));
 
 // Rules run in bucket order, and the first that matches places the item, so an item
 // matching several appears once, in the earliest bucket.
@@ -34,17 +39,55 @@ const ISSUE_RULES = [
   { when: (i) => i.open && i.l.has("spec:building"), kind: "spec", bucket: "in-flight", reason: "building" },
   // list_issues gives no close reason or close time: a spec closed in the last week is one whose
   // last update is in the last week (closing updates it).
-  { when: (i, now) => !i.open && [...i.l].some((n) => n.startsWith("spec:")) && now - Date.parse(i.updatedAt) < WEEK, kind: "spec", bucket: "landed", reason: "closed" },
+  { when: (i, now) => !i.open && i.spec && now - Date.parse(i.updatedAt) < WEEK, kind: "spec", bucket: "landed", reason: "closed" },
 ];
 
-function issueCard(project, issue, now) {
-  const i = { l: new Set(names(issue.labels)), open: String(issue.state).toUpperCase() === "OPEN", updatedAt: issue.updated_at };
+function issueCard(project, issue, now, prs) {
+  const i = { l: new Set(names(issue.labels)), spec: isSpec(issue.labels), open: String(issue.state).toUpperCase() === "OPEN", updatedAt: issue.updated_at };
   const rule = ISSUE_RULES.find((r) => r.when(i, now));
   if (!rule) return null;
   return {
     project, number: issue.number, title: issue.title, url: `https://github.com/${project}/issues/${issue.number}`,
     kind: rule.kind, bucket: rule.bucket, reason: rule.reason, since: issue.updated_at, age: ago(now - Date.parse(issue.updated_at)),
+    ...(rule.kind === "spec" ? { openQuestions: openQuestions(issue.body), pr: specPr(project, issue.number, prs) } : {}),
+    ...(rule.kind === "design" ? { designUrl: designLink(issue.body) } : {}),
   };
+}
+
+// A spec's PR: one from the project itself (a fork's PR can claim any spec) whose description
+// closes it ("Closes #n", as GitHub reads closing keywords) or whose branch is the night shift's
+// spec/<n>-…. An open PR first, else the latest merged one; a PR closed unmerged never. Among
+// several, the spec/<n>- branch first. → { number, url } or null.
+function specPr(project, n, prs) {
+  const closes = new RegExp(`\\b(close[sd]?|fix(e[sd])?|resolve[sd]?)\\s+#${n}(?!\\d)`, "i");
+  const branch = new RegExp(`^spec/${n}-`);
+  const own = (prs ?? []).filter((p) => isOwnPr(project, p));
+  const byBranch = own.filter((p) => branch.test(p.head?.ref ?? ""));
+  const byBody = own.filter((p) => closes.test(String(p.body ?? "")));
+  const newestMerged = (list) => list.filter((p) => p.merged_at).sort((a, b) => Date.parse(b.merged_at) - Date.parse(a.merged_at))[0];
+  const hit = byBranch.find(isOpenPr) ?? byBody.find(isOpenPr) ?? newestMerged(byBranch) ?? newestMerged(byBody);
+  return hit ? { number: hit.number, url: `https://github.com/${project}/pull/${hit.number}` } : null;
+}
+
+// The specs whose comments are read for the latest morning page: spec issues, open or closed,
+// updated in the last 7 days (a morning comment updates its spec), newest first, at most 3. The
+// night shift comments on every spec it collected each morning, so the newest few carry the
+// newest page; reading more only costs connector calls.
+const MORNING_SPECS = 3;
+export function morningSpecs(issues, now) {
+  return (issues ?? [])
+    .filter((i) => isSpec(i.labels) && now - Date.parse(i.updated_at) < WEEK)
+    .sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at))
+    .slice(0, MORNING_SPECS);
+}
+
+// A stacked PR: its base branch is the head branch of another open PR in this repo (a fork's
+// branch of the same name doesn't count). → that PR's number, or null.
+function landsAfter(project, pr, openPrs) {
+  const base = pr.base?.ref;
+  if (!base) return null;
+  const parent = openPrs.find((o) => o.number !== pr.number && o.head?.ref === base && isOwnPr(project, o));
+  return parent ? parent.number : null;
 }
 
 const FAILED_RUN = new Set(["failure", "timed_out", "cancelled", "action_required", "startup_failure"]);
@@ -73,10 +116,10 @@ const PR_RULES = [
   { when: (p, now) => p.mergedAt && now - Date.parse(p.mergedAt) < WEEK, bucket: "landed", reason: () => "merged", at: (p) => p.mergedAt },
 ];
 
-function prCard(project, pr, check, now) {
+function prCard(project, pr, check, now, openPrs) {
   const p = {
     l: new Set(names(pr.labels)),
-    open: String(pr.state).toLowerCase() === "open",
+    open: isOpenPr(pr),
     draft: Boolean(pr.draft),
     mergedAt: pr.merged_at ?? null,
     updatedAt: pr.updated_at,
@@ -89,23 +132,40 @@ function prCard(project, pr, check, now) {
   return {
     project, number: pr.number, title: pr.title, url: `https://github.com/${project}/pull/${pr.number}`,
     kind: "pr", bucket: rule.bucket, reason: rule.reason(age), since, age,
+    review: trustedReview(project, pr), landsAfter: p.open ? landsAfter(project, pr, openPrs) : null,
   };
+}
+
+// The review section, as far as it can be believed. Anyone who can edit a PR's description can
+// write one, so a fork's PR gets none, and a review of an older commit than the PR's head is
+// out of date: its links stay, its verdict, tone, line and risk count go.
+function trustedReview(project, pr) {
+  const review = isOwnPr(project, pr) ? parseReview(pr.body) : null;
+  if (!review) return null;
+  const sha = String(pr.head?.sha ?? "").toLowerCase();
+  const outOfDate = !review.head || !sha.startsWith(review.head);
+  return outOfDate ? { ...review, verdict: null, tone: null, line: null, risks: null, outOfDate } : { ...review, outOfDate };
 }
 
 // toCards(project, issues, prs, checks, now) → cards, issues first, then PRs.
 //   project: "owner/name"
 //   issues:  list_issues items { number, title, state, labels, updated_at }
-//   prs:     list_pull_requests items { number, title, state, draft, merged_at, labels, updated_at }
+//   prs:     list_pull_requests items { number, title, body, state, draft, merged_at, labels, updated_at,
+//            head: { ref, sha, repo: { full_name } }, base: { ref } }
 //   checks:  { [prNumber]: { check_runs, statuses } }, missing for PRs whose checks weren't read
 //            (or couldn't be: an unread PR counts as not failing, and the page says so on its row)
 //   now:     epoch ms
-// Each card: { project, number, title, url, kind: "spec"|"design"|"pr", bucket, reason, since, age }.
+// Each card: { project, number, title, url, kind: "spec"|"design"|"pr", bucket, reason, since, age }, plus
+//   spec cards:   openQuestions (a count, or null without the section), pr ({ number, url } or null)
+//   design cards: designUrl (claude.ai, or null)
+//   PR cards:     review (trustedReview: parseReview plus outOfDate, or null), landsAfter (the PR it is stacked on, or null)
 // Items that need nothing from the dashboard (spec:in-review specs, unreviewed ready PRs,
 // PRs closed unmerged, anything older than a week in Landed) get no card.
 export function toCards(project, issues, prs, checks, now) {
+  const openPrs = (prs ?? []).filter(isOpenPr);
   return [
-    ...(issues ?? []).map((i) => issueCard(project, i, now)),
-    ...(prs ?? []).map((p) => prCard(project, p, checks?.[p.number], now)),
+    ...(issues ?? []).map((i) => issueCard(project, i, now, prs)),
+    ...(prs ?? []).map((p) => prCard(project, p, checks?.[p.number], now, openPrs)),
   ].filter(Boolean);
 }
 
@@ -160,4 +220,116 @@ const stillRunning = (c) => !!c && (
 export function needsCheckRead(prevRead, check, pr, refresh) {
   if (prevRead?.pending) return false;
   return !prevRead || refresh || prevRead.updatedAt !== pr.updated_at || !check || Boolean(check.unknown) || stillRunning(check);
+}
+
+// Whether a recent spec's comments are read now, for its morning-page link. prevRead is
+// { updatedAt, pending, failed } from the last read (undefined if none). A read in flight is never
+// doubled. Otherwise the spec is read when never read, when it changed since (a new comment moves
+// updated_at) or when the last read failed.
+export function needsCommentRead(prevRead, issue) {
+  if (prevRead?.pending) return false;
+  return !prevRead || prevRead.failed || prevRead.updatedAt !== issue.updated_at;
+}
+
+// ---- Card details, parsed from text other skills write. Each parser follows a format another
+// skill owns (named above it): when that format changes, change the parser.
+// Bodies and comments are anyone's text: a link is kept only when it is https, and the links that
+// are always claude.ai artifacts (full report, design, morning page) only when they are on claude.ai.
+const CLAUDE = ["claude.ai"];
+
+// hosts, when given, is the list of hostnames the link may point at (exactly, no subdomains).
+export function safeUrl(text, hosts) {
+  try {
+    const url = new URL(String(text ?? "").trim());
+    if (url.protocol !== "https:" || url.username || url.password) return null;
+    return !hosts || hosts.includes(url.hostname) ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
+const linkTo = (text, label, hosts) => safeUrl(text.match(new RegExp(`\\[${label}\\]\\(([^)\\s]+)\\)`))?.[1], hosts);
+
+// The lines under a "## <name>" (or "### <name>") heading, up to the next heading or HTML comment.
+function section(text, heading) {
+  const lines = String(text ?? "").split(/\r?\n/);
+  const start = lines.findIndex((l) => heading.test(l.trim()));
+  if (start < 0) return null;
+  const rest = lines.slice(start + 1);
+  const end = rest.findIndex((l) => /^#{1,6}\s|^<!--|^<details|^<sub>/.test(l.trim()));
+  return end < 0 ? rest : rest.slice(0, end);
+}
+
+// Top-level list items ("- ", "* ", "1. "), sub-items left out.
+const topItems = (lines) => lines.filter((l) => /^ ?([-*+]|\d+[.)])\s+\S/.test(l)).map((l) => l.replace(/^ ?([-*+]|\d+[.)])\s+/, ""));
+
+// pr-review's section in a PR description (skills/pr-review/scripts/render-report.py, render_pr):
+// between its markers, "**<Verdict>.** <headline>", "[Preview](…) · [Full report](…)",
+// "### Risks" bullets, where the single "None found: …" bullet means no risks, and a closing
+// "<sub>pr-review · head `<sha>` · <date> · …</sub>" naming the commit it reviewed.
+// → { verdict, tone, line, risks (null without a Risks heading), head, reportUrl, previewUrl },
+// or null without the section. Anyone who can edit the description can write this section:
+// prCard decides whether to believe it.
+const REVIEW_START = "<!-- pr-review:start -->";
+const REVIEW_END = "<!-- pr-review:end -->";
+// render-report.py's view(): each verdict and the tone its report colours it with.
+const VERDICT_TONE = { "Approve": "good", "Approve with suggestions": "warn", "Changes requested": "bad" };
+export function parseReview(body) {
+  const text = String(body ?? "");
+  const from = text.indexOf(REVIEW_START);
+  const to = text.indexOf(REVIEW_END, from);
+  if (from < 0 || to < 0) return null;
+  const review = text.slice(from + REVIEW_START.length, to);
+  const bold = review.match(/^\*\*(.+?)\.?\*\*\s*(.*)$/m);
+  const items = section(review, /^###\s+Risks\b/i);
+  const risks = items ? topItems(items).filter((r) => !/^None found\b/i.test(r)).length : null;
+  const verdict = bold ? bold[1] : null;
+  return {
+    verdict,
+    tone: VERDICT_TONE[verdict] ?? null,
+    line: bold ? `${bold[1]}.${bold[2] ? ` ${bold[2]}` : ""}` : null,
+    risks,
+    head: review.match(/<sub>pr-review · head `([0-9a-f]{7,40})`/i)?.[1].toLowerCase() ?? null,
+    reportUrl: linkTo(review, "Full report", CLAUDE),
+    previewUrl: linkTo(review, "Preview"),
+  };
+}
+
+// The spec template's "## Open questions" section (skills/spec-me/templates/spec.md): one top-level
+// item per open question, or "None". → the count (sub-points not counted; prose that isn't
+// "None" counts as one question), or null when the body has no such section.
+export function openQuestions(body) {
+  const lines = section(body, /^##\s+Open questions\b/i);
+  if (!lines) return null;
+  const text = lines.join("\n").trim();
+  if (!text || /^([-*+]\s+)?none\b/i.test(text)) return 0;
+  return topItems(lines).length || 1;
+}
+
+// A design issue's artifact (skills/design-me/templates/design-issue.md): the first link on its
+// "- **Artifact:** <link>" line, bare, in <angle brackets> or as [text](link). → claude.ai URL or null.
+export function designLink(body) {
+  const line = String(body ?? "").split(/\r?\n/).find((l) => /^\s*[-*]\s+\*\*Artifact:\*\*/i.test(l));
+  const value = line?.replace(/^.*?\*\*Artifact:\*\*\s*/i, "") ?? "";
+  const link = value.match(/^\[[^\]]*\]\(([^)\s]+)\)/) ?? value.match(/^<([^>\s]+)>/) ?? value.match(/^(\S+)/);
+  return link ? safeUrl(link[1], CLAUDE) : null;
+}
+
+// night-shift's morning comment on each spec it collected (skills/night-shift/SKILL.md, morning step 5):
+// "<!-- ship:morning-page -->" then "Reviewed on this morning's page: <url>". A new one is posted
+// every morning, so the newest is current. comments: issue_read get_comments items
+// { body, created_at, author_association }, any order, from any number of specs. Anyone can comment
+// on a public repo, so only a comment from someone with write access counts (the night shift posts
+// as the user). → { url, at } of the newest with a claude.ai link, or null.
+const MORNING_MARK = "<!-- ship:morning-page -->";
+const TRUSTED_AUTHORS = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
+export function morningPage(comments) {
+  let best = null;
+  for (const c of comments ?? []) {
+    const body = String(c?.body ?? "");
+    if (!body.includes(MORNING_MARK) || !TRUSTED_AUTHORS.has(c?.author_association)) continue;
+    const url = safeUrl(body.slice(body.indexOf(MORNING_MARK)).match(/page:\s*<?(\S+?)>?(\s|$)/)?.[1], CLAUDE);
+    if (url && (!best || Date.parse(c.created_at) > Date.parse(best.at))) best = { url, at: c.created_at };
+  }
+  return best;
 }
