@@ -35,9 +35,12 @@ For each open, non-draft PR carrying `ship`, parents before the PRs stacked on t
 3. merges it into `main` with the merge method below;
 4. retargets the PRs stacked on it to `main` and lands them the same way, in the same run.
 
-When a check goes red because of its merge or resolution (it passed before the merge, or fails in code the merge
-touched), the agent fixes it, pushes and waits again, at most twice. A check that was red before the merge isn't its
-to fix.
+When a check goes red because of its merge or resolution (it passed before the merge and passes on `main`, and fails
+in code the agent wrote, not in the rest of `main`'s changes), the agent fixes it, pushes and waits again, at most
+twice. A check that was red before the merge, or is red on `main` too, isn't its to fix.
+
+Resolving and fixing run the project's local checks, from `main`'s copy of this file, on the PR's merged code, on the
+machine running `/ship:land`, with its git and GitHub credentials. Run it where you'd run the project's tests.
 
 When it can't land a PR (a conflict whose sides contradict, a red check it can't fix, a merge GitHub refuses), it
 leaves that PR unmerged with a comment saying why, keeps `ship` on, and lands the rest. The PRs stacked on it wait.
@@ -58,7 +61,7 @@ the PR with a `## Conflict resolution` section, each conflicted file and the cho
 bookkeeping files conflicted. `ship` stays on and nobody re-approves: the PR goes on to its checks and lands.
 
 It stops when the two sides contradict each other, changing the same behaviour in incompatible ways, or when it
-can't make the local checks pass after resolving. Then it pushes nothing, keeps `ship`, and comments naming the decision to make; the PRs stacked on it wait. Settle it on the
+can't make the local checks pass after resolving. Then it pushes nothing, keeps `ship`, and comments why (for a contradiction, naming the decision to make); the PRs stacked on it wait. Settle it on the
 branch (merge `main` into it and push), and the next `/ship:land` lands it.
 
 Bookkeeping files (a conflict only in these is mechanical):
