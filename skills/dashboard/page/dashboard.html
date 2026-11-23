@@ -554,8 +554,13 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
   }
 
   // Checks for each ready open PR (drafts are still being built), as one-shot reads through the pool.
-  // A PR is read again only when it has changed since (its updated_at moved), its last read failed,
-  // or the viewer pressed Refresh.
+  // A PR is read again when it has changed since (its updated_at moved), its last read failed,
+  // a check was still running (finishing a check doesn't move updated_at), or the viewer pressed Refresh.
+  // A check run not yet completed, or a commit status other than `ship` still pending.
+  const stillRunning = (c) => !!c && (
+    (c.check_runs ?? []).some((r) => r.status && r.status !== "completed") ||
+    (c.statuses ?? []).some((st) => st.context !== "ship" && st.state === "pending"));
+
   function readChecks(load, refresh = false) {
     if (!state.tools.github.has("pull_request_read")) return;
     const { owner, repo } = splitRepo(load.full);
@@ -565,7 +570,7 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
     for (const p of ready) {
       const last = load.checkReads[p.number];
       if (last?.pending) continue;
-      if (!refresh && last && last.updatedAt === p.updated_at && !load.checks[p.number]?.unknown) continue;
+      if (!refresh && last && last.updatedAt === p.updated_at && !load.checks[p.number]?.unknown && !stillRunning(load.checks[p.number])) continue;
       const read = { updatedAt: p.updated_at, pending: true };
       load.checkReads[p.number] = read;
       const one = (method) => readOnce("pull_request_read", { method, owner, repo, pullNumber: p.number }, { refresh });
