@@ -1,0 +1,177 @@
+<title>Ship dashboard</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: a header strip, one summary row per project, then the four buckets as columns
+   (phone: project chips, bucket tabs, one column). Neutrals lean toward harbour slate. */
+:root {
+  --bg: #f3f6f7;
+  --surface: #ffffff;
+  --fg: #14212b;
+  --muted: #566775;
+  --line: #d8e0e5;
+  --accent: #1d5bb8;
+  --needs: #b8410e;
+  --ready: #4a3fc4;
+  --flight: #0e6f68;
+  --landed: #2d7a34;
+  --danger: #b42318;
+  --skeleton: #e4eaee;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e151b; --surface: #151e26; --fg: #e2e9ee; --muted: #93a4b2; --line: #26333e; --accent: #82acff;
+    --needs: #fb9a5b; --ready: #aaa4ff; --flight: #5fd8cb; --landed: #8bdc8f; --danger: #f98d84; --skeleton: #1e2a34;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e151b; --surface: #151e26; --fg: #e2e9ee; --muted: #93a4b2; --line: #26333e; --accent: #82acff;
+  --needs: #fb9a5b; --ready: #aaa4ff; --flight: #5fd8cb; --landed: #8bdc8f; --danger: #f98d84; --skeleton: #1e2a34;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font: 15px/1.45 var(--font-body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 0 48px;
+}
+a { color: inherit; }
+button, input { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+.wrap { max-width: 1440px; margin: 0 auto; display: grid; gap: 20px; }
+
+header.top {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px;
+  padding-block: 20px 4px;
+}
+header.top h1 { font-size: 22px; font-weight: 600; letter-spacing: -0.01em; margin: 0; text-wrap: balance; }
+header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-width: 0; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.btn {
+  min-height: 44px; padding: 0 14px; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--surface);
+  font-weight: 500; font-size: 14px;
+}
+.btn:hover { border-color: var(--muted); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+.btn[disabled] { opacity: 0.55; cursor: default; }
+
+.notice {
+  border: 1px solid var(--line); background: var(--surface); border-radius: 10px;
+  padding: 20px; display: grid; gap: 10px; max-width: 64ch;
+}
+.notice h2 { margin: 0; font-size: 17px; font-weight: 600; }
+.notice p { margin: 0; color: var(--muted); }
+.notice .actions { margin-top: 4px; }
+.hint { font-size: 13px; color: var(--muted); }
+
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <h1>Ship dashboard</h1>
+    <div class="status" id="status" aria-live="polite">Connecting to GitHub…</div>
+    <div class="actions">
+      <button class="btn" id="refresh" type="button">Refresh</button>
+    </div>
+  </header>
+
+  <section class="notice" id="connector" hidden>
+    <h2 id="connector-title">Connect GitHub</h2>
+    <p id="connector-text"></p>
+    <div class="actions">
+      <button class="btn primary" id="permissions" type="button">Open Permissions</button>
+    </div>
+    <p class="hint" id="permissions-hint" hidden>The Permissions panel didn't open. Use this page's Permissions menu in claude.ai instead.</p>
+  </section>
+
+  <main id="app" hidden></main>
+</div>
+
+<script>
+/*@@BOARD@@*/
+</script>
+<script>
+(() => {
+  // The connector tools this page calls. Keep in step with the `mcp` capabilities in SKILL.md.
+  const CONNECTORS = {
+    github: { server: "github", tools: ["list_issues", "list_pull_requests", "pull_request_read", "get_file_contents"] },
+    remote: { server: "Claude Code Remote", tools: ["list_repos"] },
+  };
+
+  const $ = (id) => document.getElementById(id);
+  const state = { mcp: null, tools: { github: new Set(), remote: new Set() } };
+
+  async function use(name) {
+    try { return window.claude?.use ? await window.claude.use(name) : null; } catch { return null; }
+  }
+
+  // The full-page state when GitHub can't be read: everything on the page hangs on it.
+  function showConnector(code) {
+    const [title, text] = {
+      needs_reauth: ["Reconnect GitHub", "Your GitHub connector needs signing in again. Reconnect it in claude.ai Settings → Connectors, then refresh."],
+      blocked_by_policy: ["GitHub is blocked", "Your organization's policy blocks the GitHub connector tools this page reads. Ask an admin to allow them."],
+      not_in_manifest: ["Allow GitHub", "This page reads your specs and PRs through the GitHub connector, which isn't allowed for this page. Turn it on in Permissions."],
+      approval_required: ["Allow GitHub", "This page reads your specs and PRs through the GitHub connector. Allow it in Permissions."],
+    }[code] ?? ["Connect GitHub", "This page reads your specs and PRs through the GitHub connector. Add it in claude.ai Settings → Connectors, or allow it for this page in Permissions."];
+    $("connector-title").textContent = title;
+    $("connector-text").textContent = text;
+    $("connector").hidden = false;
+    $("app").hidden = true;
+    $("status").textContent = "Not connected to GitHub";
+  }
+
+  $("permissions").addEventListener("click", async () => {
+    const permissions = await use("permissions");
+    $("permissions-hint").hidden = true;
+    try {
+      if (!permissions) throw new Error("unavailable");
+      await permissions.manage();
+      boot();
+    } catch {
+      $("permissions-hint").hidden = false;
+    }
+  });
+
+  // Resolves null when GitHub is usable, else the code to explain.
+  async function connect() {
+    const mcp = await use("mcp");
+    if (!mcp) return "server_not_connected";
+    let listed;
+    try { listed = await mcp.listTools(); } catch (e) { return e?.code ?? "server_not_connected"; }
+    const find = (name) => listed.servers.find((s) => s.server.toLowerCase() === name.toLowerCase());
+    for (const [key, c] of Object.entries(CONNECTORS)) {
+      const entry = find(c.server);
+      state.tools[key] = new Set(entry && entry.authStatus !== "needs_reauth" ? entry.tools.map((t) => t.name) : []);
+    }
+    if (find(CONNECTORS.github.server)?.authStatus === "needs_reauth") return "needs_reauth";
+    if (!state.tools.github.has("list_issues") || !state.tools.github.has("list_pull_requests")) return "server_not_connected";
+    state.mcp = mcp;
+    return null;
+  }
+
+  async function boot() {
+    const problem = await connect();
+    if (problem) return showConnector(problem);
+    $("connector").hidden = true;
+    $("app").hidden = false;
+    $("status").textContent = "Connected to GitHub";
+  }
+
+  $("refresh").addEventListener("click", () => boot());
+  boot();
+})();
+</script>

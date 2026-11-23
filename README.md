@@ -126,6 +126,18 @@ Run after the morning review, to ship what you approved in one step.
 /ship:land               # just land the PRs already labelled `ship`
 ```
 
+### `/ship:dashboard`
+
+Publishes the ship dashboard: one private page on claude.ai showing every project's specs, designs and PRs, sorted by what they need from you. The page reads GitHub live while it's open, through your own connectors, so there is no token to hand over and nothing to host.
+
+Run it once and pin the page. Running it again (after a plugin update, say) republishes to the same page: it finds it among your artifacts by its title, "Ship dashboard".
+
+It needs, in claude.ai:
+- the **GitHub** connector, to read issues, PRs, their checks and `docs/agents/shipping.md`
+- optionally **Claude Code Remote**, to find your projects: without it, add them by name
+
+The first open asks you to allow both for the page.
+
 ### `/ship:build-spec`
 
 What each cloud session runs, with nobody to ask.
