@@ -702,7 +702,7 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
       loads.get(full)?.refetch?.();
     } catch (e) {
       const text = e?.shown ?? writeError(e, e?.verb ?? "do that");
-      actions.set(key, { kind, status: "error", text, ...meta });
+      actions.set(key, { kind, status: "error", text, refetch: Boolean(e?.refetch), ...meta });
       announce(text);
       // A write that may have run, or a PR that changed: read the project again, so the page shows what GitHub has.
       if (!e?.shown || e.refetch) loads.get(full)?.refetch?.();
@@ -723,7 +723,7 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
 
   // Pointer clicks on an action button (Cancel aside) just after the cards moved are ignored, so a card sliding
   // under the pointer (an approved card leaving Needs you) can't take a click meant for the one
-  // before it. Keyboard clicks (detail 0) are never held back: focus follows its card.
+  // before it. Keyboard clicks (detail 0) aren't held back here, focus follows its card (Confirm has its own hold).
   const SETTLE = 500;
   let settleUntil = 0;
   let layout = "";
@@ -736,18 +736,23 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
   // One action button (Approve, Un-approve, Land, Confirm, Cancel), and the note that says why it's
   // off. Off or busy, it is aria-disabled rather than disabled, so it keeps focus through a re-render
   // and an off one reads its reason (aria-describedby). off: the note's nodes, or null when it can run.
-  function actionButton({ key, text, hint, primary = false, small = false, off = null, busy = false, noteClass = "act-note", settle = true, onClick }) {
+  // held: aria-disabled with no note (an outcome just shown, until the refetch catches up).
+  // keysFrom: keyboard clicks before this time (performance.now()) are ignored, and a held key's
+  // repeats always are (Confirm, which takes focus from Land under a key that may still be down).
+  function actionButton({ key, text, hint, primary = false, small = false, off = null, busy = false, held = false, keysFrom = 0, noteClass = "act-note", settle = true, onClick }) {
     const noteId = `why-${key.replace(/[^\w-]/g, "_")}`;
     const note = off ? el("p", { class: noteClass, id: noteId }, ...off) : null;
     const cls = ["btn", small && "small", primary && !off && "primary", off && "is-off", busy && "is-busy"].filter(Boolean).join(" ");
     const button = el("button", { class: cls, type: "button", title: off ? note.textContent : hint, "data-key": key }, text);
-    if (off || busy) button.setAttribute("aria-disabled", "true");
+    if (off || busy || held) button.setAttribute("aria-disabled", "true");
     if (off) button.setAttribute("aria-describedby", noteId);
     if (busy) button.setAttribute("aria-busy", "true");
     button.addEventListener("click", (ev) => {
-      if (off || busy || (settle && ev.detail > 0 && performance.now() < settleUntil)) return;
+      if (off || busy || held || (settle && ev.detail > 0 && performance.now() < settleUntil)) return;
+      if (keysFrom && ev.detail === 0 && performance.now() < keysFrom) return;
       onClick();
     });
+    if (keysFrom) button.addEventListener("keydown", (ev) => { if (ev.repeat) ev.preventDefault(); });
     return [button, note];
   }
 
@@ -775,6 +780,7 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
       }
       const write = labelWrite(card, fresh);
       if (write.error) throw { shown: write.error, refetch: write.refetch };
+      if (write.already) return approve ? "Already approved" : "Already un-approved";
       await callWrite("issue_write", { method: "update", owner, repo, issue_number: card.number, labels: write.labels }, verb);
       return approve ? "Approved" : "Un-approved";
     });
@@ -810,7 +816,7 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
 
   // Land asks first, in place: "Land 2 PRs: #4, #7?" with Confirm and Cancel, listing the PRs the
   // board shows carrying ship for that project. Projects whose Land is waiting on that answer:
-  const confirming = new Set();
+  const confirming = new Map(); // project -> when it opened (performance.now()): Confirm ignores keys until SETTLE after
   let focusNext = null; // a data-key to focus after the next paint (Cancel hands focus back to Land)
 
   // A project row's Land button and the line under it: the question, progress, the run link, the error or the gate.
@@ -825,19 +831,22 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
     if (confirming.has(full)) {
       const shipped = cardsOf(full).filter((c) => c.kind === "pr" && c.action === "unapprove").sort((a, b) => a.number - b.number);
       const question = shipped.length ? `Land ${plural(shipped.length, "PR")}: ${shipped.map((c) => `#${c.number}`).join(", ")}?` : "No PR on the board carries ship here. Start a landing run anyway?";
+      // Enter on Land moves focus to Confirm (same data-key), so a held or doubled Enter would land:
+      // Confirm ignores key repeats, and keyboard clicks for SETTLE after it opens.
       const [confirm] = actionButton({ key, text: "Confirm", primary: true, small: true, hint: `Start ship.yml on ${branch}`,
-        onClick: () => { confirming.delete(full); landAction(full); } });
-      const [cancel] = actionButton({ key: `land-cancel:${full}`, text: "Cancel", small: true, hint: "Don't land", settle: false,
-        onClick: () => { confirming.delete(full); focusNext = key; scheduleRender(); } });
+        keysFrom: confirming.get(full) + SETTLE, onClick: () => { confirming.delete(full); landAction(full); } });
+      const cancelIt = () => { confirming.delete(full); focusNext = key; scheduleRender(); };
+      const [cancel] = actionButton({ key: `land-cancel:${full}`, text: "Cancel", small: true, hint: "Don't land", settle: false, onClick: cancelIt });
       const askId = `ask-${key.replace(/[^\w-]/g, "_")}`;
       confirm.setAttribute("aria-describedby", askId);
-      return [el("div", { class: "land land-confirm", role: "group", "aria-label": `Land ${full}?` }, confirm, cancel),
-        el("p", { class: "land-msg", id: askId }, question)];
+      const group = el("div", { class: "land land-confirm", role: "group", "aria-label": `Land ${full}?` }, confirm, cancel);
+      group.addEventListener("keydown", (ev) => { if (ev.key === "Escape") { ev.preventDefault(); cancelIt(); } });
+      return [group, el("p", { class: "land-msg", id: askId }, question)];
     }
     const [button, note] = actionButton({ key, text: running ? "Starting…" : "Land", small: true, busy: running, noteClass: "land-msg",
       hint: `Start ship.yml on ${branch}: it lands every approved PR that targets ${branch}`, off: gate.ok ? null : gate.note,
       onClick: () => {
-        confirming.add(full);
+        confirming.set(full, performance.now());
         settleUntil = performance.now() + SETTLE; // a double click doesn't confirm
         const shipped = cardsOf(full).filter((c) => c.kind === "pr" && c.action === "unapprove").length;
         announce(`Land ${full}: ${shipped ? plural(shipped, "approved PR") : "no approved PR shown"}. Confirm or cancel.`);
@@ -1015,12 +1024,16 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
     let act = actions.get(key);
     // An outcome stays under the button for a minute, wherever the card has moved.
     if (act?.status === "done" && Date.now() - act.at > DONE_FOR) { actions.delete(key); act = null; }
+    // A "changed: refreshing" error goes once the refetch shows the card's new action.
+    if (act?.status === "error" && act.refetch && card.action !== act.kind) { actions.delete(key); act = null; }
     const running = act?.status === "running";
     const words = LABEL_ACTION[card.action];
     const gate = gateOf(card.project, "issue_write");
     const stale = card.action === "review-first" ? [card.review?.outOfDate ? "Review out of date: re-run the review first." : "Not reviewed: run the review first."] : null;
     const [button, note] = actionButton({ key: `act:${card.project}#${card.number}`, text: running ? words.running : words.idle,
       hint: words.hint, primary: card.action === "approve", busy: running, off: gate.ok ? stale : gate.note,
+      // Done, but the refetch hasn't changed the card yet: the same action again would only be refused.
+      held: act?.status === "done" && act.kind === card.action,
       onClick: () => labelAction(card) });
     return el("div", { class: "card-actions" }, button, note,
       act?.status === "error" ? el("p", { class: "act-error", text: act.text }) : null,

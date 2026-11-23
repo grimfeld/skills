@@ -705,12 +705,18 @@ test("labelWrite: a PR that changed since the page loaded is refused, and the pr
     "gained conflicts": fresh(["pr-reviewed", "conflicts"]),
     "went draft": fresh(["pr-reviewed"], { draft: true }),
     "lost pr-reviewed": fresh([]),
-    "already approved": fresh(["pr-reviewed", "ship"]),
     "closed": fresh(["pr-reviewed"], { state: "closed" }),
     "pushed since its review": fresh(["pr-reviewed"], { head: ref("x", "acme/app", "9999999aaaa") }),
   };
   for (const [what, f] of Object.entries(cases)) assert.deepEqual(labelWrite(card("approve"), f), changed, what);
-  assert.deepEqual(labelWrite(card("unapprove", ["ship"]), fresh(["pr-reviewed"])), changed, "ship already off");
+  assert.deepEqual(labelWrite(card("unapprove", ["ship"]), fresh(["pr-reviewed"], { state: "closed" })), changed, "closed");
+});
+
+test("labelWrite: a PR already in the end state writes nothing and says so, not as an error", () => {
+  assert.deepEqual(labelWrite(card("approve"), fresh(["pr-reviewed", "ship"])), { already: true });
+  assert.deepEqual(labelWrite(card("approve"), fresh(["ship"], { draft: true })), { already: true }, "ship on, whatever else changed");
+  assert.deepEqual(labelWrite(card("unapprove", ["ship"]), fresh(["pr-reviewed"])), { already: true });
+  assert.deepEqual(labelWrite(card("unapprove", ["ship"]), fresh(["pr-reviewed", "changes-requested"])), { already: true }, "ship off, whatever else changed");
 });
 
 // ---- writeError: a write that surely failed says what to do; any other says it may have gone through.
