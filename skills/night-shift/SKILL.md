@@ -34,7 +34,7 @@ Compare every pair of specs on their Touches, Data, Docs to update, Implementati
   - Chain them: B is built after A, in the same cloud session, on top of A's branch. B's PR targets A's branch.
   - Respect an existing Depends on.
   - When nothing forces an order, put the smaller spec first.
-  - Also chain specs that each add a migration or an ADR, so their numbers don't clash.
+  - Also chain specs that each add a migration or an ADR, so their numbers don't clash, but only when the repo's `docs/agents/shipping.md`, `CLAUDE.md` or `AGENTS.md` names no command that reserves the next number (lifeline: `adr:new`, `migrations:next`, `integrate`). With one, such specs are Independent unless something else orders them.
   - **Design specs** (those with a "Design" section) chain at most a design's foundation and shell. A place spec whose Depends on isn't merged yet is held: it stays `spec:ready` and builds on a later night, once the user has merged what it depends on. Six places stacked on an unreviewed shell would all need rebasing after its review.
   - Ordering needs no question.
 - **Conflicting:** two specs settle the same thing differently. Examples: the same term defined two ways, one field given two meanings, the same screen redesigned twice. These go to the user.
@@ -51,6 +51,7 @@ Show the plan and ask for one yes:
 - one row per **session**: the spec or chain, in build order, with each spec's estimate
 - the builder routine each session goes to
 - the model (`claude-opus-5-5` unless `shipping.md` names another)
+- for each pair of ADR or migration specs left unchained, the numbering command it relied on
 
 Specs the user wants to hold back stay `spec:ready`.
 
@@ -103,7 +104,7 @@ Tell the user:
 4. **Write the morning page** and publish it as an Artifact, following the Artifact tool's own design guidance. Keep it plain: a list to work through, not a dashboard. On later mornings, republish to the same URL; the URL is saved in `.scratch/night-shift/morning-url`.
    - **Ready:** the PRs to review, smallest first. Each card has the PR link, the verdict line, the risks, and the decisions to check. A stacked PR (its base is another PR's branch) sits under its parent's card, whatever its size, marked "lands after #<parent>", so the order is visible before approving.
    - **Design PRs** add their fidelity grid: per place, reference beside app for each look × theme × viewport. Flagged views are shown full size with their finding; the rest are thumbnails. Upload the PNGs as the page's assets (the `assets` capability) and reference each by the URL the upload returns.
-   - **Stuck:** what each one needs from the user.
+   - **Stuck:** what each one needs from the user. A PR stacked on a stuck spec it doesn't depend on sits under that card, with its note "stacked on stuck #N; lands after it, or retarget".
    - **Cost line:** every Ready and Stuck card ends with one line, "≈ $4.20 at API prices · 310k out · 1.2M in · 48M cache read".
      - A spec that is `null` gets "cost not reported" instead, never a partial figure.
      - A spec with `unpriced` models adds "+ <model> (no price)" after the dollar figure.
