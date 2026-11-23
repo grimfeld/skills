@@ -1,14 +1,18 @@
 ---
 name: build-spec
-description: Build one or more sliced specs end to end with nobody to ask (a night-shift cloud session), review each with pr-review in unattended mode, fix what it finds within two rounds, and leave each PR ready for review or marked stuck with the reason.
+description: Build one or more sliced specs end to end, review each with pr-review in unattended mode, fix what it finds within two rounds, and leave each PR ready for review or marked stuck with the reason. With `unattended` (a night-shift cloud session) nobody is asked anything; without it, a blocking decision is asked of the person who ran it.
 disable-model-invocation: true
-argument-hint: "#<spec> [#<spec> ...]  (several = one chain, built in order, each on top of the previous)"
+argument-hint: "#<spec> [#<spec> ...] [unattended]  (several = one chain, built in order, each on top of the previous)"
 ---
 
 # Build spec
 
-You build one spec at night, or a chain of specs in order. Nobody can answer questions.
-Every choice the spec doesn't settle is yours. Make it, record it and keep going. Stop only where the rules below say a spec is **stuck**.
+You build one spec, or a chain of specs in order.
+
+- **`unattended`** (night-shift's builders always pass it): nobody can answer questions. Where the rules below say a spec is **stuck**, it is stuck.
+- **Without it**, a person ran you and is in the session. Where the rules below would make a spec stuck over a question, **ask** it instead (see "A question the spec doesn't answer") and carry on with the answer. Anything else that makes a spec stuck still does.
+
+Every choice the spec doesn't settle is yours. Make it, record it and keep going. Ask (or, unattended, stop) only where the rules below say a spec would be **stuck**.
 
 You must never:
 - merge a PR
@@ -20,6 +24,8 @@ You must never:
 Read first:
 1. The project's `CLAUDE.md` (and `AGENTS.md`), `docs/agents/shipping.md`, `docs/agents/issue-tracker.md`. The project's rules apply to you: worktrees, commit email, migrations, docs to update.
 2. `${CLAUDE_PLUGIN_ROOT}/references/github.md`, for when `gh` isn't available.
+
+**Check for the Agent tool.** If `Agent` isn't among your tools (ToolSearch `select:Agent` finds nothing), as in a subagent, you can build but not review: step 2 builds the tickets inline, and every spec ends after step 3 with a hand-back (see step 3). A caller holding such a hand-back runs steps 4–6 for that PR itself, from a session that has the Agent tool.
 
 ## For each spec, in the order given
 
@@ -50,7 +56,12 @@ Run `implement-spec` on the spec issue, as `${CLAUDE_PLUGIN_ROOT}/references/run
 
 Append to that section every time you choose something the spec didn't say, and keep it up to date. It's what the reviewer reads to check your judgement.
 
-**A question the spec doesn't answer:** if the answer changes what a user sees or does, or changes data in a way that can't be undone, the spec is stuck. Otherwise, decide and record it.
+**A question the spec doesn't answer:** if the answer changes what a user sees or does, or changes data in a way that can't be undone, only a person can settle it. Otherwise, decide and record it.
+
+- **Unattended:** the spec is stuck.
+- **Without `unattended`:** ask the user one question (`AskUserQuestion`) naming the choices and which you recommend, and why. Record the answer under Decisions as "<question>: decided by the owner: <choice>", and go on.
+
+**Without the Agent tool:** build `implement-spec`'s tickets one after another in your own context, on the spec branch, instead of in implementer subagents. Record "no Agent tool: tickets built inline" under Decisions. Overrides that describe implementer worktrees, merger subagents or handoff notes don't apply on this path.
 
 Done when every ticket is closed, or one can't be built, which makes the spec stuck.
 
@@ -62,6 +73,8 @@ Run the local checks `docs/agents/shipping.md` lists, then the project's own pre
 
 Push, then wait for CI on the PR. Wait with the shell's own blocking wait (`gh pr checks <n> --watch`, or a single `until` loop with a timeout). Don't use repeated `sleep` calls. The `ship` status stays pending until a person reviews the PR. That's expected, so never try to make it pass.
 
+**Without the Agent tool**, stop the spec here, once CI has finished: leave the spec `spec:building` and the PR a draft, post no `night-shift` comment, and end with the PR number and "review pending: run build-spec steps 4–6 from a session with the Agent tool". Specs in the chain after it are built the same way, each ending with its own hand-back.
+
 ### 4. Review
 
 Run `pr-review` with `<pr> unattended`, as `${CLAUDE_PLUGIN_ROOT}/references/running-skills.md` says. The Skill tool can't call it. It writes the review section into the PR description and returns the approved findings: the blockers and majors.
@@ -72,6 +85,7 @@ Round = fix every approved finding and every red CI check on the branch, push, w
 
 - A finding you think is wrong: record it in Decisions with your reason, and leave it.
 - After round 2, anything still blocking makes the spec stuck. Name each blocking item and what you tried.
+- Without `unattended`, a blocking item that needs a person's decision is asked instead, as in step 2, and fixed with the answer. The two-round cap still holds: no third review round.
 
 ### 6. Finish the spec
 
