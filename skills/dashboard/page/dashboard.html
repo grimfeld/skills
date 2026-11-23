@@ -227,6 +227,39 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
   .card-project { white-space: normal; overflow: visible; overflow-wrap: anywhere; }
 }
 
+/* The environment picker: a centred dialog, a bottom sheet on a phone. */
+dialog.sheet {
+  border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--fg);
+  padding: 20px; width: min(440px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto;
+}
+dialog.sheet::backdrop { background: rgb(0 0 0 / 0.45); }
+.sheet form { display: grid; gap: 14px; }
+.sheet h2 { margin: 0; font-size: 17px; font-weight: 600; }
+.sheet p { margin: 0; }
+.sheet fieldset { border: 0; margin: 0; padding: 0; display: grid; gap: 8px; min-width: 0; }
+.env-option {
+  display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 8px 12px; min-width: 0;
+  border: 1px solid var(--line); border-radius: 8px; cursor: pointer;
+}
+.env-option:has(input:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
+.env-option input { margin: 0; width: 18px; height: 18px; flex: none; accent-color: var(--accent); }
+.env-text { display: grid; min-width: 0; }
+.env-name { font-weight: 500; overflow-wrap: anywhere; }
+.env-meta { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.env-tag { margin-left: auto; flex: none; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--accent); }
+.sheet .actions { justify-content: flex-end; }
+.env-line { margin: 0; font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; align-items: center; gap: 0 6px; min-width: 0; }
+.env-line span { overflow-wrap: anywhere; min-width: 0; }
+.linklike { border: 0; background: none; padding: 0; color: var(--accent); text-decoration: underline; cursor: pointer; font-size: 12px; min-height: 24px; }
+@media (max-width: 720px) {
+  dialog.sheet {
+    margin: auto 0 0; width: 100%; max-width: 100%; max-height: 85dvh; border-radius: 16px 16px 0 0; border-bottom: 0;
+    padding-bottom: max(20px, env(safe-area-inset-bottom, 0px));
+  }
+  .sheet .actions .btn { flex: 1 1 0; }
+  .linklike { min-height: 44px; font-size: 13px; }
+}
+
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 </style>
 
@@ -264,6 +297,18 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
     <div id="board"></div>
   </main>
 </div>
+
+<dialog class="sheet" id="picker" aria-labelledby="picker-title">
+  <form method="dialog" id="picker-form">
+    <h2 id="picker-title">Run in which environment?</h2>
+    <p class="hint" id="picker-hint"></p>
+    <fieldset id="picker-list"></fieldset>
+    <div class="actions">
+      <button class="btn" type="button" id="picker-cancel">Cancel</button>
+      <button class="btn primary" type="submit" id="picker-ok">Start session</button>
+    </div>
+  </form>
+</dialog>
 
 <script>
 /*@@BOARD@@*/
@@ -649,6 +694,8 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
     scheduleRender();
     try {
       const done = await work();
+      // null: nothing was done (a picker closed without a choice), so back to idle.
+      if (done === null) { actions.delete(key); scheduleRender(); return; }
       actions.set(key, { kind, status: "done", text: done?.text ?? done, url: done?.url ?? null, at: Date.now() });
       if (refetch) loads.get(full)?.refetch?.();
     } catch (e) {
@@ -752,10 +799,77 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
     return link ? { text: `Started in ${env.name}`, url: link.url } : { text: `Started in ${env.name}: its link didn't come back, so find it among your sessions.`, url: SESSIONS_URL };
   }
 
-  function skillAction(card, skill) {
-    runAction(`skill:${card.project}#${card.number}`, "skill", card.project, async () => {
-      const env = preselectEnvironment(await environments(), card.project);
-      if (!env) throw { shown: "You have no Claude Code environment to run it in: create one at claude.ai/code, then try again." };
+  // The environment chosen for a project, per viewer: { id, name }, or null (none yet, or no storage,
+  // in which case the picker shows every time).
+  const envKey = (full) => `env:${full.toLowerCase()}`;
+  const storedEnv = (full) => { const v = store.get(envKey(full), null); return typeof v?.id === "string" ? v : null; };
+
+  // The picker: the viewer's environments, the current choice (else board.mjs's preselection) checked
+  // and the preselected one tagged. → the chosen environment, or null when closed without one.
+  // opener: the data-key focus returns to.
+  function pickEnvironment(full, envs, { starting, opener }) {
+    const dialog = $("picker");
+    const suggested = preselectEnvironment(envs, full);
+    const current = envs.find((e) => e.environment_id === storedEnv(full)?.id) ?? suggested;
+    $("picker-hint").textContent = `For sessions on ${full}. This browser remembers the choice.`;
+    $("picker-ok").textContent = starting ? "Start session" : "Use this environment";
+    $("picker-list").replaceChildren(el("legend", { class: "sr-only", text: "Environments" }), ...envs.map((e) => {
+      const input = el("input", { type: "radio", name: "env", value: e.environment_id });
+      input.checked = e === current;
+      const meta = [e.kind === "bridge" ? "your machine" : "cloud", e.description].filter(Boolean).join(" · ");
+      return el("label", { class: "env-option" }, input,
+        el("span", { class: "env-text" }, el("span", { class: "env-name", text: e.name || e.environment_id }), el("span", { class: "env-meta", text: meta })),
+        e === suggested ? el("span", { class: "env-tag", text: "suggested" }) : null);
+    }));
+    return new Promise((resolve) => {
+      const form = $("picker-form");
+      const finish = (env) => {
+        form.removeEventListener("submit", onSubmit);
+        $("picker-cancel").removeEventListener("click", onCancel);
+        dialog.removeEventListener("close", onClose);
+        dialog.removeEventListener("click", onBackdrop);
+        if (dialog.open) dialog.close();
+        resolve(env);
+        // The card was redrawn while the picker was open: focus its replacement.
+        requestAnimationFrame(() => document.querySelector(`[data-key="${CSS.escape(opener)}"]`)?.focus({ preventScroll: true }));
+      };
+      const onSubmit = (event) => {
+        event.preventDefault();
+        const id = form.elements.env?.value;
+        finish(envs.find((e) => e.environment_id === id) ?? null);
+      };
+      const onCancel = () => finish(null);
+      const onClose = () => finish(null);
+      const onBackdrop = (event) => { if (event.target === dialog) finish(null); };
+      form.addEventListener("submit", onSubmit);
+      $("picker-cancel").addEventListener("click", onCancel);
+      dialog.addEventListener("close", onClose);
+      dialog.addEventListener("click", onBackdrop);
+      dialog.showModal();
+      (form.querySelector("input:checked") ?? form.querySelector("input"))?.focus();
+    });
+  }
+
+  // A run-a-skill click starts at once in the project's stored environment while it still exists;
+  // otherwise (first run, no storage, environment gone) the picker asks first. change: only pick
+  // and store, start nothing.
+  function skillAction(card, skill, { change = false } = {}) {
+    const key = `skill:${card.project}#${card.number}`;
+    const opener = change ? `envchange:${card.project}#${card.number}` : key;
+    runAction(key, "skill", card.project, async () => {
+      const envs = await environments();
+      if (!envs.length) throw { shown: "You have no Claude Code environment to run it in: create one at claude.ai/code, then try again." };
+      let env = change ? null : envs.find((e) => e.environment_id === storedEnv(card.project)?.id);
+      if (!env) {
+        actions.set(key, { kind: "skill", status: "running", choosing: true });
+        scheduleRender();
+        env = await pickEnvironment(card.project, envs, { starting: !change, opener });
+        if (!env) return null;
+        store.set(envKey(card.project), { id: env.environment_id, name: env.name });
+        if (change) return null;
+        actions.set(key, { kind: "skill", status: "running" });
+        scheduleRender();
+      }
       return startSession(card, skill, env);
     }, { refetch: false });
   }
@@ -772,10 +886,19 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
         el("p", { class: "act-note", role: "status", text: act.text })];
     }
     const running = act?.status === "running";
-    const button = el("button", { class: "btn", type: "button", "data-key": key, title: `Start a Claude session on ${card.project} running ${skill.command}` }, running ? "Starting…" : skill.label);
+    const button = el("button", { class: "btn", type: "button", "data-key": key, title: `Start a Claude session on ${card.project} running ${skill.command}` }, running && !act.choosing ? "Starting…" : skill.label);
     if (running) { button.setAttribute("aria-disabled", "true"); button.setAttribute("aria-busy", "true"); }
     button.addEventListener("click", () => { if (actions.get(key)?.status !== "running") skillAction(card, skill); });
-    return [button, act?.status === "error" ? el("p", { class: "act-error", role: "alert", text: act.text }) : null];
+    // The stored environment, and "change" to pick again (no line until there's a stored choice).
+    const env = storedEnv(card.project);
+    let line = null;
+    if (env) {
+      const change = el("button", { class: "linklike", type: "button", "data-key": `envchange:${card.project}#${card.number}`, "aria-label": `Change the environment for ${card.project}`, text: "change" });
+      if (running) change.setAttribute("aria-disabled", "true");
+      change.addEventListener("click", () => { if (actions.get(key)?.status !== "running") skillAction(card, skill, { change: true }); });
+      line = el("p", { class: "env-line" }, el("span", { text: `Runs in ${env.name || env.id}` }), change);
+    }
+    return [button, line, act?.status === "error" ? el("p", { class: "act-error", role: "alert", text: act.text }) : null];
   }
 
   // A project row's Land button and the line under it: progress, the run link, the error or the gate.
