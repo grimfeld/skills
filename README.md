@@ -109,6 +109,8 @@ Sizes each `spec:ready` spec against prior PRs in the same areas. The rule is on
 - what each spec, each session and the whole night would have cost at API prices, counted by each builder from its own transcript (`scripts/token-usage.mjs`, prices in `scripts/prices.json`)
 - the `/ship:land` command to run once you've reviewed: it ships the PRs you approve and sends the commented ones back for tonight
 
+Each collected spec gets a comment linking that morning's page, marked `<!-- ship:morning-page -->`, so the page can be found from the spec.
+
 ### `/ship:land`
 
 Run after the morning review, to ship what you approved in one step.
