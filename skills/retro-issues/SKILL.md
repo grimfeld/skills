@@ -32,11 +32,11 @@ Per target repo, note whether it runs the **ship pipeline**: it has `docs/agents
 
 ## 3. Dedupe
 
-Per target repo, read every open issue and open PR in one call each:
+Per target repo, read every open issue and open PR in one call each, with the REST forms of `${CLAUDE_PLUGIN_ROOT}/references/github.md` (its GitHub MCP column where there is no `gh`), writing the repository out:
 
 ```
-gh issue list --state open --limit 500 --json number,title,body,labels
-gh pr list --state open --limit 200 --json number,title,body
+gh api --paginate 'repos/<owner>/<repo>/issues?state=open&per_page=100' --jq '.[] | select(.pull_request | not) | {number, title, body, labels: [.labels[].name]}'
+gh api --paginate 'repos/<owner>/<repo>/pulls?state=open&per_page=100' --jq '.[] | {number, title, body}'
 ```
 
 Judge each finding against them by meaning, not keywords, and put it in one bucket:

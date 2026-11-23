@@ -23,7 +23,7 @@ Read `docs/agents/issue-tracker.md` for how issues are created, edited and linke
 For each spec, from its Touches, Data, UI states and acceptance criteria:
 
 1. **Explore** the areas it touches with a subagent, enough to know what exists and what must be built.
-2. **Find prior art.** Look for two or three merged PRs that did something similar in the same areas: `gh pr list --state merged --search "<area words>"`, then `gh pr view <n> --json additions,deletions,files` one at a time (a list query with additions can hit GitHub's size limit).
+2. **Find prior art.** Look for two or three merged PRs that did something similar in the same areas: the "Search merged PRs" row of `${CLAUDE_PLUGIN_ROOT}/references/github.md` with the area words, then each PR's additions, deletions and files one at a time (a list query with additions can hit GitHub's size limit).
 3. **Estimate** in **reviewable lines**: the hand-written lines changed, excluding tests, lockfiles, generated files, snapshots and docs. Give a range, and say which PR it is based on.
 4. **Count the distinct behaviours** a reviewer has to judge: one per acceptance-criteria group that a user would notice separately.
 

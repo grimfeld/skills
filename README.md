@@ -188,7 +188,7 @@ What each cloud session runs, with nobody to ask.
 
 Every choice the spec left open goes in the PR's Decisions section. The PR ends ready, or as a draft marked stuck with the reason. It never merges and never adds `ship`.
 
-`pr-review unattended` never asks: it skips lens syncs, reviews any size, and publishes the page only where the Artifact tool exists. `references/github.md` maps each `gh` call to the GitHub MCP tool to use in cloud sessions without `gh`.
+`pr-review unattended` never asks: it skips lens syncs, reviews any size, and publishes the page only where the Artifact tool exists. `references/github.md` gives each GitHub call as a REST `gh api` form first, which works in cloud sessions where `gh issue` and `gh pr` (GraphQL) are refused, and the GitHub MCP tool to use where there is no `gh`.
 
 ### `/ship:setup-ship`
 
