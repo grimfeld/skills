@@ -67,7 +67,7 @@ Work in a worktree of your own (`git worktree add --detach <dir> origin/<default
 
 ### 4.1 Still approved?
 
-Read the PR again. If it's closed, a draft, or no longer carries `ship` (the user changed their mind), skip it with that reason. Its children wait.
+Read the PR again. If it's closed, a draft, or no longer carries `ship` (the user changed their mind), skip it with that reason. If its base isn't the default branch, stop it (4.5) with "base is `<branch>`, not `<default>`". Its children wait.
 
 ### 4.2 Merge the default branch in
 
@@ -102,17 +102,13 @@ Merge `<default>` into it, push, and run `/ship:land` again. `ship` stays on.
 
 ### 4.3 Wait for checks
 
-Take the PR's head SHA after your push. If `docs/agents/shipping.md` "Checks" names no CI check beyond `ship`, and no check run or status other than `ship` has appeared on that SHA, don't wait: go to 4.4.
+Wait on the SHA you pushed (or the head you found already up to date), never on the PR: right after a push, GitHub may still show the PR's previous head and its finished checks.
 
-Otherwise wait with one blocking wait, 30 minutes at most, never repeated `sleep` calls:
+1. **The PR has moved:** wait until `gh api repos/{owner}/{repo}/pulls/<n> --jq .head.sha` is `<sha>` (part of the same wait below).
+2. **What to wait for:** the checks `docs/agents/shipping.md` "Checks" requires, plus every other check run or status that appears on `<sha>`, except `ship`. The `ship` status counts as passed, since `ship` is on: `gate` may still be catching up with your push.
+3. **No CI:** if "Checks" names no check beyond `ship`, wait 1 minute for any check to appear on `<sha>`. If none does, go to 4.4.
 
-```
-timeout 1800 gh pr checks <n> --watch --interval 30
-```
-
-or a single `until` loop with the same timeout over the SHA's check runs and statuses (`gh api repos/{owner}/{repo}/commits/<sha>/check-runs` and `.../commits/<sha>/status`).
-
-Then read the result (`gh pr checks <n> --json name,state,link`). The `ship` check counts as passed whatever it shows, since `ship` is on: `gate` may still be catching up with your push.
+Wait with a single `until` loop over `gh api repos/{owner}/{repo}/commits/<sha>/check-runs` and `.../commits/<sha>/status`, 30 minutes at most, never repeated `sleep` calls. It ends when the PR's head is `<sha>`, every required check exists on it, and every check on it has finished. A required check that never appears counts as not finished.
 
 **A check failed, or hadn't finished after 30 minutes:** stop the PR (4.5):
 
@@ -125,7 +121,7 @@ Name every check that failed or didn't finish.
 
 ### 4.4 Merge
 
-Merge through the API, with the merge method from `docs/agents/shipping.md` and the SHA you checked, so nothing pushed after your wait lands unchecked:
+Read the PR again first. If it no longer carries `ship` (the user changed their mind during the wait), skip it with "`ship` removed". If its base isn't the default branch, stop it (4.5) with "base is `<branch>`, not `<default>`": merging would land it in another branch. Then merge through the API, with the merge method from `docs/agents/shipping.md` and the SHA you checked, so nothing pushed after your wait lands unchecked:
 
 ```
 gh api -X PUT repos/{owner}/{repo}/pulls/<n>/merge -f merge_method=<method> -f sha=<sha>
@@ -133,7 +129,7 @@ gh api -X PUT repos/{owner}/{repo}/pulls/<n>/merge -f merge_method=<method> -f s
 
 Without `gh`, use the GitHub MCP merge tool (`merge_pull_request`) with the same method.
 
-If the `ship` status is still pending, GitHub may refuse at first: wait for `gate` on that SHA (one blocking wait, 2 minutes at most) and try once more.
+If the `ship` status is still pending, GitHub may refuse at first: wait for `gate` on that SHA (one blocking wait, 2 minutes at most), check the label is still on, and try once more.
 
 **GitHub refuses:** stop the PR (4.5), quoting its error:
 
@@ -158,7 +154,7 @@ For each child of the merged PR, read it again. If its base isn't the default br
 gh api -X PATCH repos/{owner}/{repo}/pulls/<child> -f base=<default>
 ```
 
-Then land it from 4.1, before the next root. It gets the same steps: merging the default branch in brings it the parent's merge.
+If the update fails, stop the child (4.5) with "couldn't retarget it to `<default>`: <GitHub's message>"; its own children wait. Then land it from 4.1, before the next root. It gets the same steps: merging the default branch in brings it the parent's merge.
 
 Done when every PR in the batch is merged, stopped, skipped or waiting. Remove your worktree (`git worktree remove <dir>`).
 
