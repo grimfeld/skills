@@ -174,7 +174,7 @@ After the user says the PR has merged, apply step 3's repository settings in the
 Re-read each setting to confirm it took:
 - on an upgrade, each upgrade step: for version 3, no open PR with `autoMergeRequest`, `allow_auto_merge` false, `ship` on the `conflicts` PRs the user confirmed, and no `conflicts` label; in `command` mode, the landing-batch PRs the user agreed to close are closed
 - the labels
-- the ruleset's rules, with its required checks equal to the "Required on" line plus `ship` (re-read them as "Sync required checks" does)
+- the ruleset's rules, with its required checks equal to the "Required on" line (less any check the sync left out) plus `ship` (re-read them as "Sync required checks" does)
 
 ## 6. Verify and hand off
 
@@ -197,7 +197,7 @@ Re-read each setting to confirm it took:
 2. **Current.** Find the ruleset that targets the default branch (`gh api repos/{owner}/{repo}/rulesets`, then `gh api repos/{owner}/{repo}/rulesets/<id>`) and its `required_status_checks` rule's `required_status_checks[].context`, leaving out `ship`.
 3. **Flag what hasn't run.** For each check to add, look at the most recently merged PR's checks (`gh pr list --state merged --limit 1 --json number`, then `gh pr checks <n> --json name,workflow`). A check that isn't there is flagged "hasn't run on a merged PR yet: requiring it would block every PR" and left out of the change unless the user insists.
 4. **Show the difference**, one line per check: `+ <check>` for a wanted check the ruleset lacks, `- <check>` for one the ruleset requires that the line doesn't name. With none, say "required checks in sync", write nothing, and go back to where you came from.
-5. **On a yes, write it.** Read, change, write: take the ruleset's whole JSON, replace only the `required_status_checks` rule's list with the wanted checks plus `ship`, keep every other rule and parameter as it was, and `gh api -X PUT repos/{owner}/{repo}/rulesets/<id> --input <file>`.
+5. **On a yes, write it.** Read, change, write: take the ruleset's whole JSON, replace only the `required_status_checks` rule's list with the wanted checks, less any left out at 3, plus `ship`, keep every other rule and parameter as it was, and `gh api -X PUT repos/{owner}/{repo}/rulesets/<id> --input <file>`.
    - `ship` is always kept, pinned to GitHub Actions (`"integration_id": 15368`), whatever `shipping.md` says.
    - A check that reports from GitHub Actions (the merged PR's `gh pr checks` gives it a `workflow`) is pinned to the same `integration_id`; others are left unpinned. A check already in the ruleset keeps its pinning.
    - With no `required_status_checks` rule yet, add one with `strict_required_status_checks_policy: false`.
