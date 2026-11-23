@@ -18,12 +18,12 @@ function repo() {
   return dir;
 }
 
-function registry(installPath, sha) {
+function registry(installPath, sha, key = "ship@grimfeld") {
   const config = mkdtempSync(join(tmpdir(), "ship-config-"));
   mkdirSync(join(config, "plugins"));
   writeFileSync(join(config, "plugins", "installed_plugins.json"), JSON.stringify({
     version: 2,
-    plugins: { "ship@grimfeld": [{ scope: "user", installPath, version: sha.slice(0, 12), gitCommitSha: sha, lastUpdated: "2026-11-23T17:56:53.353Z" }] },
+    plugins: { [key]: [{ scope: "user", installPath, version: sha.slice(0, 12), gitCommitSha: sha, lastUpdated: "2026-11-23T17:56:53.353Z" }] },
   }));
   return config;
 }
@@ -84,4 +84,34 @@ test("unparsable registry says it couldn't be read", () => {
   const out = run([root], { CLAUDE_CONFIG_DIR: rawRegistry("{ not json"), SHIP_REMOTE: root });
   assert.match(out, /Plugin registry .*installed_plugins\.json couldn't be read/);
   assert.match(out, /ship working copy at .*: main @ [0-9a-f]{12}/);
+});
+
+test("working copy ahead of main is not told to run plugin update", () => {
+  const remote = repo();
+  const root = mkdtempSync(join(tmpdir(), "ship-clone-"));
+  execFileSync("git", ["clone", "-q", remote, root]);
+  git(root, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "two");
+  const out = run([root], { CLAUDE_CONFIG_DIR: mkdtempSync(join(tmpdir(), "c-")), SHIP_REMOTE: remote });
+  assert.doesNotMatch(out, /claude plugin update/);
+  assert.match(out, new RegExp(`main is at ${git(remote, "rev-parse", "HEAD").slice(0, 12)}`));
+  assert.match(out, /ahead of main/);
+});
+
+test("installed from another marketplace names its own key in the update hint", () => {
+  const remote = repo();
+  const sha = git(remote, "rev-parse", "HEAD");
+  git(remote, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "two");
+  const root = mkdtempSync(join(tmpdir(), "ship-root-"));
+  const out = run([root], { CLAUDE_CONFIG_DIR: registry(root, sha, "ship@other"), SHIP_REMOTE: remote });
+  assert.match(out, /claude plugin update ship@other$/m);
+});
+
+test("compares with main even when the remote's default branch is another", () => {
+  const remote = repo();
+  const main = git(remote, "rev-parse", "HEAD");
+  git(remote, "checkout", "-q", "-b", "dev");
+  git(remote, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "dev");
+  const root = mkdtempSync(join(tmpdir(), "ship-root-"));
+  const out = run([root], { CLAUDE_CONFIG_DIR: registry(root, main), SHIP_REMOTE: remote });
+  assert.match(out, new RegExp(`Up to date with main \\(${main.slice(0, 12)}\\)`));
 });

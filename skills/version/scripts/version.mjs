@@ -63,16 +63,28 @@ function describe(root, config) {
   return { ...found, lines: [...note, ...found.lines] };
 }
 
-// Lines comparing the loaded sha with latest on the remote (null when unreachable).
-function compare(sha, latest, remote) {
+// Where a working copy at root stands against main's commit, or null when that commit isn't in the copy.
+function relation(root, sha, latest) {
+  const isAncestor = (a, b) => { try { git("-C", root, "merge-base", "--is-ancestor", a, b); return true; } catch { return false; } };
+  try { git("-C", root, "cat-file", "-e", `${latest}^{commit}`); } catch { return null; }
+  if (isAncestor(sha, latest)) return "behind main. Update: git pull";
+  if (isAncestor(latest, sha)) return "ahead of main";
+  return "diverged from main";
+}
+
+// Lines comparing what's loaded ({ sha, source, key }) from root with latest on the remote (null when unreachable).
+function compare(loaded, latest, remote, root) {
+  const { sha, source, key } = loaded;
   if (!latest) return [`Latest: couldn't reach ${remote}.`];
   if (!sha) return [`Latest on main: ${short(latest)}`];
   if (latest === sha) return [`Up to date with main (${short(latest)}).`];
-  return [`main is at ${short(latest)}. Update: claude plugin update ship@grimfeld`];
+  if (source === "registry") return [`main is at ${short(latest)}. Update: claude plugin update ${key}`];
+  const where = relation(root, sha, latest);
+  return [`main is at ${short(latest)}.${where ? ` This copy is ${where}.` : ""}`];
 }
 
 function latestOn(remote) {
-  try { return git("ls-remote", remote, "HEAD").split(/\s/)[0] || null; } catch { return null; }
+  try { return git("ls-remote", remote, "refs/heads/main").split(/\s/)[0] || null; } catch { return null; }
 }
 
 function main() {
@@ -84,7 +96,7 @@ function main() {
   }
   const config = process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
   const loaded = describe(root, config);
-  for (const line of [...loaded.lines, ...compare(loaded.sha, latestOn(remote), remote)]) console.log(line);
+  for (const line of [...loaded.lines, ...compare(loaded, latestOn(remote), remote, root)]) console.log(line);
 }
 
 main();
