@@ -28,7 +28,7 @@ List the user's artifacts with the Artifact tool, `action: "list"`, `limit: 200`
 
 ## 3. Publish
 
-Every publish passes these capabilities. They are the connector tools the page calls, and must match `CONNECTORS` in `page/dashboard.html`. The page's writes are `issue_write` (Approve and Un-approve on PR cards) and `actions_run_trigger` (Land on a project row); `actions_list` finds the run Land started.
+Every publish passes these capabilities. They are the connector tools the page calls, and must match `CONNECTORS` in `page/dashboard.html`. The page's writes are `issue_write` (Approve and Un-approve on PR cards) and `actions_run_trigger` (Land on a project row); `actions_list` finds the run Land started. A capability can't be narrowed to a tool's methods, so the page holds the whole of both write tools: it could close or retitle issues, or run any workflow. It only calls `issue_write`'s `update` with `labels` and `actions_run_trigger`'s `run_workflow` on `ship.yml`, all through one function (`callWrite`) that refuses anything else, and `build.test.mjs` checks every call site.
 
 ```json
 {

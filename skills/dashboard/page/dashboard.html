@@ -167,11 +167,22 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
 /* Actions sit at the bottom of their card, full width: one 44 px target, on every screen. */
 .card-actions { display: grid; gap: 6px; padding-top: 4px; }
 .card-actions .btn { width: 100%; }
-.btn[aria-disabled="true"] { opacity: 0.7; cursor: progress; }
+/* Off (gated) and busy buttons keep full-contrast text: off ones go outlined and muted, busy ones
+   keep their colours and show a spinner. aria-disabled, not disabled, so they keep focus. */
+.btn.is-off, .btn.is-off:hover { background: var(--surface); border: 1px dashed var(--muted); color: var(--muted); cursor: not-allowed; }
+.btn.is-busy { cursor: progress; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+.btn.is-busy::before {
+  content: ""; width: 12px; height: 12px; border-radius: 50%; flex: none;
+  border: 2px solid currentColor; border-right-color: transparent; animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.act-done { margin: 0; font-size: 13px; color: var(--good); }
 .act-note { margin: 0; font-size: 12px; color: var(--muted); }
 .act-note code { font-family: var(--font-mono); color: var(--fg); }
 .act-error { margin: 0; font-size: 13px; color: var(--danger); overflow-wrap: anywhere; }
 .project .land { min-width: 96px; }
+.project .land-confirm { display: flex; gap: 8px; min-width: 0; }
+.project .land-confirm .btn { flex: 1 1 auto; }
 .land-msg { grid-column: 1 / -1; margin: 0; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
 .land-msg a { color: var(--accent); }
 .land-msg code { font-family: var(--font-mono); color: var(--fg); }
@@ -237,6 +248,7 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
   <header class="top">
     <h1>Ship dashboard</h1>
     <div class="status" id="status" aria-live="polite">Connecting to GitHub…</div>
+    <p class="sr-only" id="announce" aria-live="polite"></p>
     <div class="actions">
       <button class="btn" id="refresh" type="button">Refresh</button>
     </div>
@@ -634,60 +646,124 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
   // ---- Actions. Each click makes one write (never retried: a failed write may still have run),
   // then the project is read again at once. Their state lives here, outside the render, keyed like
   // their buttons, so a re-render keeps "running" and errors where they were.
-  const actions = new Map(); // key -> { kind, status: "running" | "done" | "error", text, at }
+  const actions = new Map(); // key -> { kind, status: "running" | "done" | "error", text, at, label, bucket, moved }
   const DONE_FOR = 60e3;
 
-  // The words for a failed write, by code. A write that may have gone through says so.
-  function writeError(e, verb) {
-    const code = codeOf(e);
-    if (code === "approval_required" || code === "consent_required") return `GitHub needs your approval to ${verb}. ${verb[0].toUpperCase()}${verb.slice(1)} again to be asked.`;
-    if (code === "not_in_manifest") return `This page isn't allowed to ${verb}: turn the GitHub connector's tool on in Permissions, or rerun /ship:dashboard.`;
-    if (code === "blocked_by_policy") return `Your organization's policy doesn't let this page ${verb}.`;
-    if (code === "needs_reauth") return "Reconnect GitHub in claude.ai Settings → Connectors, then try again.";
-    if (code === "tool_error") return `GitHub refused: ${e?.message || code}`;
-    if (code === "server_unavailable" || code === "upstream_error" || code === "cancelled") return `No answer from GitHub (${code}): it may have gone through. Check the page after it refreshes before trying again.`;
-    return `Couldn't ${verb} (${code}${e?.message ? `: ${e.message}` : ""}).`;
+  // Progress and outcomes are read out from one live region outside the re-rendered board, once each.
+  function announce(text) {
+    const region = $("announce");
+    region.textContent = "";
+    setTimeout(() => { region.textContent = text; }, 50);
   }
 
-  async function runAction(key, kind, full, work) {
+  // The page's only writes. Its capability grants the whole issue_write and actions_run_trigger
+  // tools (a capability can't be narrowed to methods), so the page holds itself to issue_write's
+  // update with labels and actions_run_trigger's run_workflow on ship.yml, here and nowhere else
+  // (build.test.mjs checks every call site).
+  const WRITES = {
+    issue_write: { method: "update", keys: ["method", "owner", "repo", "issue_number", "labels"] },
+    actions_run_trigger: { method: "run_workflow", keys: ["method", "owner", "repo", "workflow_id", "ref"], workflow_id: "ship.yml" },
+  };
+  async function callWrite(tool, input, verb) {
+    const allowed = WRITES[tool];
+    const ok = allowed && input.method === allowed.method && Object.keys(input).every((k) => allowed.keys.includes(k)) &&
+      (!allowed.workflow_id || input.workflow_id === allowed.workflow_id);
+    if (!ok) throw { shown: `This page doesn't ${verb} that way.` };
+    try {
+      return await state.mcp.callTool(GH, tool, input, { cache: false });
+    } catch (e) {
+      throw { code: e?.code, message: e?.message, verb };
+    }
+  }
+
+  // meta: { label (what it acts on: "#12" or the project), running (its progress words), bucket }.
+  async function runAction(key, kind, full, meta, work) {
     if (actions.get(key)?.status === "running") return;
-    actions.set(key, { kind, status: "running" });
+    actions.set(key, { kind, status: "running", ...meta });
+    announce(`${meta.running} ${meta.label}`);
     scheduleRender();
     try {
       const done = await work();
-      actions.set(key, { kind, status: "done", text: done?.text ?? done, url: done?.url ?? null, at: Date.now() });
+      const text = done?.text ?? done;
+      actions.set(key, { kind, status: "done", text, url: done?.url ?? null, at: Date.now(), ...meta });
+      announce(done?.said ?? `${text} ${meta.label}`);
       loads.get(full)?.refetch?.();
     } catch (e) {
-      actions.set(key, { kind, status: "error", text: e?.shown ?? writeError(e, e?.verb ?? "do that") });
-      // A write that may have run: read the project again too, so the page shows what GitHub has.
-      if (!e?.shown) loads.get(full)?.refetch?.();
+      const text = e?.shown ?? writeError(e, e?.verb ?? "do that");
+      actions.set(key, { kind, status: "error", text, ...meta });
+      announce(text);
+      // A write that may have run, or a PR that changed: read the project again, so the page shows what GitHub has.
+      if (!e?.shown || e.refetch) loads.get(full)?.refetch?.();
     }
     scheduleRender();
   }
 
+  // Once a refetch has moved an approved (or un-approved) card to another bucket, say where it went.
+  function announceMoves(cards) {
+    for (const [key, act] of actions) {
+      if (act.status !== "done" || act.moved || !act.bucket || !key.startsWith("pr:")) continue;
+      const card = cards.find((c) => `pr:${c.project}#${c.number}` === key);
+      if (!card || card.bucket === act.bucket) continue;
+      act.moved = true;
+      announce(`${act.text} ${act.label}, moved to ${BUCKETS.find((b) => b.id === card.bucket).title}`);
+    }
+  }
+
+  // Pointer clicks on an action button (Cancel aside) just after the cards moved are ignored, so a card sliding
+  // under the pointer (an approved card leaving Needs you) can't take a click meant for the one
+  // before it. Keyboard clicks (detail 0) are never held back: focus follows its card.
+  const SETTLE = 500;
+  let settleUntil = 0;
+  let layout = "";
+  function noteLayout(cards) {
+    const next = cards.map((c) => `${c.bucket}:${c.project}#${c.number}`).join(" ");
+    if (next !== layout) settleUntil = performance.now() + SETTLE;
+    layout = next;
+  }
+
+  // One action button (Approve, Un-approve, Land, Confirm, Cancel), and the note that says why it's
+  // off. Off or busy, it is aria-disabled rather than disabled, so it keeps focus through a re-render
+  // and an off one reads its reason (aria-describedby). off: the note's nodes, or null when it can run.
+  function actionButton({ key, text, hint, primary = false, small = false, off = null, busy = false, noteClass = "act-note", settle = true, onClick }) {
+    const noteId = `why-${key.replace(/[^\w-]/g, "_")}`;
+    const note = off ? el("p", { class: noteClass, id: noteId }, ...off) : null;
+    const cls = ["btn", small && "small", primary && !off && "primary", off && "is-off", busy && "is-busy"].filter(Boolean).join(" ");
+    const button = el("button", { class: cls, type: "button", title: off ? note.textContent : hint, "data-key": key }, text);
+    if (off || busy) button.setAttribute("aria-disabled", "true");
+    if (off) button.setAttribute("aria-describedby", noteId);
+    if (busy) button.setAttribute("aria-busy", "true");
+    button.addEventListener("click", (ev) => {
+      if (off || busy || (settle && ev.detail > 0 && performance.now() < settleUntil)) return;
+      onClick();
+    });
+    return [button, note];
+  }
+
+  const LABEL_ACTION = {
+    approve: { idle: "Approve", running: "Approving…", hint: "Adds ship: it lands with the next landing run" },
+    "review-first": { idle: "Approve", running: "Approving…", hint: "" },
+    unapprove: { idle: "Un-approve", running: "Un-approving…", hint: "Removes ship: it won't land until approved again" },
+  };
+
   // Approve and Un-approve: one issue_write with the PR's whole label list, ship added or removed.
-  // The labels are read fresh just before (one cheap read), so a label added since the last refetch
-  // isn't dropped; if that read fails, the last refetch's labels are used.
+  // The PR is read fresh just before: the labels written are that read's (so none added since the
+  // last refetch is dropped), and it must still offer the card's action (board.mjs's labelWrite).
+  // If the read fails, or the PR changed, nothing is written.
   function labelAction(card) {
     const approve = card.action === "approve";
     const verb = approve ? "approve" : "un-approve";
     const { owner, repo } = splitRepo(card.project);
-    runAction(`pr:${card.project}#${card.number}`, card.action, card.project, async () => {
-      let labels = card.labels;
+    const meta = { label: `#${card.number}`, running: LABEL_ACTION[card.action].running, bucket: card.bucket };
+    runAction(`pr:${card.project}#${card.number}`, card.action, card.project, meta, async () => {
+      let fresh;
       try {
-        const fresh = (await readOnce("pull_request_read", { method: "get", owner, repo, pullNumber: card.number }, { cache: false })).payload;
-        if (fresh && String(fresh.state).toLowerCase() !== "open") throw { shown: `#${card.number} isn't open any more.` };
-        if (Array.isArray(fresh?.labels)) labels = fresh.labels;
-      } catch (e) {
-        if (e?.shown) throw e;
+        fresh = (await readOnce("pull_request_read", { method: "get", owner, repo, pullNumber: card.number }, { cache: false })).payload;
+      } catch {
+        fresh = undefined;
       }
-      const has = labels.some((l) => (typeof l === "string" ? l : l?.name) === SHIP_LABEL);
-      if (has === approve) return approve ? "Already approved" : "Already un-approved";
-      try {
-        await state.mcp.callTool(GH, "issue_write", { method: "update", owner, repo, issue_number: card.number, labels: approve ? approveLabels(labels) : unapproveLabels(labels) }, { cache: false });
-      } catch (e) {
-        throw Object.assign(Object.create(null), { code: e?.code, message: e?.message, verb });
-      }
+      const write = labelWrite(card, fresh);
+      if (write.error) throw { shown: write.error, refetch: write.refetch };
+      await callWrite("issue_write", { method: "update", owner, repo, issue_number: card.number, labels: write.labels }, verb);
       return approve ? "Approved" : "Un-approved";
     });
   }
@@ -699,46 +775,66 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
   const RUN_WAIT = 2500;
   function landAction(full) {
     const branch = loads.get(full)?.ship?.defaultBranch;
+    if (!branch) return;
     const { owner, repo } = splitRepo(full);
-    runAction(`land:${full}`, "land", full, async () => {
+    runAction(`land:${full}`, "land", full, { label: full, running: "Starting a landing run on" }, async () => {
       const clickedAt = Date.now();
-      try {
-        await state.mcp.callTool(GH, "actions_run_trigger", { method: "run_workflow", owner, repo, workflow_id: "ship.yml", ref: branch }, { cache: false });
-      } catch (e) {
-        throw Object.assign(Object.create(null), { code: e?.code, message: e?.message, verb: "start a landing run" });
-      }
-      if (!state.tools.github.has("actions_list")) return { text: `Dispatched on ${branch}.` };
+      await callWrite("actions_run_trigger", { method: "run_workflow", owner, repo, workflow_id: "ship.yml", ref: branch }, "start a landing run");
+      const said = `Landing run started on ${full}`;
+      if (!state.tools.github.has("actions_list")) return { text: `Dispatched on ${branch}.`, said };
       for (let i = 0; i < RUN_LOOKS; i += 1) {
         await sleep(RUN_WAIT);
         try {
           const runs = await readOnce("actions_list", { method: "list_workflow_runs", owner, repo, resource_id: "ship.yml", workflow_runs_filter: { event: "workflow_dispatch" }, perPage: 1 }, { cache: false });
           const run = landingRun(runs.payload, clickedAt);
-          if (run) return { text: "Landing run started:", url: run.url };
+          if (run) return { text: "Landing run started:", url: run.url, said };
         } catch {
           // Only the link is missing: the dispatch went through.
         }
       }
-      return { text: `Dispatched on ${branch}. The run hasn't shown up yet: see the repo's Actions tab.` };
+      return { text: `Dispatched on ${branch}. The run hasn't shown up yet: see the repo's Actions tab.`, said };
     });
   }
 
-  // A project row's Land button and the line under it: progress, the run link, the error or the gate.
+  // Land asks first, in place: "Land 2 PRs: #4, #7?" with Confirm and Cancel, listing the PRs the
+  // board shows carrying ship for that project. Projects whose Land is waiting on that answer:
+  const confirming = new Set();
+  let focusNext = null; // a data-key to focus after the next paint (Cancel hands focus back to Land)
+
+  // A project row's Land button and the line under it: the question, progress, the run link, the error or the gate.
   function renderLand(full) {
     const key = `land:${full}`;
     const act = actions.get(key);
     let gate = gateOf(full, "actions_run_trigger");
     const branch = loads.get(full)?.ship?.defaultBranch;
-    if (gate.ok && !branch) gate = { ok: false, note: ["ship.yml names no default branch under its push trigger: run ", el("code", { text: "/ship:setup-ship" }), " to upgrade."] };
+    if (gate.ok && !branch) gate = { ok: false, note: ["ship.yml's push trigger names no branch as a list (branches: [main]), so the page can't tell where to land: run ", el("code", { text: "/ship:setup-ship" }), " to upgrade."] };
     const running = act?.status === "running";
-    const button = el("button", { class: "btn small land", type: "button", "data-key": `land:${full}`,
-      title: branch ? `Start ship.yml on ${branch}: it lands every approved PR that targets ${branch}` : "Start a landing run" }, running ? "Starting…" : "Land");
-    if (!gate.ok) button.disabled = true;
-    else if (running) { button.setAttribute("aria-disabled", "true"); button.setAttribute("aria-busy", "true"); }
-    button.addEventListener("click", () => { if (gateOf(full, "actions_run_trigger").ok && branch && actions.get(key)?.status !== "running") landAction(full); });
-    let msg = null;
-    if (!gate.ok) msg = el("p", { class: "land-msg" }, ...gate.note);
-    else if (act?.status === "error") msg = el("p", { class: "land-msg act-error", role: "alert", text: act.text });
-    else if (act?.status === "done") msg = el("p", { class: "land-msg", role: "status" }, act.text, act.url ? " " : null,
+    if (!gate.ok || running) confirming.delete(full);
+    if (confirming.has(full)) {
+      const shipped = cardsOf(full).filter((c) => c.kind === "pr" && c.action === "unapprove").sort((a, b) => a.number - b.number);
+      const question = shipped.length ? `Land ${plural(shipped.length, "PR")}: ${shipped.map((c) => `#${c.number}`).join(", ")}?` : "No PR on the board carries ship here. Start a landing run anyway?";
+      const [confirm] = actionButton({ key, text: "Confirm", primary: true, small: true, hint: `Start ship.yml on ${branch}`,
+        onClick: () => { confirming.delete(full); landAction(full); } });
+      const [cancel] = actionButton({ key: `land-cancel:${full}`, text: "Cancel", small: true, hint: "Don't land", settle: false,
+        onClick: () => { confirming.delete(full); focusNext = key; scheduleRender(); } });
+      const askId = `ask-${key.replace(/[^\w-]/g, "_")}`;
+      confirm.setAttribute("aria-describedby", askId);
+      return [el("div", { class: "land land-confirm", role: "group", "aria-label": `Land ${full}?` }, confirm, cancel),
+        el("p", { class: "land-msg", id: askId }, question)];
+    }
+    const [button, note] = actionButton({ key, text: running ? "Starting…" : "Land", small: true, busy: running, noteClass: "land-msg",
+      hint: `Start ship.yml on ${branch}: it lands every approved PR that targets ${branch}`, off: gate.ok ? null : gate.note,
+      onClick: () => {
+        confirming.add(full);
+        settleUntil = performance.now() + SETTLE; // a double click doesn't confirm
+        const shipped = cardsOf(full).filter((c) => c.kind === "pr" && c.action === "unapprove").length;
+        announce(`Land ${full}: ${shipped ? plural(shipped, "approved PR") : "no approved PR shown"}. Confirm or cancel.`);
+        scheduleRender();
+      } });
+    button.classList.add("land");
+    let msg = note;
+    if (!msg && act?.status === "error") msg = el("p", { class: "land-msg act-error", text: act.text });
+    else if (!msg && act?.status === "done") msg = el("p", { class: "land-msg" }, act.text, act.url ? " " : null,
       act.url ? el("a", { href: act.url, target: "_blank", rel: "noopener noreferrer", text: "open the run", "data-key": `run:${full}` }) : null);
     return [button, msg];
   }
@@ -899,31 +995,24 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
     return rows.length ? el("div", { class: "card-details" }, ...rows) : null;
   }
 
-  const LABEL_ACTION = {
-    approve: { idle: "Approve", running: "Approving…", hint: "Adds ship: it lands with the next landing run" },
-    unapprove: { idle: "Un-approve", running: "Un-approving…", hint: "Removes ship: it won't land until approved again" },
-  };
-
-  // A PR card's Approve or Un-approve, with its progress, error or the gate's note.
+  // A PR card's Approve or Un-approve, with its progress, outcome, error, or why it's off: the gate,
+  // or a review missing or out of date (Approve is withheld until the PR is reviewed again).
   function renderCardActions(card) {
     if (!card.action) return null;
     const key = `pr:${card.project}#${card.number}`;
     let act = actions.get(key);
-    // A finished action stays shown until the card has moved on (its offer changed) or a minute passed.
-    if (act?.status === "done" && (act.kind !== card.action || Date.now() - act.at > DONE_FOR)) { actions.delete(key); act = null; }
+    // An outcome stays under the button for a minute, wherever the card has moved.
+    if (act?.status === "done" && Date.now() - act.at > DONE_FOR) { actions.delete(key); act = null; }
+    const running = act?.status === "running";
     const words = LABEL_ACTION[card.action];
     const gate = gateOf(card.project, "issue_write");
-    const busy = act?.status === "running" || act?.status === "done";
-    const text = act?.status === "running" ? words.running : act?.status === "done" ? act.text : words.idle;
-    const button = el("button", { class: `btn${card.action === "approve" ? " primary" : ""}`, type: "button", title: words.hint, "data-key": `act:${card.project}#${card.number}` }, text);
-    // Running: aria-disabled, not disabled, so the button keeps keyboard focus through the re-render.
-    if (!gate.ok) button.disabled = true;
-    else if (busy) button.setAttribute("aria-disabled", "true");
-    if (act?.status === "running") button.setAttribute("aria-busy", "true");
-    button.addEventListener("click", () => { if (gateOf(card.project, "issue_write").ok && !busy) labelAction(card); });
-    return el("div", { class: "card-actions" }, button,
-      !gate.ok ? el("p", { class: "act-note" }, ...gate.note) : null,
-      act?.status === "error" ? el("p", { class: "act-error", role: "alert", text: act.text }) : null);
+    const stale = card.action === "review-first" ? [card.review?.outOfDate ? "Review out of date: re-run the review first." : "Not reviewed: run the review first."] : null;
+    const [button, note] = actionButton({ key: `act:${card.project}#${card.number}`, text: running ? words.running : words.idle,
+      hint: words.hint, primary: card.action === "approve", busy: running, off: gate.ok ? stale : gate.note,
+      onClick: () => labelAction(card) });
+    return el("div", { class: "card-actions" }, button, note,
+      act?.status === "error" ? el("p", { class: "act-error", text: act.text }) : null,
+      act?.status === "done" ? el("p", { class: "act-done", text: act.text }) : null);
   }
 
   // One card. Sibling specs extend the dashboard here: details, actions and sessions hang off the card.
@@ -1032,11 +1121,26 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
     frame = requestAnimationFrame(() => { frame = 0; if (state.mcp && !$("app").hidden) renderAll(); });
   }
 
+  // When the focused node's replacement isn't shown (a card that moved to a hidden phone tab), focus
+  // goes to the card now in its place in the same column, else to the bucket's tab, else Refresh.
+  const shown = (node) => !!node && node.getClientRects().length > 0;
   function renderAll() {
     const focused = document.activeElement;
-    const key = focused?.closest?.("[data-key]")?.dataset.key;
+    const key = focusNext ?? focused?.closest?.("[data-key]")?.dataset.key;
+    const col = focused?.closest?.("[data-bucket]");
+    const bucket = col?.dataset.bucket;
+    const at = col ? [...col.querySelectorAll(".card")].indexOf(focused.closest(".card")) : -1;
+    const handOff = focusNext;
+    focusNext = null;
     paint();
-    if (key && !focused.isConnected) document.querySelector(`[data-key="${CSS.escape(key)}"]`)?.focus({ preventScroll: true });
+    if (!key || (!handOff && focused.isConnected)) return;
+    const target = document.querySelector(`[data-key="${CSS.escape(key)}"]`);
+    if (shown(target)) return target.focus({ preventScroll: true });
+    const cards = bucket ? [...document.querySelectorAll(`[data-bucket="${bucket}"] .card`)] : [];
+    const near = cards[Math.min(Math.max(at, 0), cards.length - 1)];
+    const fallback = [near?.querySelector('[data-key^="act:"]'), near?.querySelector(".card-title"),
+      bucket && document.querySelector(`[data-key="tab:${bucket}"]`), $("refresh")].find(shown);
+    fallback?.focus({ preventScroll: true });
   }
 
   function paint() {
@@ -1064,6 +1168,8 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
     box.classList.toggle("phone-hide", rows.every((r) => r.classList.contains("phone-hide")));
     const cards = shownProjects.flatMap((full) => cardsBy.get(full));
     const stillLoading = shownProjects.some((full) => phaseOf(loads.get(full)) === "loading");
+    noteLayout(cards);
+    announceMoves(cards);
     const board = renderBoard(cards, stillLoading);
     board.dataset.tab = view.tab;
     $("board").replaceChildren(board);

@@ -1,7 +1,7 @@
 // node --test skills/dashboard/scripts/board.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { toCards, counts, ago, BUCKETS, normaliseRepo, mergeProjects, sortBucket, LANDED_WINDOW, isMissingFile, needsCheckRead, needsCommentRead, parseReview, safeUrl, openQuestions, designLink, morningPage, morningSpecs, shipYml, actionsEnabled, approveLabels, unapproveLabels, fileText, landingRun } from "./board.mjs";
+import { toCards, counts, ago, BUCKETS, normaliseRepo, mergeProjects, sortBucket, LANDED_WINDOW, isMissingFile, needsCheckRead, needsCommentRead, parseReview, safeUrl, openQuestions, designLink, morningPage, morningSpecs, shipYml, actionsEnabled, approveLabels, unapproveLabels, fileText, landingRun, prAction, labelWrite, writeError, WRITE_DEFINITE } from "./board.mjs";
 
 const NOW = Date.parse("2026-11-23T12:00:00Z");
 const hoursAgo = (h) => new Date(NOW - h * 3600e3).toISOString();
@@ -604,7 +604,7 @@ test("a file's text is read from get_file_contents' resource block, past its sta
 
 test("a reviewed PR's card offers Approve, a ship PR's card Un-approve, others neither", () => {
   const prs = [
-    pr(1, ["pr-reviewed"]),
+    { ...pr(1, ["pr-reviewed"]), body: REVIEW },
     pr(2, ["pr-reviewed", "ship"]),
     pr(3, ["ship"], { updated: hoursAgo(30) }),
     pr(4, ["pr-reviewed", "conflicts"]),
@@ -642,4 +642,100 @@ test("the landing run is the newest workflow_dispatch run created since the clic
   assert.equal(landingRun({ workflow_runs: [run(4, "2026-11-23T12:00:03Z", "push")] }, click), null);
   assert.equal(landingRun({ workflow_runs: [{ ...run(5, "2026-11-23T12:00:03Z"), html_url: "javascript:alert(1)" }] }, click), null);
   assert.equal(landingRun(undefined, click), null);
+});
+
+// ---- Who may be approved: prAction, on a card's PR and again on the fresh read before a write.
+
+const reviewed = (labels, opts) => ({ ...pr(1, labels, opts), body: REVIEW });
+const actionOf = (p) => toCards("acme/app", [], [p], {}, NOW)[0]?.action ?? null;
+
+test("prAction: an open, ready, reviewed PR with a current review gets Approve; one carrying ship gets Un-approve", () => {
+  assert.equal(actionOf(reviewed(["pr-reviewed"])), "approve");
+  assert.equal(actionOf(reviewed(["pr-reviewed", "ship"])), "unapprove");
+  assert.equal(actionOf(pr(2, ["ship"])), "unapprove", "taking ship off never needs a review");
+});
+
+test("prAction: a reviewed PR whose review is missing or out of date gets Approve withheld until it's reviewed again", () => {
+  assert.equal(actionOf(pr(1, ["pr-reviewed"])), "review-first", "no review section");
+  assert.equal(actionOf({ ...reviewed(["pr-reviewed"]), head: ref("x", "mallory/app") }), "review-first", "a fork's review isn't believed");
+  assert.equal(actionOf({ ...reviewed(["pr-reviewed"]), head: ref("x", "acme/app", "9999999aaaa") }), "review-first", "a review of an older head");
+});
+
+test("prAction: an open, non-draft PR without pr-reviewed gets no action, failing checks or not", () => {
+  const p = pr(1, []);
+  const [card] = toCards("acme/app", [], [p], { 1: { check_runs: [{ conclusion: "failure" }] } }, NOW);
+  assert.equal(card.reason, "checks failing");
+  assert.equal(card.action, null);
+});
+
+test("prAction takes the PR and its review, as the page calls it on a fresh read", () => {
+  const review = { outOfDate: false };
+  assert.equal(prAction({ state: "open", draft: false, labels: [{ name: "pr-reviewed" }] }, review), "approve");
+  assert.equal(prAction({ state: "open", draft: false, labels: [{ name: "pr-reviewed" }] }, { outOfDate: true }), "review-first");
+  assert.equal(prAction({ state: "closed", labels: ["ship"] }, review), null);
+  assert.equal(prAction({ state: "open", draft: true, labels: ["pr-reviewed"] }, review), null);
+});
+
+// ---- labelWrite: the label list to write, from the fresh pull_request_read get, or why nothing is written.
+
+const card = (action, labels = ["pr-reviewed"]) => ({ project: "acme/app", number: 1, action, labels });
+const fresh = (labels, extra = {}) => ({ ...reviewed(labels), ...extra });
+
+test("labelWrite: Approve writes the fresh labels plus ship, keeping a label added since the page loaded", () => {
+  assert.deepEqual(labelWrite(card("approve"), fresh([{ name: "pr-reviewed" }, { name: "needs-docs" }])),
+    { labels: ["pr-reviewed", "needs-docs", "ship"] });
+});
+
+test("labelWrite: Un-approve writes the fresh labels without ship", () => {
+  assert.deepEqual(labelWrite(card("unapprove", ["pr-reviewed", "ship"]), fresh([{ name: "pr-reviewed" }, { name: "ship" }, { name: "x" }])),
+    { labels: ["pr-reviewed", "x"] });
+});
+
+test("labelWrite: no fresh read, or one without a labels list, writes nothing and asks to try again", () => {
+  for (const f of [undefined, null, {}, { ...reviewed([]), labels: undefined }, { ...reviewed([]), labels: "ship" }]) {
+    assert.deepEqual(labelWrite(card("approve"), f), { error: "Couldn't read #1's labels: try again" });
+    assert.deepEqual(labelWrite(card("unapprove", ["ship"]), f), { error: "Couldn't read #1's labels: try again" });
+  }
+});
+
+test("labelWrite: a PR that changed since the page loaded is refused, and the project read again", () => {
+  const changed = { error: "#1 changed since the page loaded: refreshing", refetch: true };
+  const cases = {
+    "gained changes-requested": fresh(["pr-reviewed", "changes-requested"]),
+    "gained conflicts": fresh(["pr-reviewed", "conflicts"]),
+    "went draft": fresh(["pr-reviewed"], { draft: true }),
+    "lost pr-reviewed": fresh([]),
+    "already approved": fresh(["pr-reviewed", "ship"]),
+    "closed": fresh(["pr-reviewed"], { state: "closed" }),
+    "pushed since its review": fresh(["pr-reviewed"], { head: ref("x", "acme/app", "9999999aaaa") }),
+  };
+  for (const [what, f] of Object.entries(cases)) assert.deepEqual(labelWrite(card("approve"), f), changed, what);
+  assert.deepEqual(labelWrite(card("unapprove", ["ship"]), fresh(["pr-reviewed"])), changed, "ship already off");
+});
+
+// ---- writeError: a write that surely failed says what to do; any other says it may have gone through.
+
+test("writeError: each definite failure says so; every other code says the write may have gone through", () => {
+  const MAYBE = /may have gone through/;
+  for (const code of ["server_not_connected", "selection_required", "server_not_found", "bad_request", "not_granted",
+    "capability_disabled", "rate_limited", "not_in_manifest", "blocked_by_policy"]) {
+    assert.ok(WRITE_DEFINITE.has(code), code);
+    const text = writeError({ code, message: "m" }, "approve");
+    assert.doesNotMatch(text, MAYBE, code);
+    assert.ok(text.length > 10, code);
+  }
+  for (const e of [{ code: "server_unavailable" }, { code: "upstream_error" }, { code: "cancelled" }, { code: "timeout" }, { code: "something_new" }, {}, undefined]) {
+    assert.match(writeError(e, "approve"), MAYBE, JSON.stringify(e));
+  }
+});
+
+// ---- ship.yml's push block.
+
+test("ship.yml: the default branch is read only inside the push block; a list elsewhere doesn't count", () => {
+  const other = "# ship.yml version: 2\non:\n  push:\n    paths: [src]\n  pull_request:\n    branches: [develop]\n";
+  assert.equal(shipYml(other).defaultBranch, null, "pull_request's branches aren't push's");
+  const multi = "# ship.yml version: 2\non:\n  push:\n    branches:\n      - main\n";
+  assert.equal(shipYml(multi).defaultBranch, null, "no inline list: no branch, Land stays off");
+  const after = "# ship.yml version: 2\non:\n  push:\n\n    # trunk only\n    branches: [trunk]\njobs:\n  x:\n    branches: [nope]\n";
+  assert.equal(shipYml(after).defaultBranch, "trunk", "blank and comment lines stay inside the block");
 });

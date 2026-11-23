@@ -129,11 +129,12 @@ function prCard(project, pr, check, now, openPrs) {
   if (!rule) return null;
   const since = rule.at(p);
   const age = ago(now - Date.parse(since));
+  const review = trustedReview(project, pr);
   return {
     project, number: pr.number, title: pr.title, url: `https://github.com/${project}/pull/${pr.number}`,
     kind: "pr", bucket: rule.bucket, reason: rule.reason(age), since, age,
-    review: trustedReview(project, pr), landsAfter: p.open ? landsAfter(project, pr, openPrs) : null,
-    labels: [...p.l], action: prAction(p),
+    review, landsAfter: p.open ? landsAfter(project, pr, openPrs) : null,
+    labels: [...p.l], action: prAction(pr, review),
   };
 }
 
@@ -148,14 +149,18 @@ function trustedReview(project, pr) {
   return outOfDate ? { ...review, verdict: null, tone: null, line: null, risks: null, outOfDate } : { ...review, outOfDate };
 }
 
-// The label step a PR card offers, the two /ship:land takes (skills/land/SKILL.md): Approve on an open,
-// ready, reviewed PR without `ship`, and not one already sent back (changes-requested) or taken out of
-// the queue (conflicts); Un-approve on an open PR carrying `ship`. → "approve", "unapprove" or null.
-function prAction(p) {
-  if (!p.open) return null;
-  if (p.l.has("ship")) return "unapprove";
-  if (p.draft || !p.l.has("pr-reviewed") || p.l.has("changes-requested") || p.l.has("conflicts")) return null;
-  return "approve";
+// The label step a PR offers, the two /ship:land takes (skills/land/SKILL.md): Approve on an open,
+// ready PR with `pr-reviewed` and without `ship`, and not one already sent back (changes-requested) or
+// taken out of the queue (conflicts); Un-approve on an open PR carrying `ship`. Approve also needs a
+// review the page believes (review: trustedReview's answer): without one, or with one of an older
+// head, it is withheld ("review-first") until the PR is reviewed again. pr: as list_pull_requests or
+// pull_request_read get give it. → "approve", "review-first", "unapprove" or null.
+export function prAction(pr, review) {
+  if (!isOpenPr(pr)) return null;
+  const l = new Set(names(pr.labels));
+  if (l.has(SHIP_LABEL)) return "unapprove";
+  if (pr.draft || !l.has("pr-reviewed") || l.has("changes-requested") || l.has("conflicts")) return null;
+  return review && !review.outOfDate ? "approve" : "review-first";
 }
 
 // toCards(project, issues, prs, checks, now) → cards, issues first, then PRs.
@@ -170,7 +175,7 @@ function prAction(p) {
 //   spec cards:   openQuestions (a count, or null without the section), pr ({ number, url } or null)
 //   design cards: designUrl (claude.ai, or null)
 //   PR cards:     review (trustedReview: parseReview plus outOfDate, or null), landsAfter (the PR it is stacked on, or null),
-//                 labels (names), action ("approve", "unapprove" or null: the label step it offers)
+//                 labels (names), action (prAction: "approve", "review-first", "unapprove" or null)
 // Items that need nothing from the dashboard (spec:in-review specs, unreviewed ready PRs,
 // PRs closed unmerged, anything older than a week in Landed) get no card.
 export function toCards(project, issues, prs, checks, now) {
@@ -355,11 +360,22 @@ export function morningPage(comments) {
 export function shipYml(text) {
   const lines = String(text ?? "").split(/\r?\n/);
   const version = lines[0]?.match(/^#\s*ship\.yml version:\s*(\d+)\s*$/);
-  // The first "branches: [x]" after the "push:" trigger.
-  const push = lines.findIndex((l) => /^\s+push:\s*$/.test(l));
-  const branches = push < 0 ? null : lines.slice(push + 1).find((l) => /^\s+branches:/.test(l));
-  const branch = branches?.match(/branches:\s*\[\s*["']?([^"',\]\s]+)["']?/)?.[1] ?? null;
-  return { version: version ? Number(version[1]) : null, defaultBranch: branch };
+  return { version: version ? Number(version[1]) : null, defaultBranch: pushBranch(lines) };
+}
+
+// The inline "branches: [x]" inside the "push:" trigger's block, which ends at the next line indented
+// no deeper than "push:" (blank and comment lines don't end it). Without an inline list there, no
+// branch: Land stays off rather than taking another trigger's branches. → the first branch, or null.
+const indent = (l) => l.match(/^\s*/)[0].length;
+function pushBranch(lines) {
+  const at = lines.findIndex((l) => /^\s+push:\s*(#.*)?$/.test(l));
+  if (at < 0) return null;
+  for (const l of lines.slice(at + 1)) {
+    if (!l.trim() || l.trim().startsWith("#")) continue;
+    if (indent(l) <= indent(lines[at])) return null;
+    if (/^\s+branches:/.test(l)) return l.match(/branches:\s*\[\s*["']?([^"',\]\s]+)["']?/)?.[1] ?? null;
+  }
+  return null;
 }
 
 // Version 2 is the first where `ship` only approves and a landing run lands: older ones land a PR as
@@ -372,6 +388,44 @@ export const actionsEnabled = (version) => Number.isInteger(version) && version 
 export const SHIP_LABEL = "ship";
 export const approveLabels = (labels) => [...names(labels).filter((n) => n !== SHIP_LABEL), SHIP_LABEL];
 export const unapproveLabels = (labels) => names(labels).filter((n) => n !== SHIP_LABEL);
+
+// Approve or Un-approve's write, from pull_request_read get's answer just before it (fresh: its
+// payload, or undefined when the read failed). The labels come from that read only, so none added
+// since the page loaded is dropped, and the PR must still offer the card's action, so a PR that went
+// draft, lost pr-reviewed, gained changes-requested or conflicts, or was pushed since its review, is
+// never approved. card: { project, number, action }.
+// → { labels } to write, or { error, refetch? } when nothing is written (refetch: read the project again).
+export function labelWrite(card, fresh) {
+  if (!fresh || !Array.isArray(fresh.labels)) return { error: `Couldn't read #${card.number}'s labels: try again` };
+  const now = prAction(fresh, trustedReview(card.project, fresh));
+  if (now !== card.action || (now !== "approve" && now !== "unapprove")) return { error: `#${card.number} changed since the page loaded: refreshing`, refetch: true };
+  return { labels: now === "approve" ? approveLabels(fresh.labels) : unapproveLabels(fresh.labels) };
+}
+
+// The words for a failed write (issue_write or actions_run_trigger), by the connector's error code.
+// Only the codes listed here mean the write surely didn't happen; any other (a timeout, an upstream
+// error, a code added later) may have run, and says so. verb: what was tried ("approve").
+export const WRITE_DEFINITE = new Map([
+  ["approval_required", (v) => `GitHub needs your approval to ${v}. ${v[0].toUpperCase()}${v.slice(1)} again to be asked.`],
+  ["consent_required", (v) => `GitHub needs your approval to ${v}. ${v[0].toUpperCase()}${v.slice(1)} again to be asked.`],
+  ["not_granted", (v) => `This page wasn't allowed to ${v}: ${v} again and allow it when asked.`],
+  ["not_in_manifest", (v) => `This page isn't allowed to ${v}: turn the GitHub connector's tool on in Permissions, or rerun /ship:dashboard.`],
+  ["capability_disabled", (v) => `Connector calls are turned off for this page, so it can't ${v}.`],
+  ["blocked_by_policy", (v) => `Your organization's policy doesn't let this page ${v}.`],
+  ["server_not_connected", () => "GitHub isn't connected: connect it in claude.ai Settings → Connectors, then try again."],
+  ["server_not_found", () => "GitHub isn't connected: connect it in claude.ai Settings → Connectors, then try again."],
+  ["selection_required", (v) => `Pick the GitHub connection to use when asked, then ${v} again.`],
+  ["needs_reauth", () => "Reconnect GitHub in claude.ai Settings → Connectors, then try again."],
+  ["bad_request", (v, m) => `GitHub rejected the request to ${v}${m ? `: ${m}` : ""}. Nothing changed.`],
+  ["rate_limited", () => "Too many GitHub calls just now: wait a minute, then try again."],
+  ["tool_error", (v, m) => `GitHub refused: ${m || "tool_error"}`],
+]);
+export function writeError(e, verb) {
+  const code = e?.code ?? "upstream_error";
+  const definite = WRITE_DEFINITE.get(code);
+  if (definite) return definite(verb, e?.message);
+  return `No clear answer from GitHub (${code}${e?.message ? `: ${e.message}` : ""}): it may have gone through. Check the page after it refreshes before trying again.`;
+}
 
 // A file's text from a get_file_contents result: the GitHub connector answers with a status line,
 // then the file as an embedded resource; the REST shape ({ content, encoding: "base64" }) is read too.
