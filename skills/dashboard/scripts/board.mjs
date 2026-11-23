@@ -310,7 +310,11 @@ export function morningPage(comments) {
 export function shipYml(text) {
   const lines = String(text ?? "").split(/\r?\n/);
   const version = lines[0]?.match(/^#\s*ship\.yml version:\s*(\d+)\s*$/);
-  return { version: version ? Number(version[1]) : null, defaultBranch: null };
+  // The first "branches: [x]" after the "push:" trigger.
+  const push = lines.findIndex((l) => /^\s+push:\s*$/.test(l));
+  const branches = push < 0 ? null : lines.slice(push + 1).find((l) => /^\s+branches:/.test(l));
+  const branch = branches?.match(/branches:\s*\[\s*["']?([^"',\]\s]+)["']?/)?.[1] ?? null;
+  return { version: version ? Number(version[1]) : null, defaultBranch: branch };
 }
 
 // Version 2 is the first where `ship` only approves and a landing run lands: older ones land a PR as
@@ -341,4 +345,15 @@ export function fileText(result) {
     }
   }
   return null;
+}
+
+// actions_list's list_workflow_runs for ship.yml, newest first: the run a Land click started is the
+// newest workflow_dispatch run created after the click (less a few seconds for clock skew between
+// this device and GitHub). → { id, url } or null when it hasn't appeared yet.
+const RUN_SKEW = 5e3;
+export function landingRun(payload, clickedAt) {
+  const runs = Array.isArray(payload) ? payload : payload?.workflow_runs ?? [];
+  const run = runs.find((r) => r?.event === "workflow_dispatch" && Date.parse(r.created_at) >= clickedAt - RUN_SKEW);
+  const url = run && safeUrl(run.html_url);
+  return url ? { id: run.id, url } : null;
 }

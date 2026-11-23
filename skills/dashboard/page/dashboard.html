@@ -87,7 +87,7 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
 .projects h2, .board h2 { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin: 0; }
 .projects > h2 { padding: 12px 16px; border-bottom: 1px solid var(--line); }
 .project {
-  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 8px 16px;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; align-items: center; gap: 8px 16px;
   padding: 10px 16px; min-height: 52px; border-top: 1px solid var(--line);
 }
 .projects > h2 + .project { border-top: 0; }
@@ -167,11 +167,17 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
 .act-note { margin: 0; font-size: 12px; color: var(--muted); }
 .act-note code { font-family: var(--font-mono); color: var(--fg); }
 .act-error { margin: 0; font-size: 13px; color: var(--danger); overflow-wrap: anywhere; }
+.project .land { min-width: 96px; }
+.land-msg { grid-column: 1 / -1; margin: 0; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+.land-msg a { color: var(--accent); }
+.land-msg code { font-family: var(--font-mono); color: var(--fg); }
+.land-msg.act-error { color: var(--danger); }
 
 @media (max-width: 720px) {
   .board { grid-template-columns: minmax(0, 1fr); }
   .project { grid-template-columns: minmax(0, 1fr) auto; }
   .project .counts, .project .skeleton { grid-column: 1 / -1; justify-content: flex-start; grid-row: 2; }
+  .project .land { grid-column: 1 / -1; width: 100%; }
   .project .name a { display: inline-flex; align-items: center; min-height: 44px; }
 }
 
@@ -266,7 +272,7 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
   // The connector tools this page calls. Keep in step with the `mcp` capabilities in SKILL.md
   // (build.test.mjs checks they match).
   const CONNECTORS = {
-    github: { server: "github", tools: ["list_issues", "list_pull_requests", "pull_request_read", "get_file_contents", "issue_read", "issue_write"] },
+    github: { server: "github", tools: ["list_issues", "list_pull_requests", "pull_request_read", "get_file_contents", "issue_read", "issue_write", "actions_run_trigger", "actions_list"] },
     remote: { server: "Claude Code Remote", tools: ["list_repos"] },
   };
   const GH = CONNECTORS.github.server;
@@ -637,8 +643,8 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
     actions.set(key, { kind, status: "running" });
     scheduleRender();
     try {
-      const text = await work();
-      actions.set(key, { kind, status: "done", text, at: Date.now() });
+      const done = await work();
+      actions.set(key, { kind, status: "done", text: done?.text ?? done, url: done?.url ?? null, at: Date.now() });
       loads.get(full)?.refetch?.();
     } catch (e) {
       actions.set(key, { kind, status: "error", text: e?.shown ?? writeError(e, e?.verb ?? "do that") });
@@ -673,6 +679,57 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
       }
       return approve ? "Approved" : "Un-approved";
     });
+  }
+
+  // Land: one actions_run_trigger dispatching ship.yml on the default branch, as /ship:land does.
+  // Then its run is looked for a few times over about ten seconds (reads, through the pool); if it
+  // hasn't appeared, the row says "dispatched" without a link.
+  const RUN_LOOKS = 4;
+  const RUN_WAIT = 2500;
+  function landAction(full) {
+    const branch = loads.get(full)?.ship?.defaultBranch;
+    const { owner, repo } = splitRepo(full);
+    runAction(`land:${full}`, "land", full, async () => {
+      const clickedAt = Date.now();
+      try {
+        await state.mcp.callTool(GH, "actions_run_trigger", { method: "run_workflow", owner, repo, workflow_id: "ship.yml", ref: branch }, { cache: false });
+      } catch (e) {
+        throw Object.assign(Object.create(null), { code: e?.code, message: e?.message, verb: "start a landing run" });
+      }
+      if (!state.tools.github.has("actions_list")) return { text: `Dispatched on ${branch}.` };
+      for (let i = 0; i < RUN_LOOKS; i += 1) {
+        await sleep(RUN_WAIT);
+        try {
+          const runs = await readOnce("actions_list", { method: "list_workflow_runs", owner, repo, resource_id: "ship.yml", workflow_runs_filter: { event: "workflow_dispatch" }, perPage: 1 }, { cache: false });
+          const run = landingRun(runs.payload, clickedAt);
+          if (run) return { text: "Landing run started:", url: run.url };
+        } catch {
+          // Only the link is missing: the dispatch went through.
+        }
+      }
+      return { text: `Dispatched on ${branch}. The run hasn't shown up yet: see the repo's Actions tab.` };
+    });
+  }
+
+  // A project row's Land button and the line under it: progress, the run link, the error or the gate.
+  function renderLand(full) {
+    const key = `land:${full}`;
+    const act = actions.get(key);
+    let gate = gateOf(full, "actions_run_trigger");
+    const branch = loads.get(full)?.ship?.defaultBranch;
+    if (gate.ok && !branch) gate = { ok: false, note: ["ship.yml names no default branch under its push trigger: run ", el("code", { text: "/ship:setup-ship" }), " to upgrade."] };
+    const running = act?.status === "running";
+    const button = el("button", { class: "btn small land", type: "button", "data-key": `land:${full}`,
+      title: branch ? `Start ship.yml on ${branch}: it lands every approved PR that targets ${branch}` : "Start a landing run" }, running ? "Starting…" : "Land");
+    if (!gate.ok) button.disabled = true;
+    else if (running) { button.setAttribute("aria-disabled", "true"); button.setAttribute("aria-busy", "true"); }
+    button.addEventListener("click", () => { if (gateOf(full, "actions_run_trigger").ok && branch && actions.get(key)?.status !== "running") landAction(full); });
+    let msg = null;
+    if (!gate.ok) msg = el("p", { class: "land-msg" }, ...gate.note);
+    else if (act?.status === "error") msg = el("p", { class: "land-msg act-error", role: "alert", text: act.text });
+    else if (act?.status === "done") msg = el("p", { class: "land-msg", role: "status" }, act.text, act.url ? " " : null,
+      act.url ? el("a", { href: act.url, target: "_blank", rel: "noopener noreferrer", text: "open the run", "data-key": `run:${full}` }) : null);
+    return [button, msg];
   }
 
   function stopProject(full) {
@@ -896,7 +953,8 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
     const cut = prsCut(load) ? el("span", { class: "row-warn", text: "some PRs not shown" }) : null;
     return el("div", { class: "project", "data-project": full }, name,
       el("div", { class: "counts" }, ...countPills(counts(cards))),
-      el("div", { class: "updated" }, load.storedAt ? `updated ${since(load.storedAt)}` : "", stale, warn, cut));
+      el("div", { class: "updated" }, load.storedAt ? `updated ${since(load.storedAt)}` : "", stale, warn, cut),
+      ...renderLand(full));
   }
 
   function renderBoard(cards, stillLoading) {
@@ -974,10 +1032,11 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
     // On a phone the chip filters what shows; desktop always shows every project.
     const shownProjects = phone.matches && view.project !== "all" ? [view.project] : list;
     const rows = list.map((full) => projectRow(full, cardsBy.get(full)));
-    // Phone: a row shows for an error, or, once its chip is picked, for its morning-page link.
+    // Phone: a row shows for an error, or, once its chip is picked, for its Land button and
+    // morning-page link.
     const picked = view.project !== "all";
     rows.forEach((row) => row.classList.toggle("phone-hide", !shownProjects.includes(row.dataset.project) ||
-      !(row.classList.contains("is-error") || (picked && row.querySelector("a.morning")))));
+      !(row.classList.contains("is-error") || (picked && row.querySelector("a.morning, .land")))));
     box.append(...rows);
     box.classList.toggle("phone-hide", rows.every((r) => r.classList.contains("phone-hide")));
     const cards = shownProjects.flatMap((full) => cardsBy.get(full));

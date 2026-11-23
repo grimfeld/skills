@@ -149,15 +149,18 @@ Cards carry the details that decide the next step, read from what the other ship
 
 Links in descriptions and comments are only followed when they are `https://`.
 
-Two of `/ship:land`'s steps can be done from the page:
-- **Approve** on a reviewed PR's card (`pr-reviewed`, no `ship`, not a draft, not sent back or conflicting) adds `ship`, and the card moves to In flight. **Un-approve** on a card carrying `ship` removes it. Each click is one label change, made with your GitHub connector, which asks for your approval the first time.
+`/ship:land`'s two mechanical steps can be done from the page:
+- **Approve** on a reviewed PR's card (`pr-reviewed`, no `ship`, not a draft, not sent back or conflicting) adds `ship`, and the card moves to In flight. **Un-approve** on a card carrying `ship` removes it.
+- **Land** on a project row starts its landing run: it dispatches `ship.yml` on the default branch (the one its push trigger names), which lands every approved PR that targets it. The row then links the run, or says "dispatched" if the run hasn't shown up within about ten seconds. On a phone, pick the project's chip to see its row.
 
-They need the project's `.github/workflows/ship.yml` to be version 2 or later (its first line, `# ship.yml version: 2`), as `/ship:land` does: in older versions `ship` lands a PR at once. With an older or missing file, the buttons are off and say to run `/ship:setup-ship` to upgrade. A failed action shows its error on the card and isn't retried; commenting, sending a PR back and anything else that takes judgement stay with `/ship:land`.
+Each click is one change, made with your GitHub connector, which asks for your approval the first time.
+
+They need the project's `.github/workflows/ship.yml` to be version 2 or later (its first line, `# ship.yml version: 2`), as `/ship:land` does: in older versions `ship` lands a PR at once. With an older or missing file, the buttons are off and say to run `/ship:setup-ship` to upgrade. A failed action shows its error on its card or project row and isn't retried; commenting, sending a PR back and anything else that takes judgement stay with `/ship:land`.
 
 Run it once and pin the page. Running it again (after a plugin update, say) republishes to the same page: it finds it among your artifacts by its title, "Ship dashboard".
 
 It needs, in claude.ai:
-- the **GitHub** connector, to read issues, PRs, their checks, recent specs' comments, `docs/agents/shipping.md` and `ship.yml`, and to change a PR's labels when you Approve or Un-approve
+- the **GitHub** connector, to read issues, PRs, their checks, recent specs' comments, `docs/agents/shipping.md` and `ship.yml`, to change a PR's labels when you Approve or Un-approve, and to start and find a landing run when you Land
 - optionally **Claude Code Remote**, to find your projects: without it, add them by name
 
 The first open asks you to allow both for the page.

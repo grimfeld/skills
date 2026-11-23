@@ -1,7 +1,7 @@
 // node --test skills/dashboard/scripts/board.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { toCards, counts, ago, BUCKETS, normaliseRepo, mergeProjects, sortBucket, LANDED_WINDOW, isMissingFile, needsCheckRead, parseReview, safeUrl, openQuestions, designLink, morningPage, morningSpecs, shipYml, actionsEnabled, approveLabels, unapproveLabels, fileText } from "./board.mjs";
+import { toCards, counts, ago, BUCKETS, normaliseRepo, mergeProjects, sortBucket, LANDED_WINDOW, isMissingFile, needsCheckRead, parseReview, safeUrl, openQuestions, designLink, morningPage, morningSpecs, shipYml, actionsEnabled, approveLabels, unapproveLabels, fileText, landingRun } from "./board.mjs";
 
 const NOW = Date.parse("2026-11-23T12:00:00Z");
 const hoursAgo = (h) => new Date(NOW - h * 3600e3).toISOString();
@@ -503,4 +503,23 @@ test("a reviewed PR's card offers Approve, a ship PR's card Un-approve, others n
     7: ["landed", null],
   });
   assert.deepEqual(toCards("acme/app", [], [pr(1, ["pr-reviewed", "spec:in-review"])], {}, NOW)[0].labels, ["pr-reviewed", "spec:in-review"]);
+});
+
+test("ship.yml names the default branch in its push trigger, as setup-ship writes it", () => {
+  assert.equal(shipYml(shipFile("# ship.yml version: 2", "trunk")).defaultBranch, "trunk");
+  assert.equal(shipYml(shipFile("# ship.yml version: 2", "'release/1.x'")).defaultBranch, "release/1.x");
+  assert.equal(shipYml("# ship.yml version: 2\non:\n  workflow_dispatch:\n").defaultBranch, null);
+  assert.equal(shipYml(null).defaultBranch, null);
+});
+
+test("the landing run is the newest workflow_dispatch run created since the click", () => {
+  const click = Date.parse("2026-11-23T12:00:00Z");
+  const run = (id, at, event = "workflow_dispatch") => ({ id, event, created_at: at, html_url: `https://github.com/acme/app/actions/runs/${id}` });
+  assert.deepEqual(landingRun({ workflow_runs: [run(2, "2026-11-23T12:00:03Z"), run(1, "2026-11-23T11:00:00Z")] }, click),
+    { id: 2, url: "https://github.com/acme/app/actions/runs/2" });
+  assert.equal(landingRun({ workflow_runs: [run(1, "2026-11-23T11:59:00Z")] }, click), null, "an earlier run isn't this one");
+  assert.equal(landingRun({ workflow_runs: [run(3, "2026-11-23T11:59:58Z")] }, click)?.id, 3, "a few seconds of clock skew are allowed");
+  assert.equal(landingRun({ workflow_runs: [run(4, "2026-11-23T12:00:03Z", "push")] }, click), null);
+  assert.equal(landingRun({ workflow_runs: [{ ...run(5, "2026-11-23T12:00:03Z"), html_url: "javascript:alert(1)" }] }, click), null);
+  assert.equal(landingRun(undefined, click), null);
 });
