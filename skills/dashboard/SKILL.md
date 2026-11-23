@@ -28,14 +28,14 @@ List the user's artifacts with the Artifact tool, `action: "list"`, `limit: 200`
 
 ## 3. Publish
 
-Every publish passes these capabilities. They are the connector tools the page calls, and must match `CONNECTORS` in `page/dashboard.html`. The page's writes are `issue_write` (Approve and Un-approve on PR cards) and `actions_run_trigger` (Land on a project row); `actions_list` finds the run Land started.
+Every publish passes these capabilities. They are the connector tools the page calls, and must match `CONNECTORS` in `page/dashboard.html`. The page's writes are `issue_write` (Approve and Un-approve on PR cards) and `actions_run_trigger` (Land on a project row); `actions_list` finds the run Land started. On Claude Code Remote, `list_repos` finds projects, and `list_environments` and `create_session` start a ship skill session from a card.
 
 ```json
 {
   "mcp": {
     "servers": [
       { "server": "github", "tools": ["list_issues", "list_pull_requests", "pull_request_read", "get_file_contents", "issue_read", "issue_write", "actions_run_trigger", "actions_list"] },
-      { "server": "Claude Code Remote", "tools": ["list_repos"] }
+      { "server": "Claude Code Remote", "tools": ["list_repos", "list_environments", "create_session"] }
     ]
   }
 }
@@ -48,4 +48,4 @@ If a publish is refused because the page changed since you read it, read it agai
 
 ## 4. Report
 
-Print the link. Add one line on what the page needs: the GitHub connector, and Claude Code Remote to find projects on its own (without it, projects are added by name with **Add repo**). The first open asks the viewer to allow them.
+Print the link. Add one line on what the page needs: the GitHub connector, and Claude Code Remote to find projects on its own and to start skill sessions from cards (without it, projects are added by name with **Add repo**, and the skill buttons are hidden). The first open asks the viewer to allow them.

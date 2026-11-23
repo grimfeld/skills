@@ -44,6 +44,7 @@ function issueCard(project, issue, now, prs) {
   return {
     project, number: issue.number, title: issue.title, url: `https://github.com/${project}/issues/${issue.number}`,
     kind: rule.kind, bucket: rule.bucket, reason: rule.reason, since: issue.updated_at, age: ago(now - Date.parse(issue.updated_at)),
+    labels: [...i.l],
     ...(rule.kind === "spec" ? { openQuestions: openQuestions(issue.body), pr: specPr(project, issue.number, prs) } : {}),
     ...(rule.kind === "design" ? { designUrl: designLink(issue.body) } : {}),
   };
@@ -145,11 +146,11 @@ function prAction(p) {
 //   checks:  { [prNumber]: { check_runs, statuses } }, missing for PRs whose checks weren't read
 //            (or couldn't be: an unread PR counts as not failing, and the page says so on its row)
 //   now:     epoch ms
-// Each card: { project, number, title, url, kind: "spec"|"design"|"pr", bucket, reason, since, age }, plus
+// Each card: { project, number, title, url, kind: "spec"|"design"|"pr", bucket, reason, since, age, labels (names) }, plus
 //   spec cards:   openQuestions (a count, or null without the section), pr ({ number, url } or null)
 //   design cards: designUrl (https, or null)
 //   PR cards:     review (parseReview, or null), landsAfter (the PR it is stacked on, or null),
-//                 labels (names), action ("approve", "unapprove" or null: the label step it offers)
+//                 action ("approve", "unapprove" or null: the label step it offers)
 // Items that need nothing from the dashboard (spec:in-review specs, unreviewed ready PRs,
 // PRs closed unmerged, anything older than a week in Landed) get no card.
 export function toCards(project, issues, prs, checks, now) {
@@ -356,4 +357,51 @@ export function landingRun(payload, clickedAt) {
   const run = runs.find((r) => r?.event === "workflow_dispatch" && Date.parse(r.created_at) >= clickedAt - RUN_SKEW);
   const url = run && safeUrl(run.html_url);
   return url ? { id: run.id, url } : null;
+}
+
+// ---- Run a skill: a card that needs a ship skill starts a Claude cloud session on its repo with the
+// command as its first message. The commands are the skills' own (skills/<name>/SKILL.md argument-hint).
+// card: a toCards card. → { label, command }, or null when the card needs no skill.
+//   an open spec:draft spec        Resume spec   /ship:spec-me #n
+//   an open conflicts PR           Resolve       /ship:resolve-conflicts n
+//   a reviewed PR (offers Approve) Send back     /ship:land n   (land decides whether there is a comment to send back)
+//   a design:ready design          Spec design   /ship:design-me #n
+// Landed cards are closed or merged: they need nothing.
+export function skillFor(card) {
+  if (!card || card.bucket === "landed") return null;
+  const l = new Set(card.labels ?? []);
+  const n = card.number;
+  if (card.kind === "spec" && l.has("spec:draft")) return { label: "Resume spec", command: `/ship:spec-me #${n}` };
+  if (card.kind === "design") return { label: "Spec design", command: `/ship:design-me #${n}` };
+  if (card.kind !== "pr") return null;
+  if (l.has("conflicts")) return { label: "Resolve", command: `/ship:resolve-conflicts ${n}` };
+  if (card.action === "approve") return { label: "Send back", command: `/ship:land ${n}` };
+  return null;
+}
+
+// The environment a project's sessions run in, before the viewer picks: the one whose name equals the
+// repo's name (case-insensitive), else the first cloud environment listed, else the first listed. A
+// "bridge" environment is someone's own machine, which may be off, so a cloud one is preferred when
+// nothing is named for the repo. envs: Claude Code Remote list_environments items
+// { environment_id, name, kind }. project: "owner/name". → the environment, or null when there is none.
+export function preselectEnvironment(envs, project) {
+  const list = (envs ?? []).filter((e) => e?.environment_id);
+  const repo = String(project ?? "").split("/").pop().toLowerCase();
+  return list.find((e) => String(e.name ?? "").trim().toLowerCase() === repo) ??
+    list.find((e) => e.kind === "anthropic_cloud") ?? list[0] ?? null;
+}
+
+// The new session from a Claude Code Remote create_session result. Its shape wasn't observed (the
+// tool says it "returns the new session's ID and status"), so the id is looked for as session_id,
+// id or session.id in the payload, else as a "session_…" id in its text. Only a plain id makes a
+// link. → { id, url: https://claude.ai/code/<id> }, or null.
+const SESSION_ID = /^[A-Za-z0-9_-]+$/;
+const idIn = (o) => (o && typeof o === "object" ? [o.session_id, o.id, o.session?.id, o.session?.session_id].find((v) => typeof v === "string") : undefined);
+const json = (text) => { try { return JSON.parse(text); } catch { return null; } };
+export function sessionLink(result) {
+  const p = result?.payload;
+  const texts = [typeof p === "string" ? p : "", ...(result?.content ?? []).map((b) => (typeof b?.text === "string" ? b.text : ""))];
+  const id = idIn(p) ?? texts.map((t) => idIn(json(t))).find(Boolean) ??
+    texts.join("\n").match(/\bsession_[A-Za-z0-9]+\b/)?.[0];
+  return id && SESSION_ID.test(id) ? { id, url: `https://claude.ai/code/${id}` } : null;
 }

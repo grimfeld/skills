@@ -163,6 +163,7 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
 /* Actions sit at the bottom of their card, full width: one 44 px target, on every screen. */
 .card-actions { display: grid; gap: 6px; padding-top: 4px; }
 .card-actions .btn { width: 100%; }
+.card-actions a.btn { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; color: var(--accent); }
 .btn[aria-disabled="true"] { opacity: 0.7; cursor: progress; }
 .act-note { margin: 0; font-size: 12px; color: var(--muted); }
 .act-note code { font-family: var(--font-mono); color: var(--fg); }
@@ -273,9 +274,10 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
   // (build.test.mjs checks they match).
   const CONNECTORS = {
     github: { server: "github", tools: ["list_issues", "list_pull_requests", "pull_request_read", "get_file_contents", "issue_read", "issue_write", "actions_run_trigger", "actions_list"] },
-    remote: { server: "Claude Code Remote", tools: ["list_repos"] },
+    remote: { server: "Claude Code Remote", tools: ["list_repos", "list_environments", "create_session"] },
   };
   const GH = CONNECTORS.github.server;
+  const REMOTE = CONNECTORS.remote.server;
 
   // Codes that mean the viewer has to act before a connector answers.
   const DENIED = new Set(["needs_reauth", "server_not_connected", "selection_required", "server_not_found", "not_in_manifest", "blocked_by_policy", "approval_required", "not_granted", "capability_disabled", "capability_removed", "consent_required"]);
@@ -377,11 +379,11 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
   const inPool = pool(6);
 
   const READ_CACHE = { staleTime: 4 * 60e3, gcTime: 10 * 60e3 };
-  // A GitHub read through the pool. A rate_limited (or otherwise retryable) refusal is retried
-  // once, after the wait it asks for; anything else rejects with its code.
-  async function readOnce(tool, input, { refresh = false, cache = READ_CACHE } = {}) {
+  // A read through the pool (GitHub unless another server is named). A rate_limited (or otherwise
+  // retryable) refusal is retried once, after the wait it asks for; anything else rejects with its code.
+  async function readOnce(tool, input, { refresh = false, cache = READ_CACHE, server = GH } = {}) {
     const options = { cache: cache && refresh ? { ...cache, refresh: true } : cache };
-    const call = () => inPool(() => (state.mcp ? state.mcp.callTool(GH, tool, input, options) : Promise.reject({ code: "cancelled", message: "" })));
+    const call = () => inPool(() => (state.mcp ? state.mcp.callTool(server, tool, input, options) : Promise.reject({ code: "cancelled", message: "" })));
     try {
       return await call();
     } catch (e) {
@@ -443,7 +445,7 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
       note("Looking for your repos…");
       let repos;
       try {
-        const result = await state.mcp.callTool(CONNECTORS.remote.server, "list_repos", { limit: SCAN_LIMIT }, { cache: false });
+        const result = await state.mcp.callTool(REMOTE, "list_repos", { limit: SCAN_LIMIT }, { cache: false });
         repos = (result.payload?.repos ?? []).map((r) => r?.full_name).filter((n) => n && normaliseRepo(n) === n).slice(0, SCAN_LIMIT);
       } catch (e) {
         return note(`Claude Code Remote couldn't list your repos (${codeOf(e)}). Add repos by name, or try Rescan.`, true);
@@ -627,29 +629,32 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
   const DONE_FOR = 60e3;
 
   // The words for a failed write, by code. A write that may have gone through says so.
-  function writeError(e, verb) {
+  // who: the connector that refused; check: where to look before trying again.
+  function writeError(e, verb, who = "GitHub", check = "Check the page after it refreshes") {
     const code = codeOf(e);
-    if (code === "approval_required" || code === "consent_required") return `GitHub needs your approval to ${verb}. ${verb[0].toUpperCase()}${verb.slice(1)} again to be asked.`;
-    if (code === "not_in_manifest") return `This page isn't allowed to ${verb}: turn the GitHub connector's tool on in Permissions, or rerun /ship:dashboard.`;
+    if (code === "approval_required" || code === "consent_required") return `${who} needs your approval to ${verb}. ${verb[0].toUpperCase()}${verb.slice(1)} again to be asked.`;
+    if (code === "not_in_manifest") return `This page isn't allowed to ${verb}: turn the ${who} connector's tool on in Permissions, or rerun /ship:dashboard.`;
     if (code === "blocked_by_policy") return `Your organization's policy doesn't let this page ${verb}.`;
-    if (code === "needs_reauth") return "Reconnect GitHub in claude.ai Settings → Connectors, then try again.";
-    if (code === "tool_error") return `GitHub refused: ${e?.message || code}`;
-    if (code === "server_unavailable" || code === "upstream_error" || code === "cancelled") return `No answer from GitHub (${code}): it may have gone through. Check the page after it refreshes before trying again.`;
+    if (code === "needs_reauth") return `Reconnect ${who} in claude.ai Settings → Connectors, then try again.`;
+    if (code === "server_not_connected" || code === "server_not_found") return `${who} isn't connected: add it in claude.ai Settings → Connectors, then try again.`;
+    if (code === "tool_error") return `${who} refused: ${e?.message || code}`;
+    if (code === "server_unavailable" || code === "upstream_error" || code === "cancelled") return `No answer from ${who} (${code}): it may have gone through. ${check} before trying again.`;
     return `Couldn't ${verb} (${code}${e?.message ? `: ${e.message}` : ""}).`;
   }
 
-  async function runAction(key, kind, full, work) {
+  // refetch: whether the project is read again afterwards (a session start changes nothing on GitHub).
+  async function runAction(key, kind, full, work, { refetch = true } = {}) {
     if (actions.get(key)?.status === "running") return;
     actions.set(key, { kind, status: "running" });
     scheduleRender();
     try {
       const done = await work();
       actions.set(key, { kind, status: "done", text: done?.text ?? done, url: done?.url ?? null, at: Date.now() });
-      loads.get(full)?.refetch?.();
+      if (refetch) loads.get(full)?.refetch?.();
     } catch (e) {
-      actions.set(key, { kind, status: "error", text: e?.shown ?? writeError(e, e?.verb ?? "do that") });
+      actions.set(key, { kind, status: "error", text: e?.shown ?? writeError(e, e?.verb ?? "do that", e?.who, e?.check) });
       // A write that may have run: read the project again too, so the page shows what GitHub has.
-      if (!e?.shown) loads.get(full)?.refetch?.();
+      if (refetch && !e?.shown) loads.get(full)?.refetch?.();
     }
     scheduleRender();
   }
@@ -709,6 +714,68 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
       }
       return { text: `Dispatched on ${branch}. The run hasn't shown up yet: see the repo's Actions tab.` };
     });
+  }
+
+  // ---- Run a skill: a card's button starts a Claude cloud session on its repo, through Claude Code
+  // Remote, with the skill's command (board.mjs's skillFor) as its first message. One create_session
+  // per click, never retried: a failed start may still have made a session.
+  const SESSION_TOOLS = ["list_environments", "create_session"];
+  const sessionsOn = () => SESSION_TOOLS.every((t) => state.tools.remote.has(t));
+  const SESSIONS_URL = "https://claude.ai/code";
+  const ENV_CACHE = { staleTime: 60e3, gcTime: 5 * 60e3 };
+  const remoteFailure = (e, verb) => Object.assign(Object.create(null), { code: e?.code, message: e?.message, verb, who: "Claude Code Remote", check: "Check your sessions at claude.ai/code" });
+
+  // The viewer's environments (list_environments), read again after a minute so one deleted since
+  // isn't offered.
+  async function environments() {
+    try {
+      const r = await readOnce("list_environments", { limit: 100 }, { server: REMOTE, cache: ENV_CACHE });
+      return listOf(r.payload, "environments").filter((e) => e?.environment_id);
+    } catch (e) {
+      throw remoteFailure(e, "list your environments");
+    }
+  }
+
+  async function startSession(card, skill, env) {
+    let result;
+    try {
+      result = await state.mcp.callTool(REMOTE, "create_session", {
+        prompt: skill.command,
+        title: `${skill.command} · ${card.title}`.slice(0, 120),
+        source_url: `https://github.com/${card.project}`,
+        environment_id: env.environment_id,
+      }, { cache: false });
+    } catch (e) {
+      throw remoteFailure(e, "start a session");
+    }
+    const link = sessionLink(result);
+    return link ? { text: `Started in ${env.name}`, url: link.url } : { text: `Started in ${env.name}: its link didn't come back, so find it among your sessions.`, url: SESSIONS_URL };
+  }
+
+  function skillAction(card, skill) {
+    runAction(`skill:${card.project}#${card.number}`, "skill", card.project, async () => {
+      const env = preselectEnvironment(await environments(), card.project);
+      if (!env) throw { shown: "You have no Claude Code environment to run it in: create one at claude.ai/code, then try again." };
+      return startSession(card, skill, env);
+    }, { refetch: false });
+  }
+
+  // A card's run-a-skill button; once started, the "Open session" link in its place (same data-key,
+  // so focus moves to it). Hidden without Claude Code Remote's session tools.
+  function renderSkill(card) {
+    const skill = skillFor(card);
+    if (!skill || !sessionsOn()) return [];
+    const key = `skill:${card.project}#${card.number}`;
+    const act = actions.get(key);
+    if (act?.status === "done") {
+      return [el("a", { class: "btn session-link", href: act.url, target: "_blank", rel: "noopener noreferrer", "data-key": key, text: act.url === SESSIONS_URL ? "Open sessions" : "Open session" }),
+        el("p", { class: "act-note", role: "status", text: act.text })];
+    }
+    const running = act?.status === "running";
+    const button = el("button", { class: "btn", type: "button", "data-key": key, title: `Start a Claude session on ${card.project} running ${skill.command}` }, running ? "Starting…" : skill.label);
+    if (running) { button.setAttribute("aria-disabled", "true"); button.setAttribute("aria-busy", "true"); }
+    button.addEventListener("click", () => { if (actions.get(key)?.status !== "running") skillAction(card, skill); });
+    return [button, act?.status === "error" ? el("p", { class: "act-error", role: "alert", text: act.text }) : null];
   }
 
   // A project row's Land button and the line under it: progress, the run link, the error or the gate.
@@ -881,9 +948,15 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
     unapprove: { idle: "Un-approve", running: "Un-approving…", hint: "Removes ship: it won't land until approved again" },
   };
 
-  // A PR card's Approve or Un-approve, with its progress, error or the gate's note.
+  // A card's buttons: Approve or Un-approve, then its run-a-skill button.
   function renderCardActions(card) {
-    if (!card.action) return null;
+    const nodes = [...renderLabelAction(card), ...renderSkill(card)].filter(Boolean);
+    return nodes.length ? el("div", { class: "card-actions" }, ...nodes) : null;
+  }
+
+  // A PR card's Approve or Un-approve, with its progress, error or the gate's note.
+  function renderLabelAction(card) {
+    if (!card.action) return [];
     const key = `pr:${card.project}#${card.number}`;
     let act = actions.get(key);
     // A finished action stays shown until the card has moved on (its offer changed) or a minute passed.
@@ -898,9 +971,9 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
     else if (busy) button.setAttribute("aria-disabled", "true");
     if (act?.status === "running") button.setAttribute("aria-busy", "true");
     button.addEventListener("click", () => { if (gateOf(card.project, "issue_write").ok && !busy) labelAction(card); });
-    return el("div", { class: "card-actions" }, button,
+    return [button,
       !gate.ok ? el("p", { class: "act-note" }, ...gate.note) : null,
-      act?.status === "error" ? el("p", { class: "act-error", role: "alert", text: act.text }) : null);
+      act?.status === "error" ? el("p", { class: "act-error", role: "alert", text: act.text }) : null];
   }
 
   // One card. Sibling specs extend the dashboard here: details, actions and sessions hang off the card.

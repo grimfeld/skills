@@ -1,7 +1,7 @@
 // node --test skills/dashboard/scripts/board.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { toCards, counts, ago, BUCKETS, normaliseRepo, mergeProjects, sortBucket, LANDED_WINDOW, isMissingFile, needsCheckRead, parseReview, safeUrl, openQuestions, designLink, morningPage, morningSpecs, shipYml, actionsEnabled, approveLabels, unapproveLabels, fileText, landingRun } from "./board.mjs";
+import { toCards, counts, ago, BUCKETS, normaliseRepo, mergeProjects, sortBucket, LANDED_WINDOW, isMissingFile, needsCheckRead, parseReview, safeUrl, openQuestions, designLink, morningPage, morningSpecs, shipYml, actionsEnabled, approveLabels, unapproveLabels, fileText, landingRun, skillFor, preselectEnvironment, sessionLink } from "./board.mjs";
 
 const NOW = Date.parse("2026-11-23T12:00:00Z");
 const hoursAgo = (h) => new Date(NOW - h * 3600e3).toISOString();
@@ -13,7 +13,7 @@ test("a spec:draft spec needs you, with its project, link, reason and age", () =
   assert.deepEqual(card, {
     project: "acme/app", number: 7, title: "Issue 7", url: "https://github.com/acme/app/issues/7",
     kind: "spec", bucket: "needs-you", reason: "draft", since: hoursAgo(2), age: "2 h",
-    openQuestions: null, pr: null,
+    openQuestions: null, pr: null, labels: ["spec:draft"],
   });
 });
 
@@ -522,4 +522,79 @@ test("the landing run is the newest workflow_dispatch run created since the clic
   assert.equal(landingRun({ workflow_runs: [run(4, "2026-11-23T12:00:03Z", "push")] }, click), null);
   assert.equal(landingRun({ workflow_runs: [{ ...run(5, "2026-11-23T12:00:03Z"), html_url: "javascript:alert(1)" }] }, click), null);
   assert.equal(landingRun(undefined, click), null);
+});
+
+// ---- Run a skill: the command a card's button starts a cloud session with.
+
+const skillOf = (issues, prs) => Object.fromEntries(toCards("acme/app", issues, prs, {}, NOW).map((c) => [`${c.kind}${c.number}`, skillFor(c)]));
+
+test("each card that needs a ship skill maps to its button and command; every other card to none", () => {
+  const issues = [
+    issue(1, ["spec:draft"]),
+    issue(2, ["design:ready"]),
+    issue(3, ["spec:stuck"]),
+    issue(4, ["spec:ready"]),
+    issue(5, ["spec:draft"], { state: "CLOSED" }),
+  ];
+  const prs = [
+    pr(10, ["conflicts"]),
+    pr(11, ["pr-reviewed"]),
+    pr(12, ["pr-reviewed", "ship"]),
+    pr(13, ["pr-reviewed", "changes-requested"]),
+    pr(14, ["pr-reviewed"], { draft: true }),
+    pr(15, ["ship"], { updated: hoursAgo(30) }),
+    pr(16, ["conflicts"], { state: "closed", merged: true, merged_at: hoursAgo(5) }),
+  ];
+  assert.deepEqual(skillOf(issues, prs), {
+    spec1: { label: "Resume spec", command: "/ship:spec-me #1" },
+    design2: { label: "Spec design", command: "/ship:design-me #2" },
+    spec3: null,
+    spec4: null,
+    spec5: null,
+    pr10: { label: "Resolve", command: "/ship:resolve-conflicts 10" },
+    pr11: { label: "Send back", command: "/ship:land 11" },
+    pr12: null,
+    pr13: null,
+    pr14: null,
+    pr15: null,
+    pr16: null,
+  });
+});
+
+test("a conflicting PR that was also reviewed is resolved first, not sent back", () => {
+  assert.deepEqual(skillOf([], [pr(20, ["pr-reviewed", "conflicts"])]).pr20, { label: "Resolve", command: "/ship:resolve-conflicts 20" });
+});
+
+const env = (id, name, kind = "anthropic_cloud") => ({ environment_id: id, name, kind, state: "active" });
+
+test("preselection: the environment named like the repo, ignoring case, wherever it is listed", () => {
+  const envs = [env("env_1", "Default"), env("env_2", "website"), env("env_3", "App")];
+  assert.equal(preselectEnvironment(envs, "acme/app").environment_id, "env_3");
+});
+
+test("preselection without a match: the first listed, though a cloud environment before a machine bridged to it", () => {
+  assert.equal(preselectEnvironment([env("env_1", "Default"), env("env_2", "website")], "acme/app").environment_id, "env_1");
+  assert.equal(preselectEnvironment([env("env_b", "laptop", "bridge"), env("env_c", "Default")], "acme/app").environment_id, "env_c");
+  assert.equal(preselectEnvironment([env("env_b", "laptop", "bridge")], "acme/app").environment_id, "env_b");
+});
+
+test("preselection: a repo-named machine still wins, and no environments gives none", () => {
+  assert.equal(preselectEnvironment([env("env_c", "Default"), env("env_b", "APP", "bridge")], "acme/app").environment_id, "env_b");
+  assert.equal(preselectEnvironment([], "acme/app"), null);
+  assert.equal(preselectEnvironment(undefined, "acme/app"), null);
+});
+
+test("the new session's link is built from the id create_session returns, wherever the result carries it", () => {
+  const link = { id: "session_01AbC", url: "https://claude.ai/code/session_01AbC" };
+  assert.deepEqual(sessionLink({ payload: { session_id: "session_01AbC", status: "running" } }), link);
+  assert.deepEqual(sessionLink({ payload: { id: "session_01AbC" } }), link);
+  assert.deepEqual(sessionLink({ payload: { session: { id: "session_01AbC" } } }), link);
+  assert.deepEqual(sessionLink({ payload: "Created session session_01AbC (status: running)" }), link);
+  assert.deepEqual(sessionLink({ content: [{ type: "text", text: '{"session_id":"session_01AbC"}' }] }), link);
+});
+
+test("no recognisable session id, or one that isn't a plain id, gives no link", () => {
+  assert.equal(sessionLink({ payload: { status: "running" } }), null);
+  assert.equal(sessionLink({ payload: { id: "../../evil?x=1" } }), null);
+  assert.equal(sessionLink(undefined), null);
 });

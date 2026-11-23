@@ -157,11 +157,22 @@ Each click is one change, made with your GitHub connector, which asks for your a
 
 They need the project's `.github/workflows/ship.yml` to be version 2 or later (its first line, `# ship.yml version: 2`), as `/ship:land` does: in older versions `ship` lands a PR at once. With an older or missing file, the buttons are off and say to run `/ship:setup-ship` to upgrade. A failed action shows its error on its card or project row and isn't retried; commenting, sending a PR back and anything else that takes judgement stay with `/ship:land`.
 
+Cards that need a ship skill start one in a Claude cloud session on the card's repo, with the command as its first message:
+
+| Card | Button | Command |
+|---|---|---|
+| `spec:draft` spec | **Resume spec** | `/ship:spec-me #n` |
+| PR labelled `conflicts` | **Resolve** | `/ship:resolve-conflicts n` |
+| reviewed PR (the one offering Approve) | **Send back** | `/ship:land n` (it decides whether there's a comment to send back) |
+| `design:ready` design | **Spec design** | `/ship:design-me #n` |
+
+While it starts, the button says so and can't be pressed twice; then the card links to the new session (**Open session**). A failed start shows its error on the card and isn't retried. The session runs in the environment named like the repo, else your first cloud environment.
+
 Run it once and pin the page. Running it again (after a plugin update, say) republishes to the same page: it finds it among your artifacts by its title, "Ship dashboard".
 
 It needs, in claude.ai:
 - the **GitHub** connector, to read issues, PRs, their checks, recent specs' comments, `docs/agents/shipping.md` and `ship.yml`, to change a PR's labels when you Approve or Un-approve, and to start and find a landing run when you Land
-- optionally **Claude Code Remote**, to find your projects: without it, add them by name
+- optionally **Claude Code Remote**, to find your projects and to start skill sessions from cards: without it, add projects by name, and the skill buttons are hidden
 
 The first open asks you to allow both for the page.
 
