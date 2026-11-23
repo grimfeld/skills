@@ -27,7 +27,7 @@ Run Python scripts with `uv run --no-project python <script>`.
 
 The argument `unattended` means no person is present, for example during a night build (`/ship:build-spec`). Never ask anything. Where a step below would ask, do this instead:
 
-- **Drift (step 1):** skip every drifted lens's sync, and record it under "Lens drift".
+- **Drift (step 1):** skip every drifted lens's sync, and record it `stale` under "Lens drift". Unverifiable lenses are `unverified`, as when attended.
 - **Large diff (step 2.3):** review the whole diff.
 - **Page (step 8.4):** publish it only if the Artifact tool is available. Otherwise the PR description is the review.
 - **Approval (step 9):**
@@ -40,12 +40,15 @@ GitHub: `${CLAUDE_PLUGIN_ROOT}/references/github.md` says what to use when `gh` 
 
 ## 1. Drift check
 
-Run `uv run --no-project python ${CLAUDE_SKILL_DIR}/scripts/check-drift.py`. It prints one `DRIFT` line per lens whose upstream skill changed since the lens was written.
+Run `uv run --no-project python ${CLAUDE_SKILL_DIR}/scripts/check-drift.py`. It prints one line per lens:
 
-On any drift, pause and ask the user, per drifted lens: **sync** or **skip**.
+- `DRIFT`: the upstream skill changed since the lens was written.
+- `UNVERIFIABLE <lens> reason=<r>`: the check can't compare, for example in a cloud session with no skill lock file (`no-lock`), where only a hash of the other kind exists (`hash-kind`), or where the upstream skill isn't installed (`missing-upstream`). Nothing is known to have changed. The lens runs as written, with no question; record it in state with status `unverified` and the reason as its note, and name it under "Lens drift".
+
+On any `DRIFT`, pause and ask the user, per drifted lens: **sync** or **skip**.
 
 - **Sync**: read the current upstream `SKILL.md` (path is in the lens front matter), rewrite the lens so it keeps its lane, report-only rule and pointer to the finding format, and carries over whatever changed upstream. Show the user a diff of the lens. On approval, save it with `upstream_hash` set to the hash the script printed as `current`.
-- **Skip**: run with the stale lens and record it under "Lens drift" in the report.
+- **Skip**: run with the stale lens, record it `stale`, and name it under "Lens drift" in the report.
 
 Done when the script prints no `DRIFT` lines, or every drifted lens is synced or explicitly skipped.
 
