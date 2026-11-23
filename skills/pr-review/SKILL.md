@@ -32,7 +32,7 @@ The argument `unattended` means no person is present, for example during a night
 - **Large diff (step 2.3):** review the whole diff.
 - **Page (step 8.4):** publish it only if the Artifact tool is available. Otherwise the PR description is the review.
 - **Approval (step 9):**
-  - Every blocker and major is `approved`, with the reason "unattended: fix before merge", except one with `options`: that one is `needs-person`, and `decision.reason` is "contradicts the spec's '<spec_line>'" when it has a `spec_line`, otherwise "a choice for a person".
+  - Every blocker and major still `pending` (or `needs-person`) is `approved`, with the reason "unattended: fix before merge", except one with `options`: that one is `needs-person`, and `decision.reason` is "contradicts the spec's '<spec_line>'" when it has a `spec_line`, otherwise "a choice for a person". A decision a person already made (approved, rejected or deferred) is kept.
   - Minors and nits stay `pending`, for the person who reviews the PR.
 - **Spec and tickets (step 10):** skip it. The caller fixes approved findings on the branch itself.
 - **Hand off (step 11.3):** end with the approved findings as a list of ids, titles, locations and fixes. Then, only when there are any, a separate "Needs a person" list: each `needs-person` finding's id, title, options and the spec line it contradicts, if any. Don't suggest a next command.

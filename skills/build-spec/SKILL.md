@@ -88,7 +88,7 @@ Round = fix every approved finding and every red CI check on the branch, push, w
 - **Before fixing any approved finding,** check its fix against the lines the spec settles: its acceptance criteria, Out of scope, Implementation decisions, Decision records, and any "stays unchanged" or ruled-out statement. A fix that would change one is treated as `needs-person`, as above, with that line quoted.
 - A `needs-person` finding still open is blocking, like an open major.
 - When the rounds end (after round 2, or straight away when no round was needed), anything still blocking, including a `needs-person` finding, makes the spec stuck. Name each blocking item and what you tried.
-- Without `unattended`, ask instead of going stuck: for each item still blocking after round 2, one question as in step 2, naming the choices (for example a fix you describe, accepting it as is with a note, or leaving the spec stuck) and your recommendation. Record the answer under Decisions as in step 2 ("<item>: decided by the owner: <choice>") and apply it, with no third review round: the two-round cap still holds. An item settled this way counts as closed for step 6; one the owner leaves stuck keeps the spec stuck.
+- Without `unattended`, ask instead of going stuck: for each item still blocking when the rounds end (as above), one question as in step 2, naming the choices (for example a fix you describe, accepting it as is with a note, or leaving the spec stuck) and your recommendation. Record the answer under Decisions as in step 2 ("<item>: decided by the owner: <choice>") and apply it, with no third review round: the two-round cap still holds. An item settled this way counts as closed for step 6; one the owner leaves stuck keeps the spec stuck.
 
 ### 6. Finish the spec
 
