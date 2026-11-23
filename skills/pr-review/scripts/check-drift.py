@@ -14,16 +14,20 @@ Prints one line per lens:
     no-lock           a folder hash, and there is no lock file
     hash-kind         only a current hash of the other kind exists
     missing-upstream  the upstream is in neither the lock nor on disk
-  BROKEN <lens> ...                                              front matter incomplete
+  BROKEN <lens> ...                                              front matter incomplete, or upstream_hash
+                                                                 not a lowercase 40- or 64-hex digest
 
 Exit 0 when nothing drifted (unverifiable lenses included), 1 when anything drifted, 2 on a broken lens.
-Usage: check-drift.py [--lenses <dir>]
+Usage: check-drift.py [--lenses <dir>]   (--lenses defaults to this skill's lenses/ folder)
 """
+import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 LOCK = Path.home() / ".agents" / ".skill-lock.json"
 LENSES = Path(__file__).resolve().parent.parent / "lenses"
@@ -43,31 +47,41 @@ def front_matter(path: Path) -> dict:
     return out
 
 
+HASH_KINDS = {40: "folder", 64: "file"}
+
+
+class Result(NamedTuple):
+    outcome: str  # "ok", "drift" or "unverifiable"
+    current: str | None = None  # the same-kind current hash, for ok and drift
+    reason: str | None = None  # why it can't compare, for unverifiable
+
+
 def hash_kind(h: str) -> str | None:
-    return {40: "folder", 64: "file"}.get(len(h))
+    """"folder" or "file" for a lowercase 40- or 64-hex digest, None for anything else."""
+    return HASH_KINDS.get(len(h)) if re.fullmatch(r"[0-9a-f]+", h) else None
 
 
-def check(source: str, upstream_path: str, recorded: str, lock: dict | None) -> tuple[str, str | None]:
-    """Return ("ok"|"drift", current) or ("unverifiable", reason)."""
+def check(source: str, upstream_path: str, recorded: str, lock: dict | None) -> Result:
     entry = (lock or {}).get(source) or {}
     p = Path(os.path.expanduser(upstream_path))
     current = {
         "folder": entry.get("skillFolderHash"),
         "file": hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else None,
     }
-    kind = hash_kind(recorded)
-    same = current.get(kind)
+    same = current[hash_kind(recorded)]
     if same:
-        return ("ok" if same == recorded else "drift"), same
-    if kind == "folder" and lock is None:
-        return "unverifiable", "no-lock"
+        return Result("ok" if same == recorded else "drift", current=same)
+    if hash_kind(recorded) == "folder" and lock is None:
+        return Result("unverifiable", reason="no-lock")
     if any(current.values()):
-        return "unverifiable", "hash-kind"
-    return "unverifiable", "missing-upstream"
+        return Result("unverifiable", reason="hash-kind")
+    return Result("unverifiable", reason="missing-upstream")
 
 
 def main(argv: list[str]) -> int:
-    lenses = Path(argv[argv.index("--lenses") + 1]) if "--lenses" in argv else LENSES
+    parser = argparse.ArgumentParser(description="Check each pr-review lens against its upstream skill.")
+    parser.add_argument("--lenses", type=Path, default=LENSES, help="the lenses folder (default: this skill's)")
+    lenses = parser.parse_args(argv).lenses
     lock = json.loads(LOCK.read_text()).get("skills", {}) if LOCK.is_file() else None
     status = 0
     for lens in sorted(lenses.glob("*.md")):
@@ -79,12 +93,15 @@ def main(argv: list[str]) -> int:
         if not (source and path and recorded):
             print(f"BROKEN {lens.stem} missing source/upstream_path/upstream_hash")
             return 2
-        outcome, detail = check(source, path, recorded, lock)
-        if outcome == "drift":
-            print(f"DRIFT {lens.stem} source={source} path={path} recorded={recorded} current={detail}")
+        if hash_kind(recorded) is None:
+            print(f"BROKEN {lens.stem} upstream_hash is not a 40- or 64-character lowercase hex digest")
+            return 2
+        r = check(source, path, recorded, lock)
+        if r.outcome == "drift":
+            print(f"DRIFT {lens.stem} source={source} path={path} recorded={recorded} current={r.current}")
             status = 1
-        elif outcome == "unverifiable":
-            print(f"UNVERIFIABLE {lens.stem} reason={detail}")
+        elif r.outcome == "unverifiable":
+            print(f"UNVERIFIABLE {lens.stem} reason={r.reason}")
         else:
             print(f"OK {lens.stem}")
     return status

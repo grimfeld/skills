@@ -143,6 +143,15 @@ class DriftCheck(unittest.TestCase):
         self.assertEqual(out, ["OK design-fidelity (local, no upstream)"])
         self.assertEqual(code, 0)
 
+    def test_malformed_hash_is_broken(self):
+        for bad in ("abc123", "g" * 40, "A" * 64):
+            with self.subTest(recorded=bad):
+                self.lens("quality", "code-review-and-quality", bad)
+                self.upstream("code-review-and-quality", "body")
+                code, out = self.run_check()
+                self.assertTrue(out[-1].startswith("BROKEN quality"), out)
+                self.assertEqual(code, 2)
+
     def test_broken_lens_exits_2(self):
         (self.lenses / "bad.md").write_text("---\nlens: bad\nsource: x\n---\n")
         code, out = self.run_check()

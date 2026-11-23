@@ -27,7 +27,7 @@ Run Python scripts with `uv run --no-project python <script>`.
 
 The argument `unattended` means no person is present, for example during a night build (`/ship:build-spec`). Never ask anything. Where a step below would ask, do this instead:
 
-- **Drift (step 1):** skip every drifted lens's sync, and record it `stale` under "Lens drift". Unverifiable lenses are `unverified`, as when attended.
+- **Drift (step 1):** skip every drifted lens's sync, and record it `stale`. Unverifiable lenses are `unverified`, as when attended.
 - **Large diff (step 2.3):** review the whole diff.
 - **Page (step 8.4):** publish it only if the Artifact tool is available. Otherwise the PR description is the review.
 - **Approval (step 9):**
@@ -43,12 +43,12 @@ GitHub: `${CLAUDE_PLUGIN_ROOT}/references/github.md` says what to use when `gh` 
 Run `uv run --no-project python ${CLAUDE_SKILL_DIR}/scripts/check-drift.py`. It prints one line per lens:
 
 - `DRIFT`: the upstream skill changed since the lens was written.
-- `UNVERIFIABLE <lens> reason=<r>`: the check can't compare, for example in a cloud session with no skill lock file (`no-lock`), where only a hash of the other kind exists (`hash-kind`), or where the upstream skill isn't installed (`missing-upstream`). Nothing is known to have changed. The lens runs as written, with no question; record it in state with status `unverified` and the reason as its note, and name it under "Lens drift".
+- `UNVERIFIABLE <lens> reason=<r>`: the check can't compare, for example in a cloud session with no skill lock file. The script's docstring lists the reasons. Nothing is known to have changed. The lens runs as written, with no question: record it in state with status `unverified` and its note starting `reason: <r>`.
 
 On any `DRIFT`, pause and ask the user, per drifted lens: **sync** or **skip**.
 
 - **Sync**: read the current upstream `SKILL.md` (path is in the lens front matter), rewrite the lens so it keeps its lane, report-only rule and pointer to the finding format, and carries over whatever changed upstream. Show the user a diff of the lens. On approval, save it with `upstream_hash` set to the hash the script printed as `current`.
-- **Skip**: run with the stale lens, record it `stale`, and name it under "Lens drift" in the report.
+- **Skip**: run with the stale lens and record it `stale`.
 
 Done when the script prints no `DRIFT` lines, or every drifted lens is synced or explicitly skipped.
 
@@ -103,7 +103,7 @@ If the URL is a Vercel preview that answers 401 or redirects to a login, call th
 
 ## 5. Dispatch
 
-**Pick the reviewer agent.** Use `subagent_type: ship:pr-lens-reviewer` when it is among the available agent types (or `pr-lens-reviewer`, from an older symlinked install). Otherwise fall back to `Explore`, then `general-purpose`. Record the type in each lens's note in state (`agent: <type>`), and name any fallback in the terminal summary, so a missing install is visible. One exception: `web-quality` with a live audit URL runs as `general-purpose`, because it needs the browser MCP tools.
+**Pick the reviewer agent.** Use `subagent_type: ship:pr-lens-reviewer` when it is among the available agent types (or `pr-lens-reviewer`, from an older symlinked install). Otherwise fall back to `Explore`, then `general-purpose`. Record the type in each lens's note in state (`agent: <type>`, after any `reason:` from step 1, separated by `; `), and name any fallback in the terminal summary, so a missing install is visible. One exception: `web-quality` with a live audit URL runs as `general-purpose`, because it needs the browser MCP tools.
 
 In **one message**, send one `Agent` call per selected lens, with that `subagent_type` and the model from the routing table (omit `model` for default). Each prompt carries pointers and the shared context, never the lens text itself:
 
