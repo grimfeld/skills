@@ -27,7 +27,7 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import NamedTuple
+from typing import Literal, NamedTuple
 
 LOCK = Path.home() / ".agents" / ".skill-lock.json"
 LENSES = Path(__file__).resolve().parent.parent / "lenses"
@@ -51,7 +51,7 @@ HASH_KINDS = {40: "folder", 64: "file"}
 
 
 class Result(NamedTuple):
-    outcome: str  # "ok", "drift" or "unverifiable"
+    outcome: Literal["ok", "drift", "unverifiable"]
     current: str | None = None  # the same-kind current hash, for ok and drift
     reason: str | None = None  # why it can't compare, for unverifiable
 
@@ -62,16 +62,18 @@ def hash_kind(h: str) -> str | None:
 
 
 def check(source: str, upstream_path: str, recorded: str, lock: dict | None) -> Result:
+    """`recorded` must already have a kind (main reports it BROKEN otherwise)."""
+    kind = hash_kind(recorded)
     entry = (lock or {}).get(source) or {}
     p = Path(os.path.expanduser(upstream_path))
     current = {
         "folder": entry.get("skillFolderHash"),
         "file": hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else None,
     }
-    same = current[hash_kind(recorded)]
+    same = current[kind]
     if same:
         return Result("ok" if same == recorded else "drift", current=same)
-    if hash_kind(recorded) == "folder" and lock is None:
+    if kind == "folder" and lock is None:
         return Result("unverifiable", reason="no-lock")
     if any(current.values()):
         return Result("unverifiable", reason="hash-kind")

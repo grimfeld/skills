@@ -43,7 +43,7 @@ GitHub: `${CLAUDE_PLUGIN_ROOT}/references/github.md` says what to use when `gh` 
 Run `uv run --no-project python ${CLAUDE_SKILL_DIR}/scripts/check-drift.py`. It prints one line per lens:
 
 - `DRIFT`: the upstream skill changed since the lens was written.
-- `UNVERIFIABLE <lens> reason=<r>`: the check can't compare, for example in a cloud session with no skill lock file. The script's docstring lists the reasons. Nothing is known to have changed. The lens runs as written, with no question: record it in state with status `unverified` and its note starting `reason: <r>`.
+- `UNVERIFIABLE <lens> reason=<r>`: the check can't compare, for example in a cloud session with no skill lock file. The script's docstring lists the reasons. Nothing is known to have changed. The lens runs as written, with no question: record it in state with status `unverified` and its note starting `reason: <r>`. If step 3 then skips it, it is `skipped` with the skip reason instead.
 
 On any `DRIFT`, pause and ask the user, per drifted lens: **sync** or **skip**.
 
