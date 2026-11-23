@@ -48,7 +48,7 @@ Run `implement-spec` on the spec issue, as `${CLAUDE_PLUGIN_ROOT}/references/run
 <!-- build:decisions:end -->
 ```
 
-Append to that section every time you choose something the spec didn't say, and keep it up to date. It's what the reviewer reads to check your judgement. Write the section to a file and put it in the PR body with `uv run --no-project python ${CLAUDE_PLUGIN_ROOT}/skills/pr-review/scripts/update-pr-body.py --markers build:decisions <pr> <decisions.md>`. When `gh` can't edit the PR, use the "Splice a section into a PR body" row of `${CLAUDE_PLUGIN_ROOT}/references/github.md` (`--body-file`): one MCP read and one MCP update per change, never the whole body retyped.
+Append to that section every time you choose something the spec didn't say, and keep it up to date. It's what the reviewer reads to check your judgement. Write the section to a file and put it in the PR body with `uv run --no-project python ${CLAUDE_PLUGIN_ROOT}/skills/pr-review/scripts/update-pr-body.py --markers build:decisions <pr> <decisions.md>`. When `gh` can't edit the PR, use the "Splice a section into a PR body" row of `${CLAUDE_PLUGIN_ROOT}/references/github.md` (`--body-file`): one MCP read and one MCP update per change.
 
 **A question the spec doesn't answer:** if the answer changes what a user sees or does, or changes data in a way that can't be undone, the spec is stuck. Otherwise, decide and record it.
 

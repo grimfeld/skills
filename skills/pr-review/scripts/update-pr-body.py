@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Put a marked section into a PR's description, replacing the previous one.
 
-usage: update-pr-body.py [--markers <name>] <pr-number> <section.md>
-       update-pr-body.py [--markers <name>] --body-file <current.md> <section.md>
+usage: see USAGE below.
 
 The section sits between <!-- <name>:start --> and <!-- <name>:end -->; <name> defaults to
 `pr-review` (the review section). build-spec's Decisions section uses `--markers build:decisions`.
@@ -23,6 +22,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+USAGE = """update-pr-body.py [--markers <name>] <pr-number> <section.md>
+       update-pr-body.py [--markers <name>] --body-file <current.md> <section.md>"""
+
 
 def markers(name: str) -> tuple[str, str]:
     return f"<!-- {name}:start -->", f"<!-- {name}:end -->"
@@ -41,10 +43,10 @@ def splice(body: str, section: str, name: str = "pr-review") -> str:
 
 
 def main(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(usage=__doc__.split("\n\n")[1].removeprefix("usage: "))
+    parser = argparse.ArgumentParser(usage=USAGE)
     parser.add_argument("--markers", default="pr-review")
     parser.add_argument("--body-file", type=Path)
-    parser.add_argument("args", nargs="+")
+    parser.add_argument("args", nargs="+", metavar="[<pr-number>] <section.md>")
     a = parser.parse_args(argv)
 
     if a.body_file is not None:
@@ -59,8 +61,9 @@ def main(argv: list[str]) -> int:
         parser.error("pass <pr-number> <section.md>, or --body-file <current.md> <section.md>")
     pr, section = a.args[0], Path(a.args[1]).read_text()
     url = f"repos/{{owner}}/{{repo}}/pulls/{pr}"
+    # Bytes, not text mode: text mode would turn the body's \r\n into \n everywhere.
     body = subprocess.run(["gh", "api", url, "-q", ".body // \"\""],
-                          check=True, capture_output=True, text=True).stdout.rstrip("\n")
+                          check=True, capture_output=True).stdout.decode("utf-8").rstrip("\n")
     new = splice(body, section, a.markers)
     if new == body:
         print("unchanged")

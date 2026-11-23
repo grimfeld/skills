@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Find a URL for the web-quality lens. Prints "<source>\t<url>" for the first hit.
-# Exit 0: found. 1: no preview. 2: usage error. 3: `gh` unavailable (missing or unauthenticated;
-# prints "gh unavailable" to stderr), so the gh lookup couldn't run: look through the GitHub MCP tools.
+# Exit 0: found. 1: no preview. 2: usage error. 3: the gh lookup couldn't run: `gh` missing or
+# unauthenticated (prints "gh unavailable" to stderr), or `jq` missing ("jq unavailable"). Look through
+# the GitHub MCP tools instead.
 #
 #   find-preview-url.sh gh <pr-number|branch>   GitHub deployment statuses, then Vercel bot comments
 #   find-preview-url.sh local                   dev server already listening on a common port
@@ -26,14 +27,16 @@ gh_usable() { # gh installed and authenticated; `gh auth status` misses a token 
 from_gh() {
   local target="$1" sha="" pr=""
   gh_usable || { echo "gh unavailable" >&2; exit 3; }
+  command -v jq >/dev/null 2>&1 || { echo "jq unavailable" >&2; exit 3; }
   # REST only: GraphQL (gh pr …) is refused in claude.ai/code cloud sessions.
   if [[ "$target" =~ ^[0-9]+$ ]]; then
     pr="$target"
     sha=$(gh api "repos/{owner}/{repo}/pulls/$pr" --jq .head.sha 2>/dev/null) || sha=""
   else
     sha=$(git rev-parse "$target" 2>/dev/null) || sha=""
-    pr=$(gh api --paginate "repos/{owner}/{repo}/pulls?state=open&per_page=100" \
-      --jq ".[] | select(.head.ref == \"$target\") | .number" 2>/dev/null | head -1) || pr=""
+    # The branch name goes to jq as data (--arg), never into the filter's text.
+    pr=$(gh api --paginate --slurp "repos/{owner}/{repo}/pulls?state=open&per_page=100" 2>/dev/null \
+      | jq -r --arg ref "$target" '[.[][] | select(.head.ref == $ref) | .number][0] // empty') || pr=""
   fi
 
   # 1. GitHub deployments for the head commit: newest successful status with an environment_url.
@@ -47,11 +50,11 @@ from_gh() {
     done
   fi
 
-  # 2. Vercel bot comment on the PR: newest *.vercel.app link.
+  # 2. Vercel bot comment on the PR: newest *.vercel.app link, from the bot account only.
   if [[ -n "$pr" ]]; then
     local url
-    url=$(gh api --paginate "repos/{owner}/{repo}/issues/$pr/comments?per_page=100" \
-      --jq '.[] | select(.user.login | test("vercel"; "i")) | .body | @json' 2>/dev/null | tac | jq -r . \
+    url=$(gh api --paginate --slurp "repos/{owner}/{repo}/issues/$pr/comments?per_page=100" 2>/dev/null \
+      | jq -r '[.[][] | select(.user.login == "vercel[bot]" and .user.type == "Bot") | .body] | reverse | .[]' \
       | grep -oE 'https://[A-Za-z0-9.-]+\.vercel\.app' | grep -v '^https://vercel\.app' | head -1)
     if [[ -n "$url" ]]; then printf 'vercel-comment\t%s\n' "$url"; return 0; fi
   fi

@@ -1,4 +1,6 @@
-"""Tests for update-pr-body.py's --body-file mode. Run: python3 -m unittest discover -s skills/pr-review/scripts"""
+"""Tests for update-pr-body.py.
+Run: uv run --no-project python -m unittest discover -s skills/pr-review/scripts"""
+import json
 import os
 import subprocess
 import sys
@@ -62,6 +64,36 @@ class BodyFile(unittest.TestCase):
         section = self.write("s.md", "<!-- pr-review:start -->\nreview\n<!-- pr-review:end -->")
         self.assertEqual(self.run_script("--body-file", body, section),
                          "<!-- pr-review:start -->\nreview\n<!-- pr-review:end -->\n")
+
+    def test_end_marker_before_start_is_not_used(self):
+        body = self.write("body.md", "<!-- pr-review:end -->\nkeep\n<!-- pr-review:start -->\nold\n<!-- pr-review:end -->\n")
+        section = self.write("s.md", "<!-- pr-review:start -->\nnew\n<!-- pr-review:end -->")
+        self.assertEqual(self.run_script("--body-file", body, section),
+                         "<!-- pr-review:end -->\nkeep\n<!-- pr-review:start -->\nnew\n<!-- pr-review:end -->\n")
+
+    def test_body_file_with_extra_argument_is_a_usage_error(self):
+        r = subprocess.run([sys.executable, str(SCRIPT), "--body-file", "x", "a", "b"], capture_output=True)
+        self.assertEqual(r.returncode, 2)
+
+
+class PrNumber(unittest.TestCase):
+    """The gh path, with a stub gh that serves a body and records the PATCH payload."""
+
+    def test_markers_reach_the_patch(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / "body.txt").write_text(BODY)
+            gh = d / "gh"
+            gh.write_text(f'#!/bin/sh\ncase "$*" in *PATCH*) cat > "{d}/patch.json";; *) cat "{d}/body.txt";; esac\n')
+            gh.chmod(0o755)
+            section = d / "s.md"
+            section.write_text("## Decisions\n- new decision\n")
+            env = dict(os.environ, PATH=f"{d}:{os.environ['PATH']}")
+            r = subprocess.run([sys.executable, str(SCRIPT), "--markers", "build:decisions", "7", str(section)],
+                               capture_output=True, text=True, env=env)
+            self.assertEqual((r.returncode, r.stdout), (0, "updated\n"), r.stderr)
+            sent = json.loads((d / "patch.json").read_text())["body"]
+            self.assertEqual(sent, BODY.rstrip("\n").replace("- old decision", "- new decision"))
 
 
 if __name__ == "__main__":
