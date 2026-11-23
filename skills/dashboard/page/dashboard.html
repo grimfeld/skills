@@ -119,6 +119,7 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
 .b-landed { --tone: var(--landed); }
 .row-error { color: var(--danger); font-size: 13px; min-width: 0; overflow-wrap: anywhere; }
 .row-stale { color: var(--danger); }
+.project.is-error .btn { justify-self: start; }
 .skeleton { display: flex; gap: 6px; justify-content: flex-end; }
 .skeleton span { width: 72px; height: 22px; border-radius: 999px; background: var(--skeleton); animation: pulse 1.4s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: 0.5; } }
@@ -155,6 +156,44 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
   .project .counts, .project .skeleton { grid-column: 1 / -1; justify-content: flex-start; grid-row: 2; }
 }
 
+.chips, .tabs { display: none; }
+@media (max-width: 720px) {
+  .phone-hide, .projects .phone-hide { display: none; }
+  .projects > h2 { display: none; }
+  .project.is-error { border-top: 0; }
+  .btn.small { min-height: 44px; }
+  .chips, .tabs {
+    display: flex; gap: 8px; overflow-x: auto; overscroll-behavior-x: contain;
+    scrollbar-width: none; min-width: 0; padding-block: 2px;
+  }
+  .chips::-webkit-scrollbar, .tabs::-webkit-scrollbar { display: none; }
+  .chip {
+    flex: none; display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px;
+    border-radius: 999px; border: 1px solid var(--line); background: var(--surface); cursor: pointer;
+    font-family: var(--font-mono); font-size: 13px;
+  }
+  .chip[aria-pressed="true"] { background: var(--fg); border-color: var(--fg); color: var(--bg); }
+  .chip-n { color: var(--needs); font-weight: 500; }
+  .chip[aria-pressed="true"] .chip-n { color: inherit; }
+  .chip-flag { font-family: var(--font-body); font-size: 11px; color: var(--muted); }
+  .chip[aria-pressed="true"] .chip-flag { color: inherit; opacity: 0.8; }
+  .tabs { gap: 0; border-bottom: 1px solid var(--line); }
+  .tab {
+    flex: none; min-height: 44px; padding: 0 12px; border: 0; background: none; cursor: pointer;
+    font-weight: 500; font-size: 14px; color: var(--muted); white-space: nowrap;
+    border-bottom: 2px solid transparent; margin-bottom: -1px;
+  }
+  .tab[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--tone); }
+  .tab-n { color: var(--tone); margin-left: 2px; }
+  .board .col { display: none; }
+  .board[data-tab="needs-you"] .col[data-bucket="needs-you"],
+  .board[data-tab="ready"] .col[data-bucket="ready"],
+  .board[data-tab="in-flight"] .col[data-bucket="in-flight"],
+  .board[data-tab="landed"] .col[data-bucket="landed"] { display: grid; }
+  .col > h2 { display: none; }
+  .card-title { min-height: 44px; display: -webkit-box; align-content: center; }
+}
+
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 </style>
 
@@ -187,6 +226,8 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
       <p class="note" id="note" aria-live="polite"></p>
     </div>
     <section class="projects" id="projects" aria-label="Projects"></section>
+    <nav class="chips" id="chips" aria-label="Filter by project"></nav>
+    <div class="tabs" id="tabs" role="tablist" aria-label="Buckets"></div>
     <div id="board"></div>
   </main>
 </div>
@@ -520,19 +561,65 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
     return board;
   }
 
+  // ---- Phone: projects become filter chips, buckets become tabs. Remembered per viewer.
+
+  const phone = window.matchMedia("(max-width: 720px)");
+  phone.addEventListener?.("change", () => { if (state.mcp) renderAll(); });
+  const view = { tab: "needs-you", project: "all", ...store.get("view", {}) };
+  const setView = (patch) => { Object.assign(view, patch); store.set("view", view); renderAll(); };
+
+  function renderChips(list) {
+    const chip = (value, label, extra) => {
+      const b = el("button", { class: "chip", type: "button", "aria-pressed": String(view.project === value) }, label, extra);
+      b.addEventListener("click", () => setView({ project: value }));
+      return b;
+    };
+    return [chip("all", "All"), ...list.map((full) => {
+      const load = loads.get(full);
+      const mark = load?.error && !loaded(load) ? el("span", { class: "chip-flag", text: "failed" })
+        : !loaded(load) ? el("span", { class: "chip-flag", text: "loading" })
+        : el("span", { class: "chip-n mono", text: String(counts(cardsOf(full))["needs-you"] || "") });
+      const short = full.split("/")[1];
+      const clash = list.filter((other) => other.split("/")[1] === short).length > 1;
+      return chip(full, clash ? full : short, mark);
+    })];
+  }
+
+  function renderTabs(tally) {
+    return BUCKETS.map((b) => {
+      const t = el("button", { class: `tab b-${BUCKET_TOKEN[b.id]}`, type: "button", role: "tab", id: `tab-${b.id}`, "aria-selected": String(view.tab === b.id), "aria-controls": "board" },
+        b.title, " ", el("span", { class: "tab-n mono", text: String(tally[b.id]) }));
+      t.addEventListener("click", () => setView({ tab: b.id }));
+      return t;
+    });
+  }
+
   function renderAll() {
     const list = projects();
     const box = $("projects");
     box.replaceChildren(el("h2", { text: "Projects" }));
     if (!list.length) {
       box.append(el("p", { class: "empty" }, "No repo set up for ship yet: run ", el("code", { text: "/ship:setup-ship" }), " in one."));
-      $("board").replaceChildren();
+      box.classList.remove("phone-hide");
+      for (const id of ["board", "chips", "tabs"]) $(id).replaceChildren();
       return;
     }
-    for (const full of list) box.append(projectRow(full));
-    const cards = list.flatMap(cardsOf);
-    const stillLoading = list.some((full) => !loaded(loads.get(full)) && !loads.get(full)?.error);
-    $("board").replaceChildren(renderBoard(cards, stillLoading));
+    if (view.project !== "all" && !list.includes(view.project)) view.project = "all";
+    const narrow = phone.matches;
+    // On a phone the chip filters what shows; desktop always shows every project.
+    const shownProjects = narrow && view.project !== "all" ? [view.project] : list;
+    const rows = list.map(projectRow);
+    rows.forEach((row) => row.classList.toggle("phone-hide", !(row.classList.contains("is-error") && shownProjects.includes(row.dataset.project))));
+    box.append(...rows);
+    box.classList.toggle("phone-hide", rows.every((r) => r.classList.contains("phone-hide")));
+    const cards = shownProjects.flatMap(cardsOf);
+    const stillLoading = shownProjects.some((full) => !loaded(loads.get(full)) && !loads.get(full)?.error);
+    const board = renderBoard(cards, stillLoading);
+    board.dataset.tab = view.tab;
+    board.setAttribute("aria-labelledby", `tab-${view.tab}`);
+    $("board").replaceChildren(board);
+    $("chips").replaceChildren(...renderChips(list));
+    $("tabs").replaceChildren(...renderTabs(counts(cards)));
     const newest = Math.max(0, ...list.map((full) => loads.get(full)?.storedAt ?? 0));
     $("status").textContent = `${list.length} ${list.length === 1 ? "project" : "projects"}` + (newest ? ` · updated ${since(newest)}` : "");
   }
