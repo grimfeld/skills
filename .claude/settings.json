@@ -1,0 +1,10 @@
+{
+  "extraKnownMarketplaces": {
+    "grimfeld": {
+      "source": { "source": "github", "repo": "grimfeld/skills" }
+    }
+  },
+  "enabledPlugins": {
+    "ship@grimfeld": true
+  }
+}
