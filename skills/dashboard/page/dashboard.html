@@ -15,6 +15,8 @@
   --flight: #0e6f68;
   --landed: #2d7a34;
   --danger: #b42318;
+  --good: #2d7a34;
+  --warn: #8a5a00;
   --skeleton: #e4eaee;
   --font-body: system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: ui-monospace, "SFMono-Regular", Menlo, monospace;
@@ -22,7 +24,7 @@
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #0e151b; --surface: #151e26; --fg: #e2e9ee; --muted: #93a4b2; --line: #26333e; --accent: #82acff;
-    --needs: #fb9a5b; --ready: #aaa4ff; --flight: #5fd8cb; --landed: #8bdc8f; --danger: #f98d84; --skeleton: #1e2a34;
+    --needs: #fb9a5b; --ready: #aaa4ff; --flight: #5fd8cb; --landed: #8bdc8f; --danger: #f98d84; --good: #8bdc8f; --warn: #f0c063; --skeleton: #1e2a34;
     color-scheme: dark;
   }
 }
@@ -141,6 +143,20 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
 .card-foot { display: flex; gap: 8px; align-items: baseline; font-size: 13px; }
 .card-reason { color: var(--tone); font-weight: 500; min-width: 0; }
 .card-age { margin-left: auto; color: var(--muted); font-size: 12px; flex: none; }
+/* Details under the title: the review's verdict line (one line, in full on hover or focus), then
+   short facts and links that wrap onto as many lines as they need. */
+.card-details { display: grid; gap: 4px; font-size: 13px; min-width: 0; }
+.card-verdict {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-radius: 4px;
+}
+.card-verdict:hover, .card-verdict:focus { white-space: normal; overflow-wrap: anywhere; }
+.card-verdict b { font-weight: 600; }
+.card-verdict.v-good b { color: var(--good); }
+.card-verdict.v-warn b { color: var(--warn); }
+.card-verdict.v-bad b { color: var(--danger); }
+.card-facts { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 12px; color: var(--muted); min-width: 0; }
+.card-facts a { display: inline-flex; align-items: center; min-height: 24px; color: var(--accent); }
+.card-facts .fact-warn { color: var(--needs); }
 
 @media (max-width: 720px) {
   .board { grid-template-columns: minmax(0, 1fr); }
@@ -489,8 +505,9 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
   // The runtime allows 64 watches per view; keep well under it.
   const WATCH_BUDGET = 48;
   let watchesInUse = 0;
-  const ISSUE_FIELDS = ["number", "title", "state", "labels", "created_at", "updated_at"];
-  const PR_FIELDS = ["number", "title", "state", "draft", "merged", "merged_at", "labels", "created_at", "updated_at"];
+  // body: the card details are parsed from it. head and base: stacked PRs.
+  const ISSUE_FIELDS = ["number", "title", "body", "state", "labels", "created_at", "updated_at"];
+  const PR_FIELDS = ["number", "title", "body", "state", "draft", "merged", "merged_at", "labels", "head", "base", "created_at", "updated_at"];
   const PARTS = ["issuesOpen", "issuesClosed", "prsOpen", "prsClosed"];
   const PR_PAGE = { open: 100, closed: 50 };
   const loads = new Map(); // "owner/name" -> { full, watched, unsubs, poll, parts, errors, checks, checkReads, storedAt }
@@ -635,6 +652,35 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
   const TONE = Object.fromEntries(BUCKETS.map((b) => [b.id, b.tone]));
   const KIND_LABEL = { spec: "Spec", design: "Design", pr: "PR" };
 
+  // A link out of a card. Its URL came from a body or comment, so board.mjs's safeUrl has already
+  // kept it to https; it is checked again here, where it becomes an href.
+  const outLink = (url, text, key) => (safeUrl(url) ? el("a", { href: safeUrl(url), target: "_blank", rel: "noopener noreferrer", text, "data-key": key }) : null);
+  const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+  const VERDICT_TONE = { "Approve": "v-good", "Approve with suggestions": "v-warn", "Changes requested": "v-bad" };
+
+  // The details under a card's title: what decides the next step, and links to read more.
+  function renderDetails(card) {
+    const key = `${card.project}#${card.number}`;
+    const rows = [];
+    const facts = [];
+    if (card.kind === "pr") {
+      const r = card.review;
+      if (r?.line) {
+        const rest = r.line.slice(r.verdict.length);
+        // Focusable, so the full line also shows on keyboard focus and on a tap.
+        rows.push(el("div", { class: `card-verdict ${VERDICT_TONE[r.verdict] ?? ""}`, tabindex: "0", title: r.line, "data-key": `verdict:${key}` },
+          el("b", { text: r.verdict }), rest));
+      }
+      if (!r) facts.push(el("span", { text: "not reviewed yet" }));
+      else if (r.risks != null) facts.push(el("span", { class: r.risks ? "fact-warn" : "", text: r.risks ? plural(r.risks, "risk") : "no risks" }));
+      if (card.landsAfter) facts.push(el("span", { text: `lands after #${card.landsAfter}` }));
+      facts.push(outLink(r?.reportUrl, "Full report", `report:${key}`), outLink(r?.previewUrl, "Preview", `preview:${key}`));
+    }
+    const shown = facts.filter(Boolean);
+    if (shown.length) rows.push(el("div", { class: "card-facts" }, ...shown));
+    return rows.length ? el("div", { class: "card-details" }, ...rows) : null;
+  }
+
   // One card. Sibling specs extend the dashboard here: details, actions and sessions hang off the card.
   function renderCard(card) {
     return el("article", { class: `card b-${TONE[card.bucket]}`, "data-project": card.project, "data-kind": card.kind },
@@ -644,6 +690,7 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
       ),
       el("a", { class: "card-title", href: card.url, target: "_blank", rel: "noopener", title: `#${card.number} ${card.title}`, "data-key": `card:${card.project}#${card.number}` },
         el("span", { class: "card-num mono", text: `#${card.number}` }), " ", card.title),
+      renderDetails(card),
       el("div", { class: "card-foot" },
         el("span", { class: "card-reason", text: card.reason }),
         el("time", { class: "card-age mono", datetime: card.since, title: new Date(card.since).toLocaleString(), text: card.age }),

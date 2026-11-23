@@ -1,7 +1,7 @@
 // node --test skills/dashboard/scripts/board.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { toCards, counts, ago, BUCKETS, normaliseRepo, mergeProjects, sortBucket, LANDED_WINDOW, isMissingFile, needsCheckRead } from "./board.mjs";
+import { toCards, counts, ago, BUCKETS, normaliseRepo, mergeProjects, sortBucket, LANDED_WINDOW, isMissingFile, needsCheckRead, parseReview, safeUrl } from "./board.mjs";
 
 const NOW = Date.parse("2026-11-23T12:00:00Z");
 const hoursAgo = (h) => new Date(NOW - h * 3600e3).toISOString();
@@ -224,4 +224,105 @@ test("needsCheckRead: a read still in flight is never doubled, even on Refresh",
   const inFlight = { updatedAt: hoursAgo(5), pending: true };
   assert.equal(needsCheckRead(inFlight, undefined, { ...PR, updated_at: hoursAgo(1) }, false), false);
   assert.equal(needsCheckRead(inFlight, undefined, PR, true), false);
+});
+
+// ---- PR card details: the pr-review section render-report.py writes into PR descriptions.
+
+// PR #88's section, as pr-review wrote it.
+const REVIEW = `Closes #71
+
+<!-- pr-review:start -->
+## Review
+
+**Approve with suggestions.** nothing blocking · 4 smaller improvements · no CI checks in this repository
+
+[Full report](https://claude.ai/artifact/49w8qQ97Gh5XNtkCBgHKev)
+
+### What changes
+
+**Dashboard**
+
+- \`/ship:dashboard\` publishes one private claude.ai page, and republishes to the same page later.
+
+### Risks
+
+- **Connector scope:** the page reads GitHub with your own connector credentials. A person should approve this connector scope (\`skills/dashboard/SKILL.md\`).
+- **Never opened against real repos:** the connector calls were tested only against a mock.
+
+<details><summary>Worth fixing later (4)</summary>
+
+- **Error handling:** Refresh while file reads are refused serves cached data for up to 4 minutes
+
+</details>
+
+<sub>pr-review · head \`4cdf6f5\` · 2026-11-23 14:40 · reviewers: quality</sub>
+
+<!-- pr-review:end -->
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)`;
+
+test("parseReview reads the verdict line, the risks and the Full report link from the review section", () => {
+  assert.deepEqual(parseReview(REVIEW), {
+    verdict: "Approve with suggestions",
+    line: "Approve with suggestions. nothing blocking · 4 smaller improvements · no CI checks in this repository",
+    risks: 2,
+    reportUrl: "https://claude.ai/artifact/49w8qQ97Gh5XNtkCBgHKev",
+    previewUrl: null,
+  });
+});
+
+test("parseReview: a description without the review section has no review", () => {
+  assert.equal(parseReview("Closes #71\n\nSome description."), null);
+  assert.equal(parseReview(undefined), null);
+  assert.equal(parseReview("<!-- pr-review:start -->\n**Approve.** cut off"), null, "no end marker");
+});
+
+test("parseReview: the 'None found' bullet means zero risks; Preview and Full report links both read", () => {
+  const body = [
+    "<!-- pr-review:start -->", "## Review", "",
+    "**Approve.** nothing blocking · CI green", "",
+    "[Preview](https://app-git-x.vercel.app/) · [Full report](https://claude.ai/artifact/abc)", "",
+    "### Risks", "",
+    "- None found: no migration, data removal, auth, dependency or deploy change.", "",
+    "<sub>pr-review · head `abc` · 2026-11-23 · reviewers: quality</sub>", "",
+    "<!-- pr-review:end -->",
+  ].join("\n");
+  assert.deepEqual(parseReview(body), {
+    verdict: "Approve", line: "Approve. nothing blocking · CI green", risks: 0,
+    reportUrl: "https://claude.ai/artifact/abc", previewUrl: "https://app-git-x.vercel.app/",
+  });
+});
+
+test("parseReview: links that aren't https are dropped", () => {
+  const body = "<!-- pr-review:start -->\n**Changes requested.** 1 to fix\n\n[Preview](javascript:alert(1)) · [Full report](http://claude.ai/x)\n<!-- pr-review:end -->";
+  const review = parseReview(body);
+  assert.equal(review.previewUrl, null);
+  assert.equal(review.reportUrl, null);
+  assert.equal(review.verdict, "Changes requested");
+  assert.equal(review.risks, null, "no Risks heading: the count is unknown, not zero");
+});
+
+test("safeUrl keeps https links only", () => {
+  assert.equal(safeUrl("https://claude.ai/artifact/x"), "https://claude.ai/artifact/x");
+  for (const bad of ["javascript:alert(1)", "data:text/html,x", "http://claude.ai", "//claude.ai/x", "", null]) assert.equal(safeUrl(bad), null, bad);
+});
+
+const branchPr = (number, head, base, extra = {}) => ({ ...pr(number, ["pr-reviewed"], extra), head: { ref: head, sha: "abc" }, base: { ref: base } });
+
+test("a PR whose base is another open PR's branch lands after it; a PR on the default branch lands on its own", () => {
+  const prs = [
+    branchPr(10, "spec/71-ship-dashboard", "main"),
+    branchPr(11, "spec/72-dashboard-card-details", "spec/71-ship-dashboard"),
+    branchPr(12, "spec/73-other", "spec/old-merged", { state: "closed" }),
+    branchPr(13, "spec/74-on-merged", "spec/73-other"),
+  ];
+  const by = Object.fromEntries(toCards("acme/app", [], prs, {}, NOW).map((c) => [c.number, c.landsAfter]));
+  assert.deepEqual(by, { 10: null, 11: 10, 13: null });
+});
+
+test("a PR card carries its review, or null when the description has none", () => {
+  const [reviewed, unreviewed] = toCards("acme/app", [], [{ ...pr(1, ["pr-reviewed"]), body: REVIEW }, pr(2, ["pr-reviewed"])], {}, NOW);
+  assert.equal(reviewed.review.risks, 2);
+  assert.equal(reviewed.review.reportUrl, "https://claude.ai/artifact/49w8qQ97Gh5XNtkCBgHKev");
+  assert.equal(unreviewed.review, null);
 });

@@ -141,6 +141,9 @@ It shows every project set up for ship (a repo with `docs/agents/shipping.md` am
 
 An item that fits several buckets shows once, in the first. Each card says why it's there ("checks failing", "ship label on, no update for 31 h") and for how long. The page refreshes every 5 minutes while it's open, and on **Refresh**.
 
+Cards carry the details that decide the next step, read from what the other ship skills write:
+- **PR cards** show the verdict line from the description's `/ship:pr-review` section (cut to one line, in full on hover or focus), its number of risks, and links to its **Full report** and **Preview** when the review has them. A PR without a review section says "not reviewed yet"; one built on another PR's branch says "lands after #n".
+
 Run it once and pin the page. Running it again (after a plugin update, say) republishes to the same page: it finds it among your artifacts by its title, "Ship dashboard".
 
 It needs, in claude.ai:

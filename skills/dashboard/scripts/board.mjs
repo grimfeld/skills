@@ -47,6 +47,16 @@ function issueCard(project, issue, now) {
   };
 }
 
+// A stacked PR: its base branch is the head branch of another open PR in this repo (a fork's
+// branch of the same name doesn't count). → that PR's number, or null.
+function landsAfter(pr, openPrs) {
+  const base = pr.base?.ref;
+  if (!base) return null;
+  const parent = openPrs.find((o) => o.number !== pr.number && o.head?.ref === base &&
+    (!o.head.repo?.full_name || !pr.base.repo?.full_name || o.head.repo.full_name === pr.base.repo.full_name));
+  return parent ? parent.number : null;
+}
+
 const FAILED_RUN = new Set(["failure", "timed_out", "cancelled", "action_required", "startup_failure"]);
 const FAILED_STATUS = new Set(["failure", "error"]);
 
@@ -73,7 +83,7 @@ const PR_RULES = [
   { when: (p, now) => p.mergedAt && now - Date.parse(p.mergedAt) < WEEK, bucket: "landed", reason: () => "merged", at: (p) => p.mergedAt },
 ];
 
-function prCard(project, pr, check, now) {
+function prCard(project, pr, check, now, openPrs) {
   const p = {
     l: new Set(names(pr.labels)),
     open: String(pr.state).toLowerCase() === "open",
@@ -89,6 +99,7 @@ function prCard(project, pr, check, now) {
   return {
     project, number: pr.number, title: pr.title, url: `https://github.com/${project}/pull/${pr.number}`,
     kind: "pr", bucket: rule.bucket, reason: rule.reason(age), since, age,
+    review: parseReview(pr.body), landsAfter: p.open ? landsAfter(pr, openPrs) : null,
   };
 }
 
@@ -99,13 +110,15 @@ function prCard(project, pr, check, now) {
 //   checks:  { [prNumber]: { check_runs, statuses } }, missing for PRs whose checks weren't read
 //            (or couldn't be: an unread PR counts as not failing, and the page says so on its row)
 //   now:     epoch ms
-// Each card: { project, number, title, url, kind: "spec"|"design"|"pr", bucket, reason, since, age }.
+// Each card: { project, number, title, url, kind: "spec"|"design"|"pr", bucket, reason, since, age }, plus
+//   PR cards:     review (parseReview, or null), landsAfter (the PR it is stacked on, or null)
 // Items that need nothing from the dashboard (spec:in-review specs, unreviewed ready PRs,
 // PRs closed unmerged, anything older than a week in Landed) get no card.
 export function toCards(project, issues, prs, checks, now) {
+  const openPrs = (prs ?? []).filter((p) => String(p.state).toLowerCase() === "open");
   return [
     ...(issues ?? []).map((i) => issueCard(project, i, now)),
-    ...(prs ?? []).map((p) => prCard(project, p, checks?.[p.number], now)),
+    ...(prs ?? []).map((p) => prCard(project, p, checks?.[p.number], now, openPrs)),
   ].filter(Boolean);
 }
 
@@ -160,4 +173,56 @@ const stillRunning = (c) => !!c && (
 export function needsCheckRead(prevRead, check, pr, refresh) {
   if (prevRead?.pending) return false;
   return !prevRead || refresh || prevRead.updatedAt !== pr.updated_at || !check || Boolean(check.unknown) || stillRunning(check);
+}
+
+// ---- Card details, parsed from text other skills write. Each parser follows a format another
+// skill owns (named above it): when that format changes, change the parser.
+// Bodies and comments are anyone's text: a link is kept only when it is https.
+
+export function safeUrl(text) {
+  try {
+    const url = new URL(String(text ?? "").trim());
+    return url.protocol === "https:" ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
+const linkTo = (text, label) => safeUrl(text.match(new RegExp(`\\[${label}\\]\\(([^)\\s]+)\\)`))?.[1]);
+
+// The lines under a "## <name>" (or "### <name>") heading, up to the next heading or HTML comment.
+function section(text, heading) {
+  const lines = String(text ?? "").split(/\r?\n/);
+  const start = lines.findIndex((l) => heading.test(l.trim()));
+  if (start < 0) return null;
+  const rest = lines.slice(start + 1);
+  const end = rest.findIndex((l) => /^#{1,6}\s|^<!--|^<details|^<sub>/.test(l.trim()));
+  return end < 0 ? rest : rest.slice(0, end);
+}
+
+// Top-level list items ("- ", "* ", "1. "), sub-items left out.
+const topItems = (lines) => lines.filter((l) => /^ ?([-*+]|\d+[.)])\s+\S/.test(l)).map((l) => l.replace(/^ ?([-*+]|\d+[.)])\s+/, ""));
+
+// pr-review's section in a PR description (skills/pr-review/scripts/render-report.py, render_pr):
+// between its markers, "**<Verdict>.** <headline>", "[Preview](…) · [Full report](…)", and
+// "### Risks" bullets, where the single "None found: …" bullet means no risks.
+// → { verdict, line, risks (null without a Risks heading), reportUrl, previewUrl }, or null without the section.
+const REVIEW_START = "<!-- pr-review:start -->";
+const REVIEW_END = "<!-- pr-review:end -->";
+export function parseReview(body) {
+  const text = String(body ?? "");
+  const from = text.indexOf(REVIEW_START);
+  const to = text.indexOf(REVIEW_END, from);
+  if (from < 0 || to < 0) return null;
+  const review = text.slice(from + REVIEW_START.length, to);
+  const bold = review.match(/^\*\*(.+?)\.?\*\*\s*(.*)$/m);
+  const items = section(review, /^###\s+Risks\b/i);
+  const risks = items ? topItems(items).filter((r) => !/^None found\b/i.test(r)).length : null;
+  return {
+    verdict: bold ? bold[1] : null,
+    line: bold ? `${bold[1]}.${bold[2] ? ` ${bold[2]}` : ""}` : null,
+    risks,
+    reportUrl: linkTo(review, "Full report"),
+    previewUrl: linkTo(review, "Preview"),
+  };
 }
