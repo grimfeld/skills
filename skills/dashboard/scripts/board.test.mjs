@@ -1,7 +1,7 @@
 // node --test skills/dashboard/scripts/board.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { toCards, counts, ago, BUCKETS, normaliseRepo, mergeProjects, sortBucket, LANDED_WINDOW, isMissingFile, needsCheckRead, needsCommentRead, parseReview, safeUrl, openQuestions, designLink, morningPage, morningSpecs, shipYml, actionsEnabled, approveLabels, unapproveLabels, fileText, landingRun, prAction, labelWrite, writeError, WRITE_DEFINITE, skillFor, preselectEnvironment, sessionLink, singleFlight } from "./board.mjs";
+import { toCards, counts, ago, BUCKETS, normaliseRepo, mergeProjects, sortBucket, LANDED_WINDOW, isMissingFile, needsCheckRead, needsCommentRead, parseReview, safeUrl, openQuestions, designLink, morningPage, morningSpecs, shipYml, actionsEnabled, approveLabels, unapproveLabels, fileText, landFor, LAND, MIN_SHIP_VERSION, prAction, labelWrite, writeError, WRITE_DEFINITE, skillFor, preselectEnvironment, sessionLink, singleFlight } from "./board.mjs";
 
 const NOW = Date.parse("2026-11-23T12:00:00Z");
 const hoursAgo = (h) => new Date(NOW - h * 3600e3).toISOString();
@@ -63,7 +63,6 @@ const pr = (number, labels, { draft = false, state = "open", merged = false, upd
 test("each PR state lands in its bucket", () => {
   const prs = [
     pr(10, ["pr-reviewed"]),
-    pr(11, ["conflicts"]),
     pr(12, [], { draft: true }),
     pr(13, ["pr-reviewed", "ship"], { updated: hoursAgo(5) }),
     pr(14, ["pr-reviewed", "ship"], { updated: hoursAgo(31) }),
@@ -72,7 +71,6 @@ test("each PR state lands in its bucket", () => {
   ];
   assert.deepEqual(pick(toCards("acme/app", [], prs, {}, NOW)), [
     [10, "pr", "needs-you", "reviewed, waiting for your verdict"],
-    [11, "pr", "needs-you", "conflicts"],
     [12, "pr", "in-flight", "draft"],
     [13, "pr", "in-flight", "ship label on, landing"],
     [14, "pr", "needs-you", "ship label on, no update for 31 h"],
@@ -110,14 +108,14 @@ test("PRs merged in the last 7 days have landed; older merges are dropped", () =
 });
 
 test("an item matching several rules appears once, in the earliest bucket", () => {
-  // A draft (In flight) with conflicts (Needs you); a ship PR (In flight) whose checks fail (Needs you).
-  const prs = [pr(50, ["conflicts"], { draft: true }), pr(51, ["ship"])];
-  const checks = { 51: { check_runs: [{ conclusion: "failure" }] } };
+  // A draft (In flight) and a ship PR (In flight), both with failing checks (Needs you).
+  const prs = [pr(50, [], { draft: true }), pr(51, ["ship"])];
+  const checks = { 50: { check_runs: [{ conclusion: "failure" }] }, 51: { check_runs: [{ conclusion: "failure" }] } };
   // A spec labelled both ready and building.
   const issues = [issue(52, ["spec:building", "spec:ready"])];
   assert.deepEqual(pick(toCards("acme/app", issues, prs, checks, NOW)), [
     [52, "spec", "ready", "ready to build"],
-    [50, "pr", "needs-you", "conflicts"],
+    [50, "pr", "needs-you", "checks failing"],
     [51, "pr", "needs-you", "checks failing"],
   ]);
 });
@@ -140,8 +138,8 @@ test("a PR closed without merging gets no card, whatever its labels", () => {
   assert.deepEqual(toCards("acme/app", [], [pr(61, ["pr-reviewed"], { state: "closed" })], {}, NOW), []);
 });
 
-test("a merged PR has landed, even with conflicts, pr-reviewed and ship still on", () => {
-  const prs = [pr(62, ["conflicts", "pr-reviewed", "ship"], { state: "closed", merged: true, merged_at: hoursAgo(5) })];
+test("a merged PR has landed, even with pr-reviewed and ship still on", () => {
+  const prs = [pr(62, ["pr-reviewed", "ship"], { state: "closed", merged: true, merged_at: hoursAgo(5) })];
   assert.deepEqual(pick(toCards("acme/app", [], prs, {}, NOW)), [[62, "pr", "landed", "merged"]]);
 });
 
@@ -555,10 +553,10 @@ test("a design card links its design artifact", () => {
   assert.equal(card.designUrl, "https://claude.ai/artifact/abc123");
 });
 
-// ---- Approve, Un-approve and Land: the ship.yml version gate and the label lists.
+// ---- Approve, Un-approve and Land: the ship.yml version gate, Land's mapping and the label lists.
 
-const shipFile = (first, branch = "main") =>
-  `${first}\n# Installed by /ship:setup-ship.\nname: Ship\n\non:\n  pull_request:\n    types: [opened]\n  push:\n    branches: [${branch}]\n  workflow_dispatch:\n`;
+const shipFile = (first) =>
+  `${first}\n# Installed by /ship:setup-ship.\nname: Ship\n\non:\n  pull_request_target:\n    types: [opened, labeled, unlabeled, synchronize]\n`;
 
 test("ship.yml's version comes from its first line: 1, 2 and 3 read as such", () => {
   assert.equal(shipYml(shipFile("# ship.yml version: 1")).version, 1);
@@ -574,8 +572,30 @@ test("a missing ship.yml, or one whose first line isn't the version line, has no
   assert.equal(shipYml("name: Ship\n# ship.yml version: 2\n").version, null, "only the first line counts");
 });
 
-test("actions are enabled from ship.yml version 2 on, never for 1, missing or malformed", () => {
-  assert.deepEqual([1, 2, 3, null].map(actionsEnabled), [false, true, true, false]);
+test("actions are enabled from ship.yml version 3 on, never for 1, 2, missing or malformed", () => {
+  assert.equal(MIN_SHIP_VERSION, 3);
+  assert.deepEqual([1, 2, 3, 4, null, 3.5].map(actionsEnabled), [false, false, true, true, false, false]);
+});
+
+test("Land maps to /ship:land with the PRs the board shows carrying ship, in number order", () => {
+  const prs = [
+    pr(7, ["pr-reviewed", "ship"]),
+    pr(3, ["ship"], { updated: hoursAgo(30) }),
+    pr(4, ["ship"], { draft: true }),
+    { ...pr(5, ["pr-reviewed"]), body: REVIEW },
+    pr(6, ["ship"], { state: "closed", merged: true, merged_at: hoursAgo(5) }),
+  ];
+  const cards = toCards("acme/app", [issue(1, ["spec:ready"])], prs, {}, NOW);
+  assert.deepEqual(landFor(cards, 3), { label: "Land", command: "/ship:land", prs: [3, 4, 7] });
+  assert.deepEqual(LAND, { label: "Land", command: "/ship:land" });
+});
+
+test("Land is off below version 3, and when no PR on the board carries ship", () => {
+  const cards = toCards("acme/app", [], [pr(7, ["pr-reviewed", "ship"])], {}, NOW);
+  for (const version of [1, 2, null]) assert.deepEqual(landFor(cards, version), { off: "version" }, String(version));
+  assert.deepEqual(landFor(toCards("acme/app", [], [{ ...pr(5, ["pr-reviewed"]), body: REVIEW }], {}, NOW), 3), { off: "no-ship" });
+  assert.deepEqual(landFor([], 4), { off: "no-ship" });
+  assert.deepEqual(landFor(undefined, 3), { off: "no-ship" });
 });
 
 test("Approve writes the PR's labels plus ship, once; Un-approve writes them without it", () => {
@@ -607,7 +627,6 @@ test("a reviewed PR's card offers Approve, a ship PR's card Un-approve, others n
     { ...pr(1, ["pr-reviewed"]), body: REVIEW },
     pr(2, ["pr-reviewed", "ship"]),
     pr(3, ["ship"], { updated: hoursAgo(30) }),
-    pr(4, ["pr-reviewed", "conflicts"]),
     pr(5, ["pr-reviewed", "changes-requested"]),
     pr(6, ["pr-reviewed"], { draft: true }),
     pr(7, ["ship"], { state: "closed", merged: true, merged_at: hoursAgo(5) }),
@@ -617,31 +636,11 @@ test("a reviewed PR's card offers Approve, a ship PR's card Un-approve, others n
     1: ["needs-you", "approve"],
     2: ["in-flight", "unapprove"],
     3: ["needs-you", "unapprove"],
-    4: ["needs-you", null],
     5: ["in-flight", null],
     6: ["needs-you", null], // a draft is never approved, wherever it sits
     7: ["landed", null],
   });
   assert.deepEqual(toCards("acme/app", [], [pr(1, ["pr-reviewed", "spec:in-review"])], {}, NOW)[0].labels, ["pr-reviewed", "spec:in-review"]);
-});
-
-test("ship.yml names the default branch in its push trigger, as setup-ship writes it", () => {
-  assert.equal(shipYml(shipFile("# ship.yml version: 2", "trunk")).defaultBranch, "trunk");
-  assert.equal(shipYml(shipFile("# ship.yml version: 2", "'release/1.x'")).defaultBranch, "release/1.x");
-  assert.equal(shipYml("# ship.yml version: 2\non:\n  workflow_dispatch:\n").defaultBranch, null);
-  assert.equal(shipYml(null).defaultBranch, null);
-});
-
-test("the landing run is the newest workflow_dispatch run created since the click", () => {
-  const click = Date.parse("2026-11-23T12:00:00Z");
-  const run = (id, at, event = "workflow_dispatch") => ({ id, event, created_at: at, html_url: `https://github.com/acme/app/actions/runs/${id}` });
-  assert.deepEqual(landingRun({ workflow_runs: [run(2, "2026-11-23T12:00:03Z"), run(1, "2026-11-23T11:00:00Z")] }, click),
-    { id: 2, url: "https://github.com/acme/app/actions/runs/2" });
-  assert.equal(landingRun({ workflow_runs: [run(1, "2026-11-23T11:59:00Z")] }, click), null, "an earlier run isn't this one");
-  assert.equal(landingRun({ workflow_runs: [run(3, "2026-11-23T11:59:58Z")] }, click)?.id, 3, "a few seconds of clock skew are allowed");
-  assert.equal(landingRun({ workflow_runs: [run(4, "2026-11-23T12:00:03Z", "push")] }, click), null);
-  assert.equal(landingRun({ workflow_runs: [{ ...run(5, "2026-11-23T12:00:03Z"), html_url: "javascript:alert(1)" }] }, click), null);
-  assert.equal(landingRun(undefined, click), null);
 });
 
 // ---- Who may be approved: prAction, on a card's PR and again on the fresh read before a write.
@@ -702,7 +701,6 @@ test("labelWrite: a PR that changed since the page loaded is refused, and the pr
   const changed = { error: "#1 changed since the page loaded: refreshing", refetch: true };
   const cases = {
     "gained changes-requested": fresh(["pr-reviewed", "changes-requested"]),
-    "gained conflicts": fresh(["pr-reviewed", "conflicts"]),
     "went draft": fresh(["pr-reviewed"], { draft: true }),
     "lost pr-reviewed": fresh([]),
     "closed": fresh(["pr-reviewed"], { state: "closed" }),
@@ -743,17 +741,6 @@ test("writeError names the connector that refused, and where to look, for a sess
   assert.match(writeError({ code: "timeout" }, { verb: "approve" }), /^No clear answer from GitHub \(timeout\).*Check the page after it refreshes before/);
 });
 
-// ---- ship.yml's push block.
-
-test("ship.yml: the default branch is read only inside the push block; a list elsewhere doesn't count", () => {
-  const other = "# ship.yml version: 2\non:\n  push:\n    paths: [src]\n  pull_request:\n    branches: [develop]\n";
-  assert.equal(shipYml(other).defaultBranch, null, "pull_request's branches aren't push's");
-  const multi = "# ship.yml version: 2\non:\n  push:\n    branches:\n      - main\n";
-  assert.equal(shipYml(multi).defaultBranch, null, "no inline list: no branch, Land stays off");
-  const after = "# ship.yml version: 2\non:\n  push:\n\n    # trunk only\n    branches: [trunk]\njobs:\n  x:\n    branches: [nope]\n";
-  assert.equal(shipYml(after).defaultBranch, "trunk", "blank and comment lines stay inside the block");
-});
-
 // ---- Run a skill: the command a card's button starts a cloud session with.
 
 const skillOf = (issues, prs) => Object.fromEntries(toCards("acme/app", issues, prs, {}, NOW).map((c) => [`${c.kind}${c.number}`, skillFor(c)]));
@@ -767,13 +754,13 @@ test("each card that needs a ship skill maps to its button and command; every ot
     issue(5, ["spec:draft"], { state: "CLOSED" }),
   ];
   const prs = [
-    pr(10, ["conflicts"]),
+    pr(10, ["pr-reviewed", "ship"], { updated: hoursAgo(30) }),
     pr(11, ["pr-reviewed"]),
     pr(12, ["pr-reviewed", "ship"]),
     pr(13, ["pr-reviewed", "changes-requested"]),
     pr(14, ["pr-reviewed"], { draft: true }),
     pr(15, ["ship"], { updated: hoursAgo(30) }),
-    pr(16, ["conflicts"], { state: "closed", merged: true, merged_at: hoursAgo(5) }),
+    pr(16, ["ship"], { state: "closed", merged: true, merged_at: hoursAgo(5) }),
   ];
   assert.deepEqual(skillOf(issues, prs), {
     spec1: { label: "Resume spec", command: "/ship:spec-me #1" },
@@ -781,7 +768,7 @@ test("each card that needs a ship skill maps to its button and command; every ot
     spec3: null,
     spec4: null,
     spec5: null,
-    pr10: { label: "Resolve", command: "/ship:resolve-conflicts #10" },
+    pr10: null,
     pr11: null, // reviewed: Approve is its action, and no command sends one PR back
     pr12: null,
     pr13: null,
@@ -791,8 +778,15 @@ test("each card that needs a ship skill maps to its button and command; every ot
   });
 });
 
-test("a conflicting PR that was also reviewed is offered Resolve", () => {
-  assert.deepEqual(skillOf([], [pr(20, ["pr-reviewed", "conflicts"])]).pr20, { label: "Resolve", command: "/ship:resolve-conflicts #20" });
+test("a leftover conflicts label changes nothing: no bucket, no Resolve, no refusal", () => {
+  const prs = [{ ...pr(20, ["pr-reviewed", "conflicts"]), body: REVIEW }, pr(21, ["conflicts"]), pr(22, ["conflicts", "ship"])];
+  const cards = toCards("acme/app", [], prs, {}, NOW);
+  assert.deepEqual(cards.map((c) => [c.number, c.bucket, c.reason, c.action, skillFor(c)]), [
+    [20, "needs-you", "reviewed, waiting for your verdict", "approve", null],
+    [22, "in-flight", "ship label on, landing", "unapprove", null],
+  ]);
+  const card = { project: "acme/app", number: 20, action: "approve", labels: ["pr-reviewed", "conflicts"] };
+  assert.deepEqual(labelWrite(card, { ...prs[0], labels: [{ name: "pr-reviewed" }, { name: "conflicts" }] }), { labels: ["pr-reviewed", "conflicts", "ship"] });
 });
 
 const env = (id, name, kind = "anthropic_cloud") => ({ environment_id: id, name, kind, state: "active" });
