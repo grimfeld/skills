@@ -134,12 +134,12 @@ It shows every project set up for ship (a repo with `docs/agents/shipping.md` am
 
 | Bucket | Holds |
 |---|---|
-| **Needs you** | `spec:draft` and `spec:stuck` specs, `design:ready` designs, PRs labelled `conflicts`, PRs with failing checks, PRs that have carried `ship` for over 24 h without merging, and reviewed PRs (`pr-reviewed`) waiting for your `ship` |
+| **Needs you** | `spec:draft` and `spec:stuck` specs, `design:ready` designs, PRs labelled `conflicts`, PRs with failing checks, PRs that have carried `ship` for over 24 h without merging, and reviewed PRs (`pr-reviewed`, without `changes-requested`) waiting for your `ship` |
 | **Ready for tonight** | `spec:ready` specs |
-| **In flight** | `spec:building` specs, draft PRs, and approved PRs landing now |
+| **In flight** | `spec:building` specs, PRs labelled `changes-requested` (back with the night shift), draft PRs, and approved PRs landing now |
 | **Landed** | specs closed and PRs merged in the last 7 days |
 
-An item that fits several buckets shows once, in the first. Each card says why it's there ("checks failing", "approved 31 h ago, not merged") and for how long. The page refreshes every 5 minutes while it's open, and on **Refresh**.
+An item that fits several buckets shows once, in the first. Each card says why it's there ("checks failing", "ship label on, no update for 31 h") and for how long. The page refreshes every 5 minutes while it's open, and on **Refresh**.
 
 Run it once and pin the page. Running it again (after a plugin update, say) republishes to the same page: it finds it among your artifacts by its title, "Ship dashboard".
 

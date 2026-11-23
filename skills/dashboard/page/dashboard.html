@@ -20,16 +20,11 @@
   --font-mono: ui-monospace, "SFMono-Regular", Menlo, monospace;
 }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
+  :root {
     --bg: #0e151b; --surface: #151e26; --fg: #e2e9ee; --muted: #93a4b2; --line: #26333e; --accent: #82acff;
     --needs: #fb9a5b; --ready: #aaa4ff; --flight: #5fd8cb; --landed: #8bdc8f; --danger: #f98d84; --skeleton: #1e2a34;
     color-scheme: dark;
   }
-}
-:root[data-theme="dark"] {
-  --bg: #0e151b; --surface: #151e26; --fg: #e2e9ee; --muted: #93a4b2; --line: #26333e; --accent: #82acff;
-  --needs: #fb9a5b; --ready: #aaa4ff; --flight: #5fd8cb; --landed: #8bdc8f; --danger: #f98d84; --skeleton: #1e2a34;
-  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -137,7 +132,7 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
 .card-project { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .card-kind { margin-left: auto; flex: none; text-transform: uppercase; letter-spacing: 0.06em; font-size: 11px; }
 .card-title {
-  font-weight: 500; text-decoration: none; overflow-wrap: anywhere;
+  min-height: 44px; font-weight: 500; text-decoration: none; overflow-wrap: anywhere;
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden;
 }
 .card-title:hover { text-decoration: underline; }
@@ -189,7 +184,14 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
   .board[data-tab="in-flight"] .col[data-bucket="in-flight"],
   .board[data-tab="landed"] .col[data-bucket="landed"] { display: grid; }
   .col > h2 { display: none; }
-  .card-title { min-height: 44px; display: -webkit-box; align-content: center; }
+}
+
+/* Four columns down to 721px: there, let names and reasons wrap rather than cut. */
+@media (min-width: 721px) and (max-width: 1080px) {
+  .board { gap: 10px; }
+  .card { padding: 10px; }
+  .card-meta, .card-foot { flex-wrap: wrap; }
+  .card-project { white-space: normal; overflow: visible; overflow-wrap: anywhere; }
 }
 
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
@@ -362,10 +364,6 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
   const SCAN_LIMIT = 100;
   const projects = () => mergeProjects(store.get("found", null)?.repos ?? [], store.get("added", []));
 
-  // get_file_contents fails with a tool_error both for a missing file and for a GitHub hiccup;
-  // only a not-found answer means "not set up".
-  const notFound = (e) => /\b404\b|not found/i.test(`${e?.message ?? ""} ${JSON.stringify(e?.result ?? "")}`);
-
   // true when the repo has docs/agents/shipping.md on its default branch (no ref reads that branch),
   // false when GitHub says there's no such file or repo. Rejects with the code otherwise.
   async function hasShipping(full) {
@@ -373,7 +371,7 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
       await readOnce("get_file_contents", { ...splitRepo(full), path: "docs/agents/shipping.md" }, { cache: false });
       return true;
     } catch (e) {
-      if (codeOf(e) === "tool_error" && notFound(e)) return false;
+      if (isMissingFile(e)) return false;
       throw e;
     }
   }
@@ -419,6 +417,8 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
         return note(`Claude Code Remote couldn't list your repos (${codeOf(e)}). Add repos by name, or try Rescan.`, true);
       }
       const found = new Set();
+      // Only GitHub saying the file is missing drops a project found before; a failed check keeps it.
+      const before = new Set(store.get("found", null)?.repos ?? []);
       let done = 0;
       let unchecked = 0;
       let refused = null;
@@ -429,7 +429,8 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
             if (await hasShipping(full)) found.add(full);
           } catch (e) {
             if (DENIED.has(codeOf(e))) { refused ??= e; return; }
-            unchecked += 1; // a transient failure on one repo: leave it out of this scan, and say so
+            unchecked += 1; // a transient failure on one repo: keep it if it was found before, and say so
+            if (before.has(full)) found.add(full);
           }
           note(`Checking ${++done} of ${repos.length} repos for docs/agents/shipping.md…`);
         }
@@ -480,7 +481,7 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
     }
   });
 
-  // ---- Loading: three reads per project. The first projects watch them; past the watch budget,
+  // ---- Loading: four reads per project. The first projects watch them; past the watch budget,
   // projects read once and are re-read by one page-level timer. Either way they look the same.
 
   const REFETCH = 5 * 60e3;
@@ -490,7 +491,8 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
   let watchesInUse = 0;
   const ISSUE_FIELDS = ["number", "title", "state", "labels", "created_at", "updated_at"];
   const PR_FIELDS = ["number", "title", "state", "draft", "merged", "merged_at", "labels", "created_at", "updated_at"];
-  const PARTS = ["issuesOpen", "issuesClosed", "prs"];
+  const PARTS = ["issuesOpen", "issuesClosed", "prsOpen", "prsClosed"];
+  const PR_PAGE = { open: 100, closed: 50 };
   const loads = new Map(); // "owner/name" -> { full, watched, unsubs, poll, parts, errors, checks, checkReads, storedAt }
 
   function readsFor(full) {
@@ -501,8 +503,10 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
     return {
       issuesOpen: ["list_issues", { owner, repo, state: "OPEN", perPage: 100, orderBy: "UPDATED_AT", direction: "DESC", fields: ISSUE_FIELDS }],
       issuesClosed: ["list_issues", { owner, repo, state: "CLOSED", since: closedSince, perPage: 50, orderBy: "UPDATED_AT", direction: "DESC", fields: ISSUE_FIELDS }],
-      // Open and recently closed PRs in one read: the 100 most recently updated.
-      prs: ["list_pull_requests", { owner, repo, state: "all", perPage: 100, sort: "updated", direction: "desc", fields: PR_FIELDS }],
+      // Open PRs on their own, least recently updated first, so the ones waiting longest are never
+      // pushed out by busy ones; closed PRs (for Landed) newest first.
+      prsOpen: ["list_pull_requests", { owner, repo, state: "open", perPage: PR_PAGE.open, sort: "updated", direction: "asc", fields: PR_FIELDS }],
+      prsClosed: ["list_pull_requests", { owner, repo, state: "closed", perPage: PR_PAGE.closed, sort: "updated", direction: "desc", fields: PR_FIELDS }],
     };
   }
   const listOf = (payload, key) => (Array.isArray(payload) ? payload : Array.isArray(payload?.[key]) ? payload[key] : []);
@@ -515,10 +519,10 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
     const current = () => loads.get(full) === load;
     const deliver = (part, result) => {
       if (!current()) return;
-      load.parts[part] = listOf(result.payload, part === "prs" ? "pull_requests" : "issues");
+      load.parts[part] = listOf(result.payload, part.startsWith("prs") ? "pull_requests" : "issues");
       delete load.errors[part];
       load.storedAt = Math.max(load.storedAt ?? 0, result.cache?.storedAt ?? Date.now());
-      if (part === "prs") readChecks(load);
+      if (part === "prsOpen") readChecks(load);
       scheduleRender();
     };
     const fail = (part, error) => {
@@ -554,23 +558,16 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
   }
 
   // Checks for each ready open PR (drafts are still being built), as one-shot reads through the pool.
-  // A PR is read again when it has changed since (its updated_at moved), its last read failed,
-  // a check was still running (finishing a check doesn't move updated_at), or the viewer pressed Refresh.
-  // A check run not yet completed, or a commit status other than `ship` still pending.
-  const stillRunning = (c) => !!c && (
-    (c.check_runs ?? []).some((r) => r.status && r.status !== "completed") ||
-    (c.statuses ?? []).some((st) => st.context !== "ship" && st.state === "pending"));
+  // board.mjs's needsCheckRead decides which PRs are read again.
 
   function readChecks(load, refresh = false) {
     if (!state.tools.github.has("pull_request_read")) return;
     const { owner, repo } = splitRepo(load.full);
-    const ready = (load.parts.prs ?? []).filter((p) => String(p.state).toLowerCase() === "open" && !p.draft);
+    const ready = (load.parts.prsOpen ?? []).filter((p) => String(p.state).toLowerCase() === "open" && !p.draft);
     const live = new Set(ready.map((p) => String(p.number)));
     for (const n of Object.keys(load.checkReads)) if (!live.has(n)) { delete load.checkReads[n]; delete load.checks[n]; }
     for (const p of ready) {
-      const last = load.checkReads[p.number];
-      if (last?.pending) continue;
-      if (!refresh && last && last.updatedAt === p.updated_at && !load.checks[p.number]?.unknown && !stillRunning(load.checks[p.number])) continue;
+      if (!needsCheckRead(load.checkReads[p.number], load.checks[p.number], p, refresh)) continue;
       const read = { updatedAt: p.updated_at, pending: true };
       load.checkReads[p.number] = read;
       const one = (method) => readOnce("pull_request_read", { method, owner, repo, pullNumber: p.number }, { refresh });
@@ -588,13 +585,24 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
 
   const loaded = (load) => load && PARTS.every((k) => load.parts[k]);
   const errorsOf = (load) => Object.values(load?.errors ?? {});
+  // A project is "ready" once every read has answered (later failures show on its row),
+  // "failed" when a read failed before that, "loading" otherwise.
+  const phaseOf = (load) => (loaded(load) ? "ready" : errorsOf(load).length ? "failed" : "loading");
+  // A read that came back full may have left PRs out: open ones past the page, or closed ones
+  // still inside Landed's window.
+  const prsCut = (load) => {
+    const { prsOpen = [], prsClosed = [] } = load.parts;
+    const last = prsClosed[prsClosed.length - 1];
+    return prsOpen.length >= PR_PAGE.open ||
+      (prsClosed.length >= PR_PAGE.closed && last && Date.now() - Date.parse(last.updated_at) < LANDED_WINDOW);
+  };
   const uncheckedOf = (load) => Object.values(load?.checks ?? {}).filter((c) => c.unknown).length;
 
   function cardsOf(full) {
     const load = loads.get(full);
     if (!loaded(load)) return [];
-    const { issuesOpen, issuesClosed, prs } = load.parts;
-    return toCards(full, [...issuesOpen, ...issuesClosed], prs, load.checks, Date.now());
+    const { issuesOpen, issuesClosed, prsOpen, prsClosed } = load.parts;
+    return toCards(full, [...issuesOpen, ...issuesClosed], [...prsOpen, ...prsClosed], load.checks, Date.now());
   }
 
   function stopAll() {
@@ -614,8 +622,10 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
     for (const load of loads.values()) load.poll?.();
   }, REFETCH);
 
+  // A file-read refusal (or a lost connector) is re-tested from the start: boot() asks the
+  // connector for its tools again and clears the refusal, so Add repo and Rescan come back if allowed.
   async function refresh() {
-    if (!state.mcp || connectorShowing()) return boot();
+    if (!state.mcp || connectorShowing() || state.fileReads) return boot();
     try { await state.mcp.invalidate(GH); } catch { stopAll(); syncWatches(); }
     for (const load of loads.values()) { load.poll?.(true); readChecks(load, true); }
   }
@@ -629,7 +639,7 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
   function renderCard(card) {
     return el("article", { class: `card b-${TONE[card.bucket]}`, "data-project": card.project, "data-kind": card.kind },
       el("div", { class: "card-meta" },
-        el("span", { class: "card-project mono", text: card.project }),
+        el("span", { class: "card-project mono", title: card.project, text: card.project }),
         el("span", { class: "card-kind", text: KIND_LABEL[card.kind] }),
       ),
       el("a", { class: "card-title", href: card.url, target: "_blank", rel: "noopener", title: `#${card.number} ${card.title}`, "data-key": `card:${card.project}#${card.number}` },
@@ -650,13 +660,14 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
     const load = loads.get(full);
     const name = el("div", { class: "name" }, el("a", { href: `https://github.com/${full}`, target: "_blank", rel: "noopener", text: full, "data-key": `project:${full}` }));
     const errors = errorsOf(load);
-    if (errors.length && !loaded(load)) {
+    const phase = phaseOf(load);
+    if (phase === "failed") {
       const retry = el("button", { class: "btn small", type: "button", text: "Retry", "data-key": `retry:${full}` });
       retry.addEventListener("click", () => { watchProject(full); scheduleRender(); });
       return el("div", { class: "project is-error", "data-project": full }, name,
         el("div", { class: "row-error", text: `Couldn't load: ${errors[0].message || errors[0].code}` }), retry);
     }
-    if (!loaded(load)) {
+    if (phase === "loading") {
       return el("div", { class: "project is-loading", "data-project": full, "aria-busy": "true" }, name,
         el("div", { class: "skeleton", "aria-label": "Loading" }, el("span"), el("span"), el("span"), el("span")),
         el("div", { class: "updated", text: "loading…" }));
@@ -664,9 +675,10 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
     const stale = errors.length ? el("span", { class: "row-stale", text: ` · refresh failed (${errors.map((e) => e.code).join(", ")})` }) : null;
     const unchecked = uncheckedOf(load);
     const warn = unchecked ? el("span", { class: "row-warn", text: `checks couldn't be read for ${unchecked} ${unchecked === 1 ? "PR" : "PRs"}` }) : null;
+    const cut = prsCut(load) ? el("span", { class: "row-warn", text: "some PRs not shown" }) : null;
     return el("div", { class: "project", "data-project": full }, name,
       el("div", { class: "counts" }, ...countPills(counts(cards))),
-      el("div", { class: "updated" }, load.storedAt ? `updated ${since(load.storedAt)}` : "", stale, warn));
+      el("div", { class: "updated" }, load.storedAt ? `updated ${since(load.storedAt)}` : "", stale, warn, cut));
   }
 
   function renderBoard(cards, stillLoading) {
@@ -695,10 +707,9 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
       return b;
     };
     return [chip("all", "All"), ...list.map((full) => {
-      const load = loads.get(full);
-      const mark = errorsOf(load).length && !loaded(load) ? el("span", { class: "chip-flag", text: "failed" })
-        : !loaded(load) ? el("span", { class: "chip-flag", text: "loading" })
-        : el("span", { class: "chip-n mono", text: String(counts(cardsBy.get(full))["needs-you"] || "") });
+      const phase = phaseOf(loads.get(full));
+      const mark = phase === "ready" ? el("span", { class: "chip-n mono", text: String(counts(cardsBy.get(full))["needs-you"] || "") })
+        : el("span", { class: "chip-flag", text: phase });
       const short = full.split("/")[1];
       const clash = list.filter((other) => other.split("/")[1] === short).length > 1;
       return chip(full, clash ? full : short, mark);
@@ -749,7 +760,7 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
     box.append(...rows);
     box.classList.toggle("phone-hide", rows.every((r) => r.classList.contains("phone-hide")));
     const cards = shownProjects.flatMap((full) => cardsBy.get(full));
-    const stillLoading = shownProjects.some((full) => !loaded(loads.get(full)) && !errorsOf(loads.get(full)).length);
+    const stillLoading = shownProjects.some((full) => phaseOf(loads.get(full)) === "loading");
     const board = renderBoard(cards, stillLoading);
     board.dataset.tab = view.tab;
     $("board").replaceChildren(board);
@@ -768,6 +779,7 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
     stopAll();
     state.mcp = null;
     state.fileReads = null;
+    note("");
     const problem = await connect();
     if (problem) return showConnector(problem);
     $("connector").hidden = true;
