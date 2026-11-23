@@ -1,109 +1,162 @@
 ---
 name: land
-description: After the morning review, ship what the user approved in one step. Labels the approved PRs `ship`, sends the ones they commented on back to tonight's night shift, resolves waiting conflicts, then starts one landing run. Stacked PRs land in order, each once its parent is in.
+description: Land every open PR the user approved with the `ship` label, parents before the PRs stacked on them. For each, merge the default branch in, wait for CI, merge it through the GitHub API and move its children onto the default branch. A conflict, a red check or a refused merge stops that PR with a comment, and the rest still lands. Named PRs get `ship` first.
 disable-model-invocation: true
-argument-hint: "[#pr ... | all]  (none: land the PRs already labelled `ship`)"
+argument-hint: "[#pr ...]  (none: land the PRs already labelled `ship`)"
 ---
 
 # Land
 
-The user has reviewed last night's PRs. You turn their verdicts into one landing run:
+The user has reviewed PRs and approved some with the `ship` label. `ship` is the whole approval: it means they read the PR and its comments. You land every PR carrying it, one at a time, parents before their stacked children:
 
-- each PR they approved gets `ship`
-- each one they commented on instead goes back to the night shift
-- conflicts already waiting are resolved first
-- then `ship.yml` lands the batch, once
+1. merge the default branch into it and push;
+2. wait for its checks;
+3. merge it into the default branch;
+4. retarget its children to the default branch and land them the same way, in the same run.
 
-The `ship` label approves a PR; it doesn't land it. `ship.yml` lands every labelled PR that targets the default branch. A PR stacked on another one (its base is the parent's branch) waits, and `ship.yml` moves it onto the default branch and lands it once its parent merges. So you never merge, retarget or order anything yourself: labelling and one dispatch are the whole landing.
+When a PR can't land (a conflict, a red or unfinished check, a merge GitHub refuses), you leave it unmerged with a comment saying why, keep `ship` on, and land the rest. Its children wait. You end with a report.
 
-Approval is per PR. Never add `ship` to a PR the user didn't approve, not even the parent of one they did.
+`ship.yml` lands nothing. Its `gate` job sets the required `ship` status, which is the guard: GitHub refuses to merge a PR without it.
 
 You must never:
-- merge a PR, or push to the default branch
-- add `ship` to a draft, or to a PR without `pr-reviewed`
-- change labels other than `ship`, `changes-requested`, `conflicts` (through `resolve-conflicts`) and the spec's `spec:*` label
+- push to the default branch
+- rebase or force-push any branch
+- add `ship` to a PR the user didn't name
+- remove `ship` from a PR
+- merge a PR that doesn't carry `ship`
 
 Read first:
-1. `docs/agents/shipping.md`: the default branch, landing mode, stacked PRs and spec labels.
+1. `docs/agents/shipping.md`: the default branch, the merge method ("Merge method" under Landing), stacked PRs, conflicts and checks.
 2. `${CLAUDE_PLUGIN_ROOT}/references/github.md`, for when `gh` isn't available.
 
 ## 1. Check the workflow
 
 Read the first line of `.github/workflows/ship.yml` on the default branch, fetched first so a just-merged upgrade counts (`git fetch -q origin <default> && git show origin/<default>:.github/workflows/ship.yml | head -1`).
 
-It must be `# ship.yml version: 2` or later: 2 is the first version where the label approves and a landing run lands, which is all this skill relies on. A newer template doesn't make an installed version 2 unsafe, so don't block on it; mention that `/ship:setup-ship` offers the upgrade. If the file is missing, or has an older version or no version line, stop before changing anything: in that version adding `ship` lands a PR at once and stacked PRs can merge into their parent's branch. Tell the user to run `/ship:setup-ship`, which offers the upgrade.
+It must be `# ship.yml version: 3` or later. If the file is missing, has no version line or an older version, stop before changing anything. Version 2's jobs land PRs themselves (auto-merge and a stacked cascade), so they would race you. Tell the user to run `/ship:setup-ship`, which offers the upgrade.
 
-## 2. Last night's PRs
+## 2. Approve the named PRs
 
-1. **Specs:** the issues with a `night-shift` comment from the last 24 hours (the JSON comment `build-spec` leaves).
-2. **PRs:** the `pr` in each spec's latest `night-shift` comment. For each, read `number, title, isDraft, baseRefName, headRefName, labels, url` and the spec it closes (`Closes #<n>` in its body).
-3. **Stacks:** a PR whose base is another open PR's head branch is that PR's child. Note each PR's parent.
+With no arguments, skip this step: the batch is what already carries `ship`.
 
-## 3. The user's verdicts
+For each `#n` given, read it (`gh api repos/{owner}/{repo}/pulls/<n>`):
+- **Closed or merged:** refuse it, with the reason. Don't label it.
+- **Draft:** refuse it, with the reason. Don't label it.
+- **Otherwise:** add `ship` if it hasn't got it (`gh api repos/{owner}/{repo}/issues/<n>/labels -f 'labels[]=ship'`).
 
-Parse the arguments:
+Approval is per PR. Never label a PR the user didn't name, not even the parent of one they did.
 
-- **PR numbers:** the approved PRs. They may include PRs from earlier nights: read the same fields as step 2 for those, and their parents.
-- **`all`:** every PR from step 2 that is ready (not a draft) and labelled `pr-reviewed`.
-- **Nothing:** approve nothing new, and send nothing back: skip the sort below and step 6. The batch is the PRs already labelled `ship`.
+## 3. Collect and order
 
-A PR that already carries `ship` is approved, whatever the arguments: the user labelled it by hand.
+1. **Open PRs:** list every open PR with its `number, draft, labels, base.ref, head.ref, head.sha, head.repo.full_name, html_url` (`gh api --paginate 'repos/{owner}/{repo}/pulls?state=open&per_page=100'`). You need the unlabelled ones too, to find parents.
+2. **The batch:** the PRs carrying `ship`. Skip, with the reason:
+   - a draft ("draft");
+   - a PR whose head branch is on a fork ("head branch is on a fork, can't push to it").
+3. **Stacks:** a PR whose base is another open PR's head branch is that PR's child.
+   - Parent carries `ship`: the child lands after it.
+   - Parent doesn't: the child waits. Report it as "waiting on #<parent>, not approved", and its own children as waiting on it.
+   - Base is neither the default branch nor an open PR's branch (its parent merged or closed without a retarget): if the parent merged, retarget the child (step 4.6) and treat it as a root; otherwise skip it ("base `<branch>` isn't the default branch or an open PR").
+4. **Order:** roots (PRs based on the default branch) by ascending number, each followed depth-first by its children, also by ascending number.
 
-With arguments, sort last night's PRs that are neither named nor labelled `ship`:
+## 4. Land each PR, in order
 
-- **Commented:** a review, review comment or PR comment by the user (`gh api user --jq .login`) made after the PR was marked ready (its `ready_for_review` timeline event, or its creation if it was never a draft). This is feedback, so it goes back to the night shift (step 6). The ship tooling posts under the user's login too, so skip its comments: any comment that holds an HTML marker comment (`<!-- … -->`), or that starts like the ones `ship.yml` and `resolve-conflicts` post ("This PR conflicts with", "Resolved:", "## Conflict resolution").
-- **Not reviewed yet:** no such comment. Leave it alone and list it at the end.
+Work in a worktree of your own (`git worktree add --detach <dir> origin/<default>`), or a fresh clone in a scratch directory. Never in the user's checkout.
 
-Refuse, with the reason, any approved PR that is a draft, lacks `pr-reviewed`, or is closed. Leave it out of the batch and go on.
+### 4.1 Still approved?
 
-## 4. Conflicts first
+Read the PR again. If it's closed, a draft, or no longer carries `ship` (the user changed their mind), skip it with that reason. Its children wait.
 
-Collect every open PR labelled `conflicts`: `ship.yml` took `ship` off each when it added `conflicts`, so they can't be found by `ship`. If there are any, run `resolve-conflicts` with them, as `${CLAUDE_PLUGIN_ROOT}/references/running-skills.md` says. It puts `ship` back on a PR whose resolution touched only bookkeeping files, and that PR joins the batch.
-
-A PR that resolve-conflicts sent to re-review (a code resolution) or left stuck (still labelled `conflicts`) stays out of this batch, even if it was approved: the resolution is code nobody has reviewed. Step 5 skips it; report it under Waiting.
-
-## 5. Approve
-
-Add `ship` to each approved PR that doesn't have it, except those step 4 held back (`gh api repos/{owner}/{repo}/issues/<n>/labels -f 'labels[]=ship'`).
-
-A child whose parent isn't approved still gets `ship`: it can't land until the parent merges, so the label is safe and records the user's approval. Report it as "waiting on #<parent>, not approved".
-
-## 6. Send back the commented PRs
-
-For each commented PR:
-
-1. Add `changes-requested` to the PR. Remove `ship` if it has it.
-2. Relabel its spec `spec:in-review` → `spec:ready`.
-3. Comment on the spec:
+### 4.2 Merge the default branch in
 
 ```
-<!-- land {"status":"changes-requested","pr":<n>} -->
-land: changes requested on #<pr> (<link to the user's latest review or comment>). Back to `spec:ready` for the next night shift.
+git fetch -q origin <default> <head>
+git checkout -q --detach origin/<head>
 ```
 
-Its stacked children stay where they are. Report them as "waiting on #<parent>, changes requested".
+If it already contains the default branch's tip (`git merge-base --is-ancestor origin/<default> HEAD`), push nothing and go to 4.3.
 
-## 7. Land
+Otherwise merge it in with a merge commit, never a rebase: `git merge --no-ff --no-edit origin/<default> -m "Merge <default> into <head>"`. Then push to the PR's branch: `git push -q origin HEAD:<head>`. A rejected push means someone pushed meanwhile: fetch and merge again, once. If it's rejected again, stop the PR (4.5) with "push rejected: <git's message>".
 
-Start one landing run, after every label is on, so the whole batch is checked and landed together:
+**On a conflict:** list the conflicting files (`git diff --name-only --diff-filter=U`), then `git merge --abort`. Push nothing. Stop the PR (4.5):
 
 ```
-gh workflow run ship.yml --ref <default>
+<!-- land {"status":"stopped","reason":"conflict"} -->
+land: merging `<default>` into this PR conflicts in:
+- `<file>`
+- ...
+
+Merge `<default>` into it, push, and run `/ship:land` again. `ship` stays on.
 ```
 
-Then check it started: `gh run list --workflow ship.yml --event workflow_dispatch --limit 1 --json databaseId,createdAt,url`, and take it only if it was created after the dispatch; otherwise wait a few seconds and look again. If the dispatch fails (no permission, workflow disabled), say so: the PRs keep `ship` and land with the next landing run.
+### 4.3 Wait for checks
 
-Don't wait for the merges. CI and the stacked cascade can take an hour; `night-shift morning` reports what merged.
+Take the PR's head SHA after your push. If `docs/agents/shipping.md` "Checks" names no CI check beyond `ship`, and no check run or status other than `ship` has appeared on that SHA, don't wait: go to 4.4.
 
-## 8. Report
+Otherwise wait with one blocking wait, 30 minutes at most, never repeated `sleep` calls:
 
-One line per PR, in these groups, each with its link:
+```
+timeout 1800 gh pr checks <n> --watch --interval 30
+```
 
-- **Landing now:** approved, labelled and targeting the default branch.
-- **Landing after its parent:** approved children, with the parent each waits on.
-- **Waiting:** a child whose parent isn't approved or got changes requested, and code-conflict resolutions waiting for re-review.
-- **Back to tonight's night shift:** the commented PRs, with their specs.
-- **Refused:** drafts, PRs without `pr-reviewed`, closed PRs, with the reason.
-- **Not reviewed yet:** last night's PRs with neither approval nor comment.
+or a single `until` loop with the same timeout over the SHA's check runs and statuses (`gh api repos/{owner}/{repo}/commits/<sha>/check-runs` and `.../commits/<sha>/status`).
 
-End with the landing run's link.
+Then read the result (`gh pr checks <n> --json name,state,link`). The `ship` check counts as passed whatever it shows, since `ship` is on: `gate` may still be catching up with your push.
+
+**A check failed, or hadn't finished after 30 minutes:** stop the PR (4.5):
+
+```
+<!-- land {"status":"stopped","reason":"check","check":"<name>"} -->
+land: check [<name>](<link>) <failed | didn't finish within 30 minutes> on <sha>. `ship` stays on; run `/ship:land` again once it's green.
+```
+
+Name every check that failed or didn't finish.
+
+### 4.4 Merge
+
+Merge through the API, with the merge method from `docs/agents/shipping.md` and the SHA you checked, so nothing pushed after your wait lands unchecked:
+
+```
+gh api -X PUT repos/{owner}/{repo}/pulls/<n>/merge -f merge_method=<method> -f sha=<sha>
+```
+
+Without `gh`, use the GitHub MCP merge tool (`merge_pull_request`) with the same method.
+
+If the `ship` status is still pending, GitHub may refuse at first: wait for `gate` on that SHA (one blocking wait, 2 minutes at most) and try once more.
+
+**GitHub refuses:** stop the PR (4.5), quoting its error:
+
+```
+<!-- land {"status":"stopped","reason":"merge-refused"} -->
+land: GitHub refused the merge:
+
+> <GitHub's message>
+
+`ship` stays on.
+```
+
+### 4.5 Stopping a PR
+
+Post the comment (`gh api repos/{owner}/{repo}/issues/<n>/comments -F body=@<file>`). Keep the HTML marker on its first line: it tells the ship tooling's comments from the user's. Keep `ship` on. Its children, and theirs, wait: report each as "waiting on #<parent>, stopped". Go on with the next root.
+
+### 4.6 After a merge: the children
+
+For each child of the merged PR, read it again. If its base isn't the default branch yet (GitHub moves it itself only when the parent's branch is deleted), retarget it:
+
+```
+gh api -X PATCH repos/{owner}/{repo}/pulls/<child> -f base=<default>
+```
+
+Then land it from 4.1, before the next root. It gets the same steps: merging the default branch in brings it the parent's merge.
+
+Done when every PR in the batch is merged, stopped, skipped or waiting. Remove your worktree (`git worktree remove <dir>`).
+
+## 5. Report
+
+One line per PR, each linked, in landing order:
+
+- **Merged:** `merged #12 <title>`, and for a child `(after #11)`.
+- **Stopped:** `stopped #13 <title>: conflict in <files>` / `check <name> failed` / `check <name> didn't finish in 30 minutes` / `GitHub refused: <error>` / `push rejected`.
+- **Skipped:** `skipped #14 <title>: <reason>`: draft, fork, closed, `ship` removed, waiting on #<parent> (not approved, or stopped).
+- **Refused:** the named PRs step 2 refused, with the reason.
+
+End with the counts: `<n> merged, <n> stopped, <n> skipped, <n> refused`.
