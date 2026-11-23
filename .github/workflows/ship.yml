@@ -252,19 +252,36 @@ jobs:
           ONLY: ${{ needs.queue.outputs.moved }}
           EVENT: ${{ github.event_name }}
         run: |
-          # A `ship` PR based on another PR's branch is a stacked child: `queue` moves it here once its parent lands.
-          # shellcheck disable=SC2016 # a jq program, not shell
-          prs=$(gh pr list --label "$SHIP_LABEL" --state open --base "$DEFAULT_BRANCH" --limit 200 --json number,isDraft --jq '
-            [.[] | select(.isDraft | not) | .number | tostring
-                 | select(env.EVENT != "pull_request" or ((" " + env.ONLY + " ") | contains(" " + . + " ")))] | join(" ")')
-          [ -n "$prs" ] || { echo "Nothing to land."; echo "Nothing to land." >> "$GITHUB_STEP_SUMMARY"; exit 0; }
           url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/pull"
-          merged=0 queued=0 failed=0 report=""
+          merged=0 queued=0 failed=0 skipped=0 report=""
           # One summary line per PR.
           note() { report="$report- [#$1]($url/$1): $2"$'\n'; echo "#$1: $2"; }
           fail() { failed=$((failed + 1)); note "$1" "couldn't land it: $2"; echo "::error::#$1: couldn't land it: $2"; }
           # GitHub's error, on one line.
           oneline() { printf '%s' "$1" | tr '\n' ' ' | sed 's/  */ /g; s/^ //; s/ $//' | cut -c1-300; }
+          if [ "$EVENT" = pull_request ]; then
+            # A merge lands only the stacked children `queue` just moved, each read by its number: GitHub search,
+            # which `gh pr list` goes through, can still see a child's old base for a while after the move.
+            prs=""
+            for n in $ONLY; do
+              if ! pr=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$n" 2>&1); then fail "$n" "$(oneline "$pr")"; continue; fi
+              # shellcheck disable=SC2016 # a jq program, not shell
+              why=$(echo "$pr" | jq -r --arg base "$DEFAULT_BRANCH" --arg label "$SHIP_LABEL" '
+                if .state != "open" then "not landed: it is \(if .merged then "already merged" else "closed" end)"
+                elif .draft then "not landed: it is a draft"
+                elif .base.ref != $base then "not landed: it targets `\(.base.ref)`, not `\($base)`"
+                elif ([.labels[].name] | index($label)) == null then "not landed: it has no `\($label)` label"
+                else "" end')
+              if [ -n "$why" ]; then skipped=$((skipped + 1)); note "$n" "$why"; else prs="$prs $n"; fi
+            done
+          else
+            # A `ship` PR based on another PR's branch is a stacked child: `queue` moves it here once its parent lands.
+            prs=$(gh pr list --label "$SHIP_LABEL" --state open --base "$DEFAULT_BRANCH" --limit 200 --json number,isDraft \
+              --jq '[.[] | select(.isDraft | not) | .number] | map(tostring) | join(" ")')
+          fi
+          if [ -z "${prs// /}" ] && [ -z "$report" ]; then
+            echo "Nothing to land."; echo "Nothing to land." >> "$GITHUB_STEP_SUMMARY"; exit 0
+          fi
           for n in $prs; do
             # GitHub merges it once its required checks pass: a PR still waiting for them isn't a failure.
             if err=$(gh pr merge "$n" --auto "--$MERGE_METHOD" 2>&1); then
@@ -298,7 +315,7 @@ jobs:
             echo
             printf '%s' "$report"
             echo
-            echo "Merged $merged, set $queued to auto-merge, couldn't land $failed."
+            echo "Merged $merged, set $queued to auto-merge, couldn't land $failed, skipped $skipped."
             [ "$failed" = 0 ] || echo "Each failure gives GitHub's reason. Fix it (a permission \`SHIP_TOKEN\` lacks, a branch rule, a PR that can't merge yet), then start a landing run again: \`/ship:land\`, or run the workflow."
           } >> "$GITHUB_STEP_SUMMARY"
           [ "$failed" = 0 ] || exit 1
