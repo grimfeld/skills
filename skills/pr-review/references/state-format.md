@@ -82,7 +82,6 @@ The agent-facing detail (`evidence`, `verification`, `sources`, `confidence`) is
 | `runs` | Newest last. Append one per run; never rewrite earlier runs. |
 | `ci.status` | `passing`, `failing`, `pending`, `no-checks` (a PR whose only checks are the `ship` status and the Ship workflow's jobs) or `none` (not a PR). `failing` lists `{name, url}`; with no names it renders "CI failing" and `note`. |
 | `lenses[].status` | `ran`, `skipped`, `failed`, `stale` (ran with a lens whose upstream drifted, not synced) or `unverified` (ran as written; the drift check couldn't compare). `stale` and `unverified` lenses show in the reviewer table with their note. |
-| Footer | The PR section's "reviewers:" line names every lens with status `ran`, `stale` or `unverified`, marking the last two ("quality (stale)"), or "none". |
 | `lenses[].note` | Free text. For an `unverified` lens it starts `reason: <r>` (the reason `check-drift.py` printed); step 5 adds `agent: <type>` after it, separated by `; `. |
 | `findings[].id` | `F<n>`, assigned once and never reused. A finding keeps its id across runs. |
 | `severity` | From `references/finding-format.md`. |
@@ -90,6 +89,8 @@ The agent-facing detail (`evidence`, `verification`, `sources`, `confidence`) is
 | `decision.state` | `pending`, `approved`, `rejected` or `deferred`. Rejected findings are never resurfaced: on a re-run, a new finding matching a rejected one (same root cause, same place) is discarded. |
 | `origin` | Optional; `pre-existing` carried over from the finding format. The report tags it "already in base". |
 | `ticket` | The ticket number once tickets are written. |
+
+The PR section's footer ("reviewers:") names every lens with status `ran`, `stale` or `unverified`, marking the last two ("quality (stale)"), or "none".
 
 ## Re-runs
 

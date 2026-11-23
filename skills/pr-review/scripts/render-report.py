@@ -40,9 +40,8 @@ def build_view(state: dict) -> dict:
     for f in minors:
         themes.setdefault(f.get("theme") or "Other", []).append(f)
     themes = OrderedDict(sorted(themes.items(), key=lambda kv: (-len(kv[1]), kv[0])))
-    polish = themes.pop("Polish", []) + nits  # nits join a minor's Polish theme, last
-    if polish:
-        themes["Polish"] = polish
+    if nits:  # nits join a minor's Polish theme, and that group goes last
+        themes["Polish"] = themes.pop("Polish", []) + nits
     smaller = sum(len(v) for v in themes.values())
 
     fixed_now = [f for f in findings if f.get("status") == "fixed" and f.get("fixed_in") == run["date"]]
@@ -58,13 +57,13 @@ def build_view(state: dict) -> dict:
     else:
         verdict, tone = "Approve", "good"
 
-    parts = []
-    if ci.get("status") == "failing":
-        parts.append(ci_text(ci))
+    # Failing CI leads the headline; every other CI state closes it.
+    failing = ci.get("status") == "failing"
+    parts = [ci_text(ci)] if failing else []
     parts.append(f"{len(must)} to fix before merge" if must else "nothing blocking")
     if smaller:
         parts.append(f"{smaller} smaller improvements")
-    if ci.get("status") != "failing":
+    if not failing:
         parts.append(ci_text(ci))
 
     return {
@@ -73,7 +72,7 @@ def build_view(state: dict) -> dict:
         "rejected": rejected, "deferred": deferred,
         "verdict": verdict, "tone": tone, "headline": " · ".join(p for p in parts if p),
         "all_shown": must + minors + nits, "decision": decision, "smaller": smaller,
-        "ci": ci, "ci_text": ci_text(ci), "failing_names": failing_names(ci),
+        "ci": ci, "failing_checks": failing_checks(ci),
     }
 
 
@@ -81,7 +80,7 @@ CI_TEXT = {"passing": "CI green", "pending": "CI running", "none": "no CI (not a
            "no-checks": "no CI checks configured"}
 
 
-def failing_names(ci: dict) -> list:
+def failing_checks(ci: dict) -> list:
     return (ci.get("failing") or []) if ci.get("status") == "failing" else []
 
 
@@ -94,11 +93,10 @@ def ci_text(ci: dict) -> str:
     return CI_TEXT.get(status, status)
 
 
-def ci_note_text(ci: dict) -> str:
-    """The CI line under Review notes: the plain phrase for no-checks, else the status and note."""
-    if ci.get("status") == "no-checks":
-        return CI_TEXT["no-checks"] + (f" ({ci['note']})" if ci.get("note") else "")
-    return ci.get("status", "none") + (f" ({ci['note']})" if ci.get("note") else "")
+def ci_label(ci: dict) -> str:
+    """The CI word under Review notes: the plain phrase for no-checks, else the raw status."""
+    status = ci.get("status", "none")
+    return CI_TEXT[status] if status == "no-checks" else status
 
 
 LENS_MARK = {"ran": "", "stale": " (stale)", "unverified": " (unverified)"}
@@ -106,7 +104,8 @@ LENS_MARK = {"ran": "", "stale": " (stale)", "unverified": " (unverified)"}
 
 def reviewers(run: dict) -> str:
     """Every lens that reviewed the diff, marking the ones run un-synced or unverified."""
-    names = [l["lens"] + LENS_MARK[l.get("status")] for l in run.get("lenses") or [] if l.get("status") in LENS_MARK]
+    marked = ((l["lens"], LENS_MARK.get(l.get("status"))) for l in run.get("lenses") or [])
+    names = [lens + mark for lens, mark in marked if mark is not None]
     return ", ".join(names) or "none"
 
 
@@ -139,9 +138,9 @@ def render_md(view) -> str:
         out += [f"Page: {s['artifact_url']}", ""]
 
     ci = view["ci"]
-    if view["failing_names"]:
+    if view["failing_checks"]:
         out += ["## Failing CI", ""]
-        out += [f"- {c['name']}" + (f" ({c['url']})" if c.get("url") else "") for c in view["failing_names"]]
+        out += [f"- {c['name']}" + (f" ({c['url']})" if c.get("url") else "") for c in view["failing_checks"]]
         out += [""]
 
     if view["must"]:
@@ -166,7 +165,7 @@ def render_md(view) -> str:
         out += [f"- {f['title']} · {f['id']}" for f in view["fixed_now"]] + [""]
 
     out += ["## Review notes", ""]
-    out += [f"**CI:** {ci_note_text(ci)}", ""]
+    out += [f"**CI:** {ci_label(ci)}" + (f" ({ci['note']})" if ci.get("note") else ""), ""]
     if run.get("spec"):
         out += [f"**Spec:** {run['spec']}", ""]
     out += ["| Reviewer | Status | Note |", "|---|---|---|"]
@@ -228,8 +227,8 @@ def render_pr(view) -> str:
         out += ["### Screens", ""]
         out += [f"![{sc.get('caption', '')}]({sc['url']})" + (f"  \n_{sc['caption']}_" if sc.get("caption") else "") for sc in brief["screens"]] + [""]
 
-    if view["failing_names"]:
-        out += ["### Failing CI", ""] + [f"- {c['name']}" for c in view["failing_names"]] + [""]
+    if view["failing_checks"]:
+        out += ["### Failing CI", ""] + [f"- {c['name']}" for c in view["failing_checks"]] + [""]
 
     if view["must"]:
         out += ["### Fix before merge", ""]
@@ -359,9 +358,9 @@ def render_html(view) -> str:
           "</header>"]
 
     ci = view["ci"]
-    if view["failing_names"]:
+    if view["failing_checks"]:
         h += ["<section><h2>Failing CI</h2><ul class=\"list\">"]
-        for c in view["failing_names"]:
+        for c in view["failing_checks"]:
             name = html.escape(c["name"])
             h.append(f'<li><a href="{html.escape(c["url"])}">{name}</a></li>' if c.get("url") else f"<li>{name}</li>")
         h += ["</ul></section>"]
@@ -395,7 +394,7 @@ def render_html(view) -> str:
         h += ["</ul></section>"]
 
     h += ["<section><h2>Review notes</h2><div class=\"notes\">"]
-    ci_line = html.escape(ci_note_text(ci))
+    ci_line = html.escape(ci_label(ci)) + (f" · {html.escape(ci['note'])}" if ci.get("note") else "")
     h.append(f"<p><b>CI</b> {ci_line}" + (f"<br><b>Spec</b> {inline(run['spec'])}" if run.get("spec") else "") + "</p>")
     h += ['<div class="table-wrap"><table><thead><tr><th>Reviewer</th><th>Status</th><th>Note</th></tr></thead><tbody>']
     h += [f"<tr><td>{html.escape(l['lens'])}</td><td>{html.escape(l['status'])}</td><td>{inline(l.get('note', ''))}</td></tr>"

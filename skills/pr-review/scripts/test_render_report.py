@@ -87,6 +87,18 @@ class WorthFixing(unittest.TestCase):
         self.assertEqual(worth_fixing_items(out), {"md": 4, "html": 4, "pr": 4})
 
 
+    def test_minor_only_polish_keeps_its_place(self):
+        st = state([finding("F1", "minor", "Polish"), finding("F2", "minor", "Polish"), finding("F3", "minor", "Tests")])
+        md = render(st)["md"]
+        self.assertLess(md.index("**Polish (2)**"), md.index("**Tests (1)**"))
+
+    def test_nits_put_polish_last(self):
+        st = state([finding("F1", "minor", "Polish"), finding("F2", "minor", "Polish"), finding("F3", "minor", "Tests"),
+                    finding("F4", "nit")])
+        md = render(st)["md"]
+        self.assertLess(md.index("**Tests (1)**"), md.index("**Polish (3)**"))
+
+
 class Footer(unittest.TestCase):
     def footer(self, lenses):
         pr = render(state(lenses=lenses))["pr"]
@@ -131,12 +143,18 @@ class CI(unittest.TestCase):
 
     def test_no_checks(self):
         out = render(state(ci={"status": "no-checks", "failing": []}))
-        for name in ("md", "html", "pr"):
-            self.assertIn("no CI checks configured", out[name], name)
+        self.assertIn("**Approve.** nothing blocking · no CI checks configured", out["md"])
+        self.assertIn("**Approve.** nothing blocking · no CI checks configured", out["pr"])
+        self.assertIn("<strong>Approve</strong><span>nothing blocking · no CI checks configured</span>", out["html"])
         notes_md = out["md"].split("## Review notes", 1)[1]
         self.assertIn("**CI:** no CI checks configured", notes_md)
         notes_html = out["html"].split("<h2>Review notes</h2>", 1)[1]
         self.assertIn("<b>CI</b> no CI checks configured", notes_html)
+
+    def test_notes_line_keeps_its_format(self):
+        out = render(state(ci={"status": "passing", "failing": [], "note": "check, e2e"}))
+        self.assertIn("**CI:** passing (check, e2e)", out["md"])
+        self.assertIn("<b>CI</b> passing · check, e2e", out["html"])
 
     def test_other_statuses_unchanged(self):
         for status, text in (("passing", "CI green"), ("pending", "CI running"), ("none", "no CI (not a PR)")):
