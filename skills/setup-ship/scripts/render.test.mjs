@@ -45,7 +45,7 @@ test("a string value is inserted as it is, everywhere its placeholder appears", 
   const out = render(templateFile("to __DEFAULT_BRANCH__, on `__DEFAULT_BRANCH__`: __CD_SUMMARY__\n"),
     valuesFile({ DEFAULT_BRANCH: "trunk", CD_SUMMARY: "Deploys $& on `push`." }));
   assert.equal(out.status, 0, out.stderr);
-  assert.equal(out.stdout, "deliberately wrong\n");
+  assert.equal(out.stdout, "to trunk, on `trunk`: Deploys $& on `push`.\n");
 });
 
 test("list values are formatted by setup-ship's rules", () => {
