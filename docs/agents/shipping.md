@@ -85,6 +85,13 @@ Nothing deploys on merge. Plugin users pick up `main` through the `grimfeld` mar
 
 Command that produces screenshots of the screens a change touches, for the review section: none
 
+## Night builds
+
+`/ship:night-shift` creates its builder routines in this cloud environment. While none is chosen, it asks for one
+each night. Re-run `/ship:setup-ship` to change it.
+
+- **Cloud environment:** `env_01Muin97QuFfZsc1eidb2f4F` (Default)
+
 ## Spec labels
 
 Specs are GitHub issues moving through `spec:draft` → `spec:ready` → `spec:building` → `spec:in-review`, or

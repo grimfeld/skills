@@ -85,6 +85,13 @@ __CD_SUMMARY__
 
 Command that produces screenshots of the screens a change touches, for the review section: __SCREENS__
 
+## Night builds
+
+`/ship:night-shift` creates its builder routines in this cloud environment. While none is chosen, it asks for one
+each night. Re-run `/ship:setup-ship` to change it.
+
+- **Cloud environment:** __CLOUD_ENVIRONMENT__
+
 ## Spec labels
 
 Specs are GitHub issues moving through `spec:draft` → `spec:ready` → `spec:building` → `spec:in-review`, or

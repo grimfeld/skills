@@ -56,7 +56,8 @@ Read only, except the required-checks sync on a current install (step 0), which 
    - an existing `docs/agents/shipping.md`, which means this is a re-run: update it, don't overwrite it
 6. **Labels.** `gh label list`.
 7. **Bookkeeping files.** These are files most PRs touch, so they conflict often and need no review once merged together: glossaries, changelogs, docs indexes. Count how many of the last 30 merged PRs touch each file (`gh pr view <n> --json files`). Files touched by about 30% or more that are docs or indexes, not code or tests, are the candidates.
-8. **Upgrade only: what goes away.** List the open PRs with auto-merge on (`gh pr list --state open --limit 1000 --json number,autoMergeRequest`) and the open PRs labelled `conflicts` (`gh pr list --state open --limit 1000 --label conflicts`), and in `command` mode the open landing-batch PRs (head branch starting with the installed `LAND_BRANCH_PREFIX`). Version 2 took `ship` off a `conflicts` PR, so putting it back re-approves the PR, including anything pushed since: in the plan, list each one, and put `ship` back only on those the user confirms.
+8. **Cloud environments.** List the user's cloud environments with their IDs and names (`list_environments` from the Claude Code remote tools, where this session has them). Note the one named like the repository, if any. Where nothing can list them, ask for an `env_…` ID in step 2 instead, or "none chosen".
+9. **Upgrade only: what goes away.** List the open PRs with auto-merge on (`gh pr list --state open --limit 1000 --json number,autoMergeRequest`) and the open PRs labelled `conflicts` (`gh pr list --state open --limit 1000 --label conflicts`), and in `command` mode the open landing-batch PRs (head branch starting with the installed `LAND_BRANCH_PREFIX`). Version 2 took `ship` off a `conflicts` PR, so putting it back re-approves the PR, including anything pushed since: in the plan, list each one, and put `ship` back only on those the user confirms.
 
 Done when you hold every item above.
 
@@ -64,7 +65,7 @@ Done when you hold every item above.
 
 **Upgrade:** read every value back from the installed files instead of asking for it again:
 - from `ship.yml`: the default branch;
-- from `shipping.md`: the merge method (its "Merge method" line), required and local checks, CD summary, screens command and bookkeeping files;
+- from `shipping.md`: the merge method (its "Merge method" line), required and local checks, CD summary, screens command, bookkeeping files and, from version 4, the cloud environment (its "Cloud environment" line);
 - for the installed version's *base* (step 4.0), the values its template fills, as its "Versions" rendering rules say: for versions 1 and 2, the mode and, in `command` mode, the cron, prefix, commit email, landing command and setup steps from `ship.yml`, and the landing mode, summary and details from `shipping.md`.
 
 Ask only for values the newer template adds that can't be derived from those (the "Versions" list says which). With none, skip the question round.
@@ -75,6 +76,7 @@ Otherwise, ask the user the open choices in one `AskUserQuestion` round, giving 
 - **Required checks:** from step 1.3.
 - **Local checks:** the commands from step 1.5.
 - **Bookkeeping files:** the candidates from step 1.7, as globs. A conflict only in these files is mechanical to resolve.
+- **Cloud environment:** the one `/ship:night-shift` creates builder routines in, from step 1.8, or "none chosen". Recommend the one named like the repository.
 
 When step 1.1 planned a Repository group, there is no history to read: don't ask the required checks or bookkeeping files (take step 1.1's defaults), and recommend `merge` as the merge method.
 - **The GitHub repo**, only when step 1.1 found none: its owner (preselect the signed-in user, `gh api user --jq .login`; offer their organisations), name (preselect the folder's name) and visibility (preselect private). Private on a personal account on the free plan: show step 1.1's warning that the gate becomes advisory.
@@ -152,6 +154,7 @@ Work in a branch, through a worktree if the project's docs say so.
    - `CD_SUMMARY`: what deploys after a merge, or "Nothing deploys on merge."
    - `SCREENS`: the command, or "none".
    - `BOOKKEEPING_FILES`: the globs, as a list (`[]` for none).
+   - `CLOUD_ENVIRONMENT`: `` `env_…` (<environment name>) ``, or "none chosen".
 
    A list is formatted for you (each item in backticks; "no CI checks", "none", "- none" when empty). A string goes in as it is, for wording a list can't give.
 2. **Render.** For each of `ship.yml` and `shipping.md`, run `node ${CLAUDE_SKILL_DIR}/scripts/render.mjs ${CLAUDE_SKILL_DIR}/templates/<file> <values.json>`. It prints the file, keeping `ship.yml`'s first line, `# ship.yml version: <n>`, as it is: `/ship:land` and later runs of this skill read it. It exits non-zero, printing nothing, when a placeholder has no value or one is left over; fix the values and run it again.
@@ -216,3 +219,6 @@ Each entry also gives what rendering that version needs beyond the current rules
 - **3:** `ship.yml` lands nothing. `/ship:land` is an agent that merges every `ship` PR itself: it merges the default branch in, waits for CI and merges, parents before their stacked children. `ship.yml` keeps `gate` and `dependabot`, which labels and no longer merges. Removed: the `queue`, `land` and `automerge` jobs, command mode, auto-merge, the stacked-PR cascade, the `conflicts` label and `/ship:resolve-conflicts`.
   - Upgrade steps: turn auto-merge off on every open PR that has it (`gh pr list --state open --limit 1000 --json number,autoMergeRequest`, then `gh pr merge <n> --disable-auto`); turn off the repository's auto-merge (`gh api -X PATCH repos/{owner}/{repo} -F allow_auto_merge=false`); put `ship` back on each open PR labelled `conflicts` that the user confirmed in the plan, then delete the `conflicts` label (`gh label delete conflicts --yes`). Update the `ship` and `changes-requested` labels' descriptions (`gh label create <name> --force`, with the descriptions above). In `command` mode, list the open PRs whose head branch starts with the installed `LAND_BRANCH_PREFIX` (landing batches): nothing merges them any more, and the PRs they batch land one by one, so close each one the user agrees to in the plan (`gh pr close <n> --comment ...`). Keep the ruleset's required `ship` status.
   - User to-do: `SHIP_TOKEN` now needs only Pull requests read/write, as the Dependabot secret. Delete the Actions secret (`gh secret delete SHIP_TOKEN --repo <owner>/<repo>`), save a new token with only Pull requests read/write as the Dependabot secret (`gh secret set SHIP_TOKEN --app dependabot --repo <owner>/<repo>`), and revoke the old one, which could also write contents and workflows. Run both in a separate terminal, not with `!` in the Claude session (`gh secret set` can't prompt there and saves an empty value), or use `https://github.com/<owner>/<repo>/settings/secrets/dependabot`. Remove any hourly `/ship:resolve-conflicts` routine.
+- **4:** `shipping.md` names the cloud environment `/ship:night-shift` creates its builder routines in (its "Night builds" section, `__CLOUD_ENVIRONMENT__`). `ship.yml` changes only its version line.
+  - Rendering: version 3's base renders with the current rules (`scripts/render.mjs`); it has no `__CLOUD_ENVIRONMENT__`.
+  - Ask only for the cloud environment (step 1.8), recommending the one named like the repository. Nothing else changes: no labels, ruleset changes, upgrade steps or user to-dos.
