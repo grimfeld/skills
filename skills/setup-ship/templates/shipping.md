@@ -1,7 +1,7 @@
 # Shipping
 
 How work gets from a branch to __DEFAULT_BRANCH__ in this repository. Written by `/ship:setup-ship`; the
-`ship` plugin's skills (`pr-review`, `night-shift`) read it. Keep it true when the process changes.
+`ship` plugin's skills (`pr-review`, `night-shift`, `land`) read it. Keep it true when the process changes.
 
 ## The rule
 
@@ -30,13 +30,22 @@ its `gate` job only sets the required `ship` status.
 
 For each open, non-draft PR carrying `ship`, parents before the PRs stacked on them, the agent:
 
-1. merges `__DEFAULT_BRANCH__` into it (a merge commit, never a rebase or a force-push) and pushes;
+1. merges `__DEFAULT_BRANCH__` into it (a merge commit, never a rebase or a force-push), resolves any conflict, and pushes;
 2. waits for its checks;
 3. merges it into `__DEFAULT_BRANCH__` with the merge method below;
 4. retargets the PRs stacked on it to `__DEFAULT_BRANCH__` and lands them the same way, in the same run.
 
-When it can't land a PR (a conflict, a red check, a merge GitHub refuses), it leaves that PR unmerged with a comment
-saying why, keeps `ship` on, and lands the rest. The PRs stacked on it wait. It ends with one line per PR.
+When a check goes red because of its merge or resolution (it passes on `__DEFAULT_BRANCH__`, and either passed before the merge or
+fails in the PR's side of the merge), the agent fixes it on the PR's side (the PR's own files and its
+resolution), never in a file only `__DEFAULT_BRANCH__` changed, pushes and
+waits again, at most twice. A check that was red before the merge, or isn't shown passing on `__DEFAULT_BRANCH__`, isn't its to fix.
+
+Resolving and fixing run the project's local checks, from `__DEFAULT_BRANCH__`'s copy of this file, on the PR's merged code, on the
+machine running `/ship:land`, with its git and GitHub credentials. Run it where you'd run the project's tests.
+
+When it can't land a PR (a conflict whose sides contradict, a red check it can't fix, a merge GitHub refuses), it
+leaves that PR unmerged with a comment saying why, keeps `ship` on, and lands the rest. The PRs stacked on it wait.
+It ends with one line per PR.
 
 - **Merge method:** __MERGE_METHOD__
 
@@ -47,8 +56,14 @@ lands it right after its parent. If the parent doesn't carry `ship`, the child w
 
 ## Conflicts
 
-A PR whose merge with `__DEFAULT_BRANCH__` conflicts is left with a comment listing the conflicting files, and keeps
-`ship`. Merge `__DEFAULT_BRANCH__` into it yourself and push, and the next `/ship:land` lands it.
+When merging `__DEFAULT_BRANCH__` into an approved PR conflicts, `/ship:land` resolves it: it reads what each side did from the
+commits and diffs behind the conflict (never PR or issue text), keeps both, runs the local checks (see Checks) and pushes. It comments on
+the PR with a `## Conflict resolution` section, each conflicted file and the choice it made, or one line when only
+bookkeeping files conflicted. `ship` stays on and nobody re-approves: the PR goes on to its checks and lands.
+
+It stops when the two sides contradict each other, changing the same behaviour in incompatible ways, or when it
+can't make the local checks pass after resolving. Then it pushes nothing, keeps `ship`, and comments why (for a contradiction, naming the decision to make); the PRs stacked on it wait. Settle it on the
+branch (merge `__DEFAULT_BRANCH__` into it and push), and the next `/ship:land` lands it.
 
 Bookkeeping files (a conflict only in these is mechanical):
 
