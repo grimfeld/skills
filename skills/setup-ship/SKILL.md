@@ -36,7 +36,7 @@ Read only. Collect:
 
 0. **Installed version.** Read the first line of `.github/workflows/ship.yml`. No file: a fresh install. A file without a `# ship.yml version:` line: version 1. Version 1 changed several times before it was numbered, so an install from an early commit merges against a base that's slightly off: expect more conflicts, and show them rather than guessing. Compare it with the template's version.
    - **Older:** this run is an **upgrade**. Tell the user which version is installed and which is current, and what the newer one changes and removes (the "Versions" list below). Go on only if they want it.
-   - **Current:** say so. Go on only if the user wants to change a setting (merge method, checks, bookkeeping files); otherwise stop, changing nothing.
+   - **Current:** say so, then run "Sync required checks" (below) first. After it, go on only if the user wants to change another setting (merge method, checks, bookkeeping files); otherwise stop, changing nothing more.
 1. **Repository.** First find which of these the folder is, in this order; each case implies the ones after it:
    - **Not a git repo** (`git rev-parse --is-inside-work-tree` fails): no local repo, no GitHub repo, no commits.
    - **No `origin` remote** (`git remote get-url origin` fails): no GitHub repo. A local repo with commits pushes its default branch as it is; one without commits needs a first commit.
@@ -119,7 +119,7 @@ The user's part is the to-dos the "Versions" list gives for each version passed.
     Create them with `gh label create --force`, which keeps a label's other PRs and issues.
   - The ruleset on the default branch. Amend the existing ruleset that targets it; don't add a second one. It needs:
     - `pull_request`, with no required approvals: one person can't approve their own PRs, and the `ship` label is the review
-    - `required_status_checks`: the chosen checks plus `ship`. Pin `ship` to GitHub Actions (`"integration_id": 15368`), so only the `gate` job can set it, not anyone with push access calling the statuses API.
+    - `required_status_checks`: the chosen checks plus `ship`. Pin `ship` to GitHub Actions (`"integration_id": 15368`), so only the `gate` job can set it, not anyone with push access calling the statuses API. On a re-run, compute the change as "Sync required checks" does, with the "Required on" line you are writing.
     - `non_fast_forward` and `deletion`, if missing
 
     Use `gh api -X PUT repos/{owner}/{repo}/rulesets/<id> --input <file>`, with the full rule list (read, change, write).
@@ -171,7 +171,7 @@ After the user says the PR has merged, apply step 3's repository settings in the
 Re-read each setting to confirm it took:
 - on an upgrade, each upgrade step: for version 3, no open PR with `autoMergeRequest`, `allow_auto_merge` false, `ship` on the `conflicts` PRs the user confirmed, and no `conflicts` label; in `command` mode, the landing-batch PRs the user agreed to close are closed
 - the labels
-- the ruleset's rules
+- the ruleset's rules, with its required checks equal to the "Required on" line plus `ship` (re-read them as "Sync required checks" does)
 
 ## 6. Verify and hand off
 
@@ -185,6 +185,20 @@ Re-read each setting to confirm it took:
    - that `/ship:land` lands the approved PRs
    - after a Repository group: that the files already in the folder are uncommitted, for the user to commit in a PR now that the gate is on
 3. **`SHIP_TOKEN`.** When the user says the secret is set, check it exists: `gh secret list --app dependabot --repo <owner>/<repo>` lists `SHIP_TOKEN`. Say whether it does. The list shows names only: never read, print or ask for its value.
+
+## Sync required checks
+
+`docs/agents/shipping.md` is the source of the required checks; the ruleset follows it. Read only until the yes.
+
+1. **Wanted.** Read the "Required on `<default>`" line from the default branch's copy, not the working tree: `git fetch origin <default>`, then `git show origin/<default>:docs/agents/shipping.md`. A check is required only once the doc saying so has merged. The wanted checks are the backticked names on that line other than `ship`; "no CI checks" means none.
+2. **Current.** Find the ruleset that targets the default branch (`gh api repos/{owner}/{repo}/rulesets`, then `gh api repos/{owner}/{repo}/rulesets/<id>`) and its `required_status_checks` rule's `required_status_checks[].context`, leaving out `ship`.
+3. **Flag what hasn't run.** For each check to add, look at the most recently merged PR's checks (`gh pr list --state merged --limit 1 --json number`, then `gh pr checks <n> --json name,workflow`). A check that isn't there is flagged "hasn't run on a merged PR yet: requiring it would block every PR" and left out of the change unless the user insists.
+4. **Show the difference**, one line per check: `+ <check>` for a wanted check the ruleset lacks, `- <check>` for one the ruleset requires that the line doesn't name. With none, say "required checks in sync", write nothing, and go back to where you came from.
+5. **On a yes, write it.** Read, change, write: take the ruleset's whole JSON, replace only the `required_status_checks` rule's list with the wanted checks plus `ship`, keep every other rule and parameter as it was, and `gh api -X PUT repos/{owner}/{repo}/rulesets/<id> --input <file>`.
+   - `ship` is always kept, pinned to GitHub Actions (`"integration_id": 15368`), whatever `shipping.md` says.
+   - A check that reports from GitHub Actions (the merged PR's `gh pr checks` gives it a `workflow`) is pinned to the same `integration_id`; others are left unpinned. A check already in the ruleset keeps its pinning.
+   - With no `required_status_checks` rule yet, add one with `strict_required_status_checks_policy: false`.
+6. **Re-read** the ruleset and show its required checks. They now equal the wanted list (less any check left out at 3) plus `ship`.
 
 ## Versions
 

@@ -203,6 +203,8 @@ Run once per project. It works in an empty folder too: it creates the local repo
 
 Run it again in a project set up by an older version and it offers an upgrade: it re-renders `ship.yml` and `shipping.md` with the values already installed, keeps your own edits to them, and shows the diff first. Upgrading from version 2 also turns auto-merge off and retires the `conflicts` label.
 
+After adding a CI job, add it to the "Required on" line of `docs/agents/shipping.md` and merge that, then re-run `/ship:setup-ship`: it shows the checks it would add or remove from the ruleset (`+ check`, `- check`, or "required checks in sync") and writes them on your yes, keeping `ship` and every other rule.
+
 GitHub settings are shown first and applied only after you approve them. You create the `SHIP_TOKEN` Dependabot secret yourself, in a separate terminal (`gh secret set SHIP_TOKEN --app dependabot --repo <owner>/<repo>`; with `!` in the session it saves an empty value), or on the repository's Dependabot secrets page; the skill only checks it is listed and never handles tokens. Deploys stay with the project's CD.
 
 `pr-review` writes its review into the PR description: what changes by area, risks, preview, screens, and what to fix before merge. That is the page you read before adding `ship`.
