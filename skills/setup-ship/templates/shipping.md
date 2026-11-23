@@ -55,6 +55,9 @@ without merging leaves its children where they are.
 - **Merge method:** __MERGE_METHOD__
 __LAND_DETAILS__
 
+A landing run needs the `SHIP_TOKEN` secret. Without it, the workflow's own token can't merge, so `land` fails at once,
+before trying any PR, and its error says to add the secret.
+
 ## Conflicts
 
 A labelled PR that conflicts with `__DEFAULT_BRANCH__` can't land: a landing run would skip it again and again.

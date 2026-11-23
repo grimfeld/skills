@@ -1,4 +1,4 @@
-# ship.yml version: 2
+# ship.yml version: 3
 # Installed by /ship:setup-ship. The rules it enforces are in docs/agents/shipping.md.
 #
 # A PR reaches __DEFAULT_BRANCH__ only once a person has reviewed it and added the `ship` label.
@@ -16,7 +16,7 @@
 # SHIP_TOKEN is a fine-grained token (contents, pull requests, workflows: read and write; workflows so the
 # stacked-PR cascade can push a merge that brings in workflow changes). Merges, labels,
 # pushes and PRs made with the default GITHUB_TOKEN don't trigger other workflows (CI, deploys),
-# so every write that must trigger one uses it.
+# so every write that must trigger one uses it. `land` needs it: without it, a landing run fails at once.
 name: Ship
 
 on:
@@ -270,6 +270,16 @@ jobs:
     runs-on: ubuntu-latest
     concurrency: { group: ship-land, cancel-in-progress: false }
     steps:
+      - name: Check for SHIP_TOKEN
+        env:
+          HAS_SHIP_TOKEN: ${{ secrets.SHIP_TOKEN != '' }}
+        run: |
+          # The workflow's own token can only read pull requests here, so every merge would be refused.
+          [ "$HAS_SHIP_TOKEN" = true ] && exit 0
+          msg="No SHIP_TOKEN secret, so nothing can land. Add the SHIP_TOKEN secret (see docs/agents/shipping.md), then start a landing run again."
+          echo "::error::$msg"
+          echo "**Landing failed:** $msg" >> "$GITHUB_STEP_SUMMARY"
+          exit 1
 # >>> command mode
       - uses: actions/checkout@v4
         with: { fetch-depth: 0, token: "${{ secrets.SHIP_TOKEN }}" }
@@ -277,15 +287,13 @@ __SETUP_STEPS__
 # <<< command mode
       - name: Land the reviewed PRs that target __DEFAULT_BRANCH__
         env:
-          GH_TOKEN: ${{ secrets.SHIP_TOKEN || github.token }}
+          GH_TOKEN: ${{ secrets.SHIP_TOKEN }}
           # auto-merge mode has no checkout, so gh needs the repository named.
           GH_REPO: ${{ github.repository }}
-          HAS_SHIP_TOKEN: ${{ secrets.SHIP_TOKEN != '' }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           ONLY: ${{ needs.queue.outputs.moved }}
           EVENT: ${{ github.event_name }}
         run: |
-          [ "$HAS_SHIP_TOKEN" = true ] || echo "::warning::No SHIP_TOKEN secret: merges won't trigger workflows on $DEFAULT_BRANCH (deploys)."
 # >>> auto-merge mode
           # A `ship` PR based on another PR's branch is a stacked child: `queue` moves it here once its parent lands.
           # shellcheck disable=SC2016 # a jq program, not shell

@@ -115,7 +115,7 @@ Print every change, grouped, and ask for one yes. On an **upgrade**, run step 4.
 - **What only the user can do.** Never ask for a token's value or handle one.
   - Create a fine-grained token for this repository with Contents, Pull requests and Workflows read/write. Workflows lets the stacked-PR cascade push a merge that brings in workflow changes, `ship.yml` itself included.
   - Add it as the Actions secret `SHIP_TOKEN` (`gh secret set SHIP_TOKEN`) and the Dependabot secret `SHIP_TOKEN` (`gh secret set SHIP_TOKEN --app dependabot`).
-  - Why it's needed: without it, merges, pushes and landing PRs made by GitHub's default token don't start CI, deploys or the stacked-PR cascade.
+  - Why it's needed: without it, merges, pushes and landing PRs made by GitHub's default token don't start CI, deploys or the stacked-PR cascade. From version 3, a landing run without it fails at once.
   - Cloud sessions don't install plugins from `.claude/settings.json`. Point the user to the `grimfeld/skills` README's cloud setup script for their cloud environment.
   - Optional: a routine that runs `/ship:resolve-conflicts` every hour (`/schedule`), so conflicting PRs get resolved without anyone starting it.
 
@@ -185,3 +185,6 @@ Each entry also gives what rendering that version needs beyond the current rules
   - New label `changes-requested`. Ruleset change: pin the `ship` status to GitHub Actions (`integration_id` 15368). Nothing new to ask: `__LAND_SCHEDULE__` comes from the cron.
   - User to-do: add Workflows read/write to `SHIP_TOKEN`, in both the Actions and the Dependabot secret, so the cascade can push merges that bring in workflow changes.
   - Upgrade step: in `auto-merge` mode, version 1 turned on GitHub auto-merge for every labelled PR, stacked ones included, and version 2 doesn't. List the open PRs with auto-merge on (`gh pr list --json number,autoMergeRequest`) and turn it off on each (`gh pr merge <n> --disable-auto`), so none lands outside a landing run.
+- **3:** a landing run that can't land a PR fails, instead of finishing green. `land` stops at once when `SHIP_TOKEN` is missing, tries every PR and then fails the job if it couldn't merge one or turn on its auto-merge, and writes what it did to the run summary. A merge lands the stacked children it just moved by their numbers, read one by one, instead of listing PRs through GitHub search, which can miss a child whose base just changed.
+  - Rendering: nothing beyond the current rules. Nothing new to ask, and no new labels or ruleset changes.
+  - User to-do: make sure the Actions secret `SHIP_TOKEN` is set. Without it, every landing run is now red instead of green with nothing merged.
