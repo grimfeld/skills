@@ -193,10 +193,10 @@ Done when every blocker and major is `confirmed` or `refuted` with a reason, and
 Use the human `title` and `why` in every question.
 
 - **Fix-before-merge findings, one by one.** `AskUserQuestion`, up to 4 findings per call, options Approve / Reject / Defer. A rejection carries a reason (the user types it via Other, or you ask).
-- **Findings with `options`, each in its own question,** never in a batch: its `title` and `why` (and the `spec_line` it contradicts, if any), with its options as the choices, plus Reject and Defer. When options, Reject and Defer don't fit the question's four choices, offer Reject and Defer through Other and say so in the question. A chosen option records `approved` with the option's `name` and `what` as `decision.reason`.
+- **Findings with `options`, each in its own question,** never in a batch, including one carried over as `needs-person` from an unattended run (that state waits for this question; it is not a decision): its `title` and `why` (and the `spec_line` it contradicts, if any), with its options as the choices, plus Reject and Defer. When options, Reject and Defer don't fit the question's four choices, offer Reject and Defer through Other and say so in the question. A chosen option records `approved` with the option's `name` and `what` as `decision.reason`.
 - **Smaller improvements, as a batch.** List them by theme with their ids, then one question: approve all, reject all, or pick by id.
 
-Record every decision in the state file, re-render, republish the page and update the PR description again. Done when every finding has a decision.
+Record every decision in the state file, re-render, republish the page and update the PR description again. Done when every finding is `approved`, `rejected` or `deferred`.
 
 ## 10. Spec and tickets
 

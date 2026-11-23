@@ -12,20 +12,20 @@ You build one spec, or a chain of specs in order.
 - **`unattended`** (night-shift's builders always pass it): nobody can answer questions. Where the rules below say a spec is **stuck**, it is stuck.
 - **Without it**, a person ran you and is in the session. Where the rules below would make a spec stuck over a question, **ask** it instead (see "A question the spec doesn't answer") and carry on with the answer. Anything else that makes a spec stuck still does.
 
-Every choice the spec doesn't settle is yours. Make it, record it and keep going. Stop only where the rules below say a spec is **stuck**; without `unattended`, a stuck question is asked instead, as above.
+Every choice the spec doesn't settle is yours. Make it, record it and keep going.
 
 You must never:
 - merge a PR
 - add the `ship` label
 - push to the default branch
-- force-push a branch you didn't create tonight
+- force-push a branch you didn't create in this session
 - touch another spec's branch, except the one in your own chain you build on
 
 Read first:
 1. The project's `CLAUDE.md` (and `AGENTS.md`), `docs/agents/shipping.md`, `docs/agents/issue-tracker.md`. The project's rules apply to you: worktrees, commit email, migrations, docs to update.
 2. `${CLAUDE_PLUGIN_ROOT}/references/github.md`, for when `gh` isn't available.
 
-**Check for the Agent tool.** If `Agent` isn't among your tools (ToolSearch `select:Agent` finds nothing), as in a subagent, you can build but not review: step 2 builds the tickets inline, and every spec ends after step 3 with a hand-back (see step 3). A caller holding such a hand-back runs steps 4–6 for that PR itself, from a session that has the Agent tool.
+**Check for the Agent tool.** If `Agent` isn't among your tools (ToolSearch `select:Agent` finds nothing), as in a subagent, you can build but not review, and you can't reach the user, so handle questions as `unattended` does. Step 2 builds the tickets inline, and every spec ends after step 3 with a hand-back (see step 3). A caller holding such a hand-back runs steps 4–6 for that PR itself, from a session that has the Agent tool.
 
 ## For each spec, in the order given
 
@@ -86,9 +86,9 @@ Round = fix every approved finding and every red CI check on the branch, push, w
 - A finding you think is wrong: record it in Decisions with your reason, and leave it.
 - **A `needs-person` finding** (pr-review's hand-off lists them under "Needs a person"): fix nothing for it and make no commit for it. Add a Decisions line, "finding <id> needs a person: <option names>", or "finding <id> contradicts the spec's '<quoted line>': not fixed". Run the rounds for the remaining approved findings as usual; with none left, no round is needed.
 - **Before fixing any approved finding,** check its fix against the lines the spec settles: its acceptance criteria, Out of scope, Implementation decisions, Decision records, and any "stays unchanged" or ruled-out statement. A fix that would change one is treated as `needs-person`, as above, with that line quoted.
-- A `needs-person` finding still open after the rounds is blocking, like an open major.
-- After round 2, anything still blocking makes the spec stuck. Name each blocking item and what you tried.
-- Without `unattended`, a blocking item that needs a person's decision is asked instead, as in step 2, and fixed with the answer. The two-round cap still holds: no third review round.
+- A `needs-person` finding still open is blocking, like an open major.
+- When the rounds end (after round 2, or straight away when no round was needed), anything still blocking, including a `needs-person` finding, makes the spec stuck. Name each blocking item and what you tried.
+- Without `unattended`, ask instead of going stuck: for each item still blocking after round 2, one question as in step 2, naming the choices (for example a fix you describe, accepting it as is with a note, or leaving the spec stuck) and your recommendation. Record the answer under Decisions as in step 2 ("<item>: decided by the owner: <choice>") and apply it, with no third review round: the two-round cap still holds. An item settled this way counts as closed for step 6; one the owner leaves stuck keeps the spec stuck.
 
 ### 6. Finish the spec
 
