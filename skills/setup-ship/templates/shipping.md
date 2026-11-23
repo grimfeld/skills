@@ -9,70 +9,45 @@ A PR reaches `__DEFAULT_BRANCH__` only after a person has reviewed it and added 
 Nothing else merges: the `ship` commit status is required by the ruleset on `__DEFAULT_BRANCH__`, and it stays
 pending until the label is on.
 
-The label approves a PR; it doesn't land it. Landing is a separate step, so a morning's batch can be approved PR by
-PR and then land as one.
+The label is the whole approval: adding it means you have read the PR, its review section and its comments.
+`/ship:land` then merges every `ship` PR without asking anything more.
 
 1. An agent opens the PR as a **draft** while it works.
 2. It marks the PR ready only when local checks pass, `/ship:pr-review` has run (label `pr-reviewed`) and the
    review section is in the description.
-3. You read the review section, and approve it (`ship`) or leave a comment. `/ship:land <pr>...` does both
-   for a batch: it adds `ship` to the PRs you name and sends the commented ones back for a rebuild.
-4. Landing starts: `/ship:land` dispatches `.github/workflows/ship.yml`__LAND_SCHEDULE__. It lands every labelled PR
-   that targets `__DEFAULT_BRANCH__`: __LANDING_SUMMARY__
+3. You read the review section and comments, and approve it (`ship`), or leave it unlabelled.
+4. `/ship:land` lands every PR carrying `ship`. `/ship:land <pr>...` adds `ship` to the PRs you name first.
 
-Dependabot patch updates and GitHub Actions updates get `ship` and land without review.
-
-## What the label approves
-
-The label approves the PR, not a commit: it stays on through later pushes, and those land with it unreviewed. That
-includes the stacked-PR cascade's merge of `__DEFAULT_BRANCH__` and any `/ship:resolve-conflicts` fix. So:
-- Don't add `ship` while someone may still push to the PR.
-- Remove `ship` before pushing more work to an approved PR, and review again before adding it back.
-
-Removing `ship` also turns off GitHub auto-merge if a landing run turned it on, so adding the label back lands
-nothing until the next landing run.
-
-## Stacked PRs
-
-A PR built on top of another one targets that PR's branch, not `__DEFAULT_BRANCH__`. It can carry `ship`, but nothing
-lands it while its base is another branch: approving it means "ship it once its parent is in".
-
-When a PR merges, the `queue` job in `ship.yml` takes each PR stacked on it:
-
-1. retargets it to `__DEFAULT_BRANCH__` (GitHub does this itself when the merged branch is deleted)
-2. merges `__DEFAULT_BRANCH__` into it, never a rebase, and pushes, so its CI runs again
-3. lands it if it carries `ship` (auto-merge mode: in the same run, once its CI passes; command mode: with the next
-   scheduled run), or takes it out of the queue if the merge conflicts (see below)
-
-A merge lands only the children it moved; every other approved PR waits for the next landing run.
-
-PRs stacked further up wait for their own parent. The cascade runs on PRs that close as merged: a PR closed
-without merging leaves its children where they are.
+Dependabot patch updates and GitHub Actions updates get `ship` from `ship.yml` and land with the next `/ship:land`.
 
 ## Landing
 
-- **Mode:** __LAND_MODE__
+`/ship:land` is an agent, run when you start it (or from the dashboard's Land button). `ship.yml` lands nothing:
+its `gate` job only sets the required `ship` status.
+
+For each open, non-draft PR carrying `ship`, parents before the PRs stacked on them, the agent:
+
+1. merges `__DEFAULT_BRANCH__` into it (a merge commit, never a rebase or a force-push) and pushes;
+2. waits for its checks;
+3. merges it into `__DEFAULT_BRANCH__` with the merge method below;
+4. retargets the PRs stacked on it to `__DEFAULT_BRANCH__` and lands them the same way, in the same run.
+
+When it can't land a PR (a conflict, a red check, a merge GitHub refuses), it leaves that PR unmerged with a comment
+saying why, keeps `ship` on, and lands the rest. The PRs stacked on it wait. It ends with one line per PR.
+
 - **Merge method:** __MERGE_METHOD__
-__LAND_DETAILS__
+
+## Stacked PRs
+
+A PR built on top of another one targets that PR's branch, not `__DEFAULT_BRANCH__`. It can carry `ship`: `/ship:land`
+lands it right after its parent. If the parent doesn't carry `ship`, the child waits for it.
 
 ## Conflicts
 
-A labelled PR that conflicts with `__DEFAULT_BRANCH__` can't land: a landing run would skip it again and again.
-The `queue` job in `ship.yml` checks the labelled PRs that target `__DEFAULT_BRANCH__` each time it moves, before each
-landing run, and after moving a merged PR's stacked children.
-For each one that conflicts, it removes `ship`, adds **`conflicts`**, and comments with the conflicting files.
+A PR whose merge with `__DEFAULT_BRANCH__` conflicts is left with a comment listing the conflicting files, and keeps
+`ship`. Merge `__DEFAULT_BRANCH__` into it yourself and push, and the next `/ship:land` lands it.
 
-`/ship:resolve-conflicts [<pr>...]` merges `__DEFAULT_BRANCH__` into each such PR, keeping what both sides meant, runs
-the local checks and pushes. Then:
-
-- **Only bookkeeping files conflicted:** `ship` goes back on, and the PR lands with the next landing run.
-- **Anything else conflicted:** the resolution is new code. `/ship:pr-review` runs on it and a comment explains each
-  choice; re-review it and add `ship` again.
-- **The two sides contradict each other:** nothing is pushed, `conflicts` stays, and a comment names the decision to make.
-
-Resolving it yourself works too: merge `__DEFAULT_BRANCH__` into the branch, push, remove `conflicts` and add `ship`.
-
-Bookkeeping files (a conflict here needs no re-review):
+Bookkeeping files (a conflict only in these is mechanical):
 
 __BOOKKEEPING_FILES__
 
@@ -93,8 +68,8 @@ Command that produces screenshots of the screens a change touches, for the revie
 ## Spec labels
 
 Specs are GitHub issues moving through `spec:draft` → `spec:ready` → `spec:building` → `spec:in-review`, or
-`spec:stuck`, and close when their PR ships. A PR you commented on instead of approving gets
-**`changes-requested`**, and its spec goes back to `spec:ready` for the next night shift.
+`spec:stuck`, and close when their PR ships. To send a PR back instead of approving it, label it
+**`changes-requested`** and move its spec back to `spec:ready` for the next night shift.
 
 ## Design labels
 
