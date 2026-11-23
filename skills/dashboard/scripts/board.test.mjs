@@ -1,7 +1,7 @@
 // node --test skills/dashboard/scripts/board.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { toCards, counts, ago, BUCKETS, normaliseRepo, mergeProjects, sortBucket, LANDED_WINDOW, isMissingFile, needsCheckRead, needsCommentRead, parseReview, safeUrl, openQuestions, designLink, morningPage, morningSpecs, shipYml, actionsEnabled, approveLabels, unapproveLabels, fileText, landingRun, prAction, labelWrite, writeError, WRITE_DEFINITE, skillFor, preselectEnvironment, sessionLink } from "./board.mjs";
+import { toCards, counts, ago, BUCKETS, normaliseRepo, mergeProjects, sortBucket, LANDED_WINDOW, isMissingFile, needsCheckRead, needsCommentRead, parseReview, safeUrl, openQuestions, designLink, morningPage, morningSpecs, shipYml, actionsEnabled, approveLabels, unapproveLabels, fileText, landingRun, prAction, labelWrite, writeError, WRITE_DEFINITE, skillFor, preselectEnvironment, sessionLink, singleFlight } from "./board.mjs";
 
 const NOW = Date.parse("2026-11-23T12:00:00Z");
 const hoursAgo = (h) => new Date(NOW - h * 3600e3).toISOString();
@@ -829,4 +829,35 @@ test("no recognisable session id, or one that isn't a plain id, gives no link", 
   assert.equal(sessionLink({ content: [{ type: "text", text: "see session_01AbC" }] }), null);
   assert.equal(sessionLink({ payload: { id: "../../evil?x=1" } }), null);
   assert.equal(sessionLink(undefined), null);
+});
+
+test("singleFlight: one holder at a time; a second enter is refused until the holder leaves", () => {
+  const gate = singleFlight();
+  assert.equal(gate.holder(), null);
+  assert.equal(gate.tryEnter("skill:a/b#1"), true);
+  assert.equal(gate.holder(), "skill:a/b#1");
+  assert.equal(gate.tryEnter("skill:c/d#2"), false);
+  assert.equal(gate.tryEnter("skill:a/b#1"), false, "the holder can't enter twice either");
+  assert.equal(gate.holder(), "skill:a/b#1");
+  gate.leave("skill:a/b#1");
+  assert.equal(gate.holder(), null);
+  assert.equal(gate.tryEnter("skill:c/d#2"), true);
+});
+
+test("singleFlight: leave by a non-holder does nothing", () => {
+  const gate = singleFlight();
+  gate.tryEnter("skill:a/b#1");
+  gate.leave("skill:c/d#2");
+  assert.equal(gate.holder(), "skill:a/b#1");
+  assert.equal(gate.tryEnter("skill:c/d#2"), false);
+});
+
+test("singleFlight: a holder whose work throws or picks nothing releases the gate when left in a finally", async () => {
+  const gate = singleFlight();
+  const run = async (key, work) => { if (!gate.tryEnter(key)) return "refused"; try { return await work(); } finally { gate.leave(key); } };
+  await assert.rejects(run("skill:a/b#1", async () => { throw new Error("no environments"); }));
+  assert.equal(gate.holder(), null);
+  assert.equal(await run("skill:a/b#1", async () => null), null);
+  assert.equal(gate.holder(), null);
+  assert.equal(await run("skill:c/d#2", async () => "started"), "started");
 });

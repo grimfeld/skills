@@ -509,3 +509,16 @@ export function sessionLink(result) {
   const id = idIn(p) ?? texts.map((t) => idIn(json(t))).find(Boolean);
   return id && SESSION_ID.test(id) ? { id, url: `https://claude.ai/code/${id}` } : null;
 }
+
+// A single-flight gate: at most one key holds it at a time. tryEnter(key) → true when it was free
+// (key now holds it), false otherwise (the holder included). leave(key) frees it only when key holds
+// it, so a late leave from someone else can't open it under the holder. holder() → the key or null.
+// The page holds it while a card's environment is being settled, so two clicks never share the picker.
+export function singleFlight() {
+  let held = null;
+  return {
+    tryEnter(key) { if (held !== null) return false; held = key; return true; },
+    leave(key) { if (held === key) held = null; },
+    holder: () => held,
+  };
+}

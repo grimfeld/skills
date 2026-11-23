@@ -790,14 +790,15 @@ dialog.sheet::backdrop { background: rgb(0 0 0 / 0.45); }
   // off. Off or busy, it is aria-disabled rather than disabled, so it keeps focus through a re-render
   // and an off one reads its reason (aria-describedby). off: the note's nodes, or null when it can run.
   // held: aria-disabled with no note (an outcome just shown, until the refetch catches up).
+  // waiting: aria-disabled, but its click still reaches onClick, which says why it can't run yet.
   // keysFrom: keyboard clicks before this time (performance.now()) are ignored, and a held key's
   // repeats always are (Confirm, which takes focus from Land under a key that may still be down).
-  function actionButton({ key, text, hint, primary = false, small = false, off = null, busy = false, held = false, keysFrom = 0, noteClass = "act-note", settle = true, onClick }) {
+  function actionButton({ key, text, hint, primary = false, small = false, off = null, busy = false, held = false, waiting = false, keysFrom = 0, noteClass = "act-note", settle = true, onClick }) {
     const noteId = `why-${key.replace(/[^\w-]/g, "_")}`;
     const note = off ? el("p", { class: noteClass, id: noteId }, ...off) : null;
     const cls = ["btn", small && "small", primary && !off && "primary", off && "is-off", busy && "is-busy"].filter(Boolean).join(" ");
     const button = el("button", { class: cls, type: "button", title: off ? note.textContent : hint, "data-key": key }, text);
-    if (off || busy || held) button.setAttribute("aria-disabled", "true");
+    if (off || busy || held || waiting) button.setAttribute("aria-disabled", "true");
     if (off) button.setAttribute("aria-describedby", noteId);
     if (busy) button.setAttribute("aria-busy", "true");
     button.addEventListener("click", (ev) => {
@@ -962,18 +963,24 @@ dialog.sheet::backdrop { background: rgb(0 0 0 / 0.45); }
     });
   }
 
-  // The skill action whose environment is being settled (environments read, picker open), or null.
-  // Single-flight: while one is, every other skill or "change" click does nothing, so two clicks in
-  // quick succession never share the one picker (one submit would start both).
-  let choosingFor = null;
+  // The skill action whose environment is being settled (environments read, picker open): board.mjs's
+  // singleFlight, held by its skill key. While one is, every other skill or "change" click is refused
+  // and said so, and the other skill buttons are aria-disabled, so two clicks in quick succession never
+  // share the one picker (one submit would start both).
+  const choosing = singleFlight();
+  const cardOfKey = (key) => key.replace(/^skill:/, "");
 
   // A run-a-skill click starts at once in the project's stored environment while it still exists;
   // otherwise (first run, environment gone) the picker asks first. change: only pick and store,
   // start nothing.
   function skillAction(card, skill, { change = false } = {}) {
     const key = skillKey(card);
-    if (choosingFor || actions.get(key)?.status === "running") return;
-    choosingFor = key;
+    if (actions.get(key)?.status === "running") return;
+    if (!choosing.tryEnter(key)) {
+      const other = choosing.holder();
+      if (other !== key) announce(`Choosing an environment for ${cardOfKey(other)} first`);
+      return;
+    }
     const opener = change ? envChangeKey(card) : key;
     const meta = { label: `#${card.number}` };
     runAction(key, "skill", card.project, meta, async () => {
@@ -993,7 +1000,8 @@ dialog.sheet::backdrop { background: rgb(0 0 0 / 0.45); }
           scheduleRender();
         }
       } finally {
-        choosingFor = null;
+        choosing.leave(key);
+        scheduleRender();
       }
       announce(`Starting ${skill.command} in ${env.name || env.environment_id}`);
       return startSession(card, skill, env);
@@ -1014,14 +1022,17 @@ dialog.sheet::backdrop { background: rgb(0 0 0 / 0.45); }
         el("p", { class: "act-done", text: act.text })];
     }
     const running = act?.status === "running";
+    // Another card's environment is being chosen: this one waits (aria-disabled, its click announced).
+    const waiting = choosing.holder() !== null && choosing.holder() !== key;
     const [button] = actionButton({ key, text: running && !act.choosing ? "Starting…" : skill.label, busy: running,
+      waiting,
       hint: `Start a Claude session on ${card.project} running ${skill.command}`, onClick: () => skillAction(card, skill) });
     // The stored environment, and "change" to pick again (no line until there's a stored choice).
     const env = storedEnv(card.project);
     let line = null;
     if (env) {
       const change = el("button", { class: "linklike", type: "button", "data-key": envChangeKey(card), "aria-label": `Change the environment for ${card.project}`, text: "change" });
-      if (running) change.setAttribute("aria-disabled", "true");
+      if (running || waiting) change.setAttribute("aria-disabled", "true");
       change.addEventListener("click", () => skillAction(card, skill, { change: true }));
       line = el("p", { class: "env-line" }, el("span", { text: `Runs in ${env.name || env.id}` }), change);
     }

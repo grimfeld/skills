@@ -69,3 +69,12 @@ test("the page writes only through callWrite (issue_write's update with labels, 
   assert.deepEqual(issue.split(",").map((k) => k.split(":")[0].trim()).filter(Boolean), ["owner", "repo", "issue_number", "labels"]);
   assert.match(writes.find(([tool]) => tool.includes("actions_run_trigger"))[2], /workflow_id: "ship\.yml"/);
 });
+
+test("skillAction enters the single-flight picker gate and leaves it in a finally", () => {
+  const page = readFileSync(join(here, "..", "page", "dashboard.html"), "utf8");
+  const body = page.match(/function skillAction\([^]*?\n  \}\n/)?.[0];
+  assert.ok(body, "skillAction is found");
+  assert.match(body, /choosing\.tryEnter\(key\)/);
+  assert.match(body, /finally \{[^}]*choosing\.leave\(key\)[^}]*\}/);
+  assert.doesNotMatch(page, /choosingFor/);
+});
