@@ -107,7 +107,6 @@ export function checksFailing(check) {
 // list_pull_requests gives no time for when `ship` went on, so a ship PR is measured by its last update.
 const updated = (p) => p.updatedAt;
 const PR_RULES = [
-  { when: (p) => p.open && p.l.has("conflicts"), bucket: "needs-you", reason: () => "conflicts", at: updated },
   { when: (p) => p.open && p.failing, bucket: "needs-you", reason: () => "checks failing", at: updated },
   { when: (p, now) => p.open && p.l.has("ship") && now - Date.parse(p.updatedAt) > DAY, bucket: "needs-you", reason: (age) => `ship label on, no update for ${age}`, at: updated },
   { when: (p) => p.open && p.l.has("changes-requested"), bucket: "in-flight", reason: () => "changes requested, back to the night shift", at: updated },
@@ -151,8 +150,8 @@ function trustedReview(project, pr) {
 }
 
 // The label step a PR offers, the two /ship:land takes (skills/land/SKILL.md): Approve on an open,
-// ready PR with `pr-reviewed` and without `ship`, and not one already sent back (changes-requested) or
-// taken out of the queue (conflicts); Un-approve on an open PR carrying `ship`. Approve also needs a
+// ready PR with `pr-reviewed` and without `ship`, and not one already sent back (changes-requested);
+// Un-approve on an open PR carrying `ship`. Approve also needs a
 // review the page believes (review: trustedReview's answer): without one, or with one of an older
 // head, it is withheld ("review-first") until the PR is reviewed again. pr: as list_pull_requests or
 // pull_request_read get give it. → "approve", "review-first", "unapprove" or null.
@@ -160,7 +159,7 @@ export function prAction(pr, review) {
   if (!isOpenPr(pr)) return null;
   const l = new Set(names(pr.labels));
   if (l.has(SHIP_LABEL)) return "unapprove";
-  if (pr.draft || !l.has("pr-reviewed") || l.has("changes-requested") || l.has("conflicts")) return null;
+  if (pr.draft || !l.has("pr-reviewed") || l.has("changes-requested")) return null;
   return review && !review.outOfDate ? "approve" : "review-first";
 }
 
@@ -390,7 +389,7 @@ export const unapproveLabels = (labels) => names(labels).filter((n) => n !== SHI
 // Approve or Un-approve's write, from pull_request_read get's answer just before it (fresh: its
 // payload, or undefined when the read failed). The labels come from that read only, so none added
 // since the page loaded is dropped, and the PR must still offer the card's action, so a PR that went
-// draft, lost pr-reviewed, gained changes-requested or conflicts, or was pushed since its review, is
+// draft, lost pr-reviewed, gained changes-requested, or was pushed since its review, is
 // never approved. An open PR already in the action's end state (ship on for approve, off for
 // un-approve) needs no write. card: { project, number, action }.
 // → { labels } to write, { already: true } when there is nothing to change, or { error, refetch? } when
@@ -454,7 +453,6 @@ export function fileText(result) {
 // command as its first message. The commands are the skills' own (skills/<name>/SKILL.md argument-hint).
 // card: a toCards card. → { label, command }, or null when the card needs no skill.
 //   an open spec:draft spec        Resume spec   /ship:spec-me #n
-//   an open conflicts PR           Resolve       /ship:resolve-conflicts #n
 //   a design:ready design          Spec design   /ship:design-me #n
 // No "Send back": /ship:land approves every PR it is given, so there is no command that sends one PR back.
 // Landed cards are closed or merged: they need nothing.
@@ -464,8 +462,6 @@ export function skillFor(card) {
   const n = card.number;
   if (card.kind === "spec" && l.has("spec:draft")) return { label: "Resume spec", command: `/ship:spec-me #${n}` };
   if (card.kind === "design") return { label: "Spec design", command: `/ship:design-me #${n}` };
-  if (card.kind !== "pr") return null;
-  if (l.has("conflicts")) return { label: "Resolve", command: `/ship:resolve-conflicts #${n}` };
   return null;
 }
 

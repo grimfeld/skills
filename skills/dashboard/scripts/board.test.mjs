@@ -63,7 +63,6 @@ const pr = (number, labels, { draft = false, state = "open", merged = false, upd
 test("each PR state lands in its bucket", () => {
   const prs = [
     pr(10, ["pr-reviewed"]),
-    pr(11, ["conflicts"]),
     pr(12, [], { draft: true }),
     pr(13, ["pr-reviewed", "ship"], { updated: hoursAgo(5) }),
     pr(14, ["pr-reviewed", "ship"], { updated: hoursAgo(31) }),
@@ -72,7 +71,6 @@ test("each PR state lands in its bucket", () => {
   ];
   assert.deepEqual(pick(toCards("acme/app", [], prs, {}, NOW)), [
     [10, "pr", "needs-you", "reviewed, waiting for your verdict"],
-    [11, "pr", "needs-you", "conflicts"],
     [12, "pr", "in-flight", "draft"],
     [13, "pr", "in-flight", "ship label on, landing"],
     [14, "pr", "needs-you", "ship label on, no update for 31 h"],
@@ -110,14 +108,14 @@ test("PRs merged in the last 7 days have landed; older merges are dropped", () =
 });
 
 test("an item matching several rules appears once, in the earliest bucket", () => {
-  // A draft (In flight) with conflicts (Needs you); a ship PR (In flight) whose checks fail (Needs you).
-  const prs = [pr(50, ["conflicts"], { draft: true }), pr(51, ["ship"])];
-  const checks = { 51: { check_runs: [{ conclusion: "failure" }] } };
+  // A draft (In flight) and a ship PR (In flight), both with failing checks (Needs you).
+  const prs = [pr(50, [], { draft: true }), pr(51, ["ship"])];
+  const checks = { 50: { check_runs: [{ conclusion: "failure" }] }, 51: { check_runs: [{ conclusion: "failure" }] } };
   // A spec labelled both ready and building.
   const issues = [issue(52, ["spec:building", "spec:ready"])];
   assert.deepEqual(pick(toCards("acme/app", issues, prs, checks, NOW)), [
     [52, "spec", "ready", "ready to build"],
-    [50, "pr", "needs-you", "conflicts"],
+    [50, "pr", "needs-you", "checks failing"],
     [51, "pr", "needs-you", "checks failing"],
   ]);
 });
@@ -140,8 +138,8 @@ test("a PR closed without merging gets no card, whatever its labels", () => {
   assert.deepEqual(toCards("acme/app", [], [pr(61, ["pr-reviewed"], { state: "closed" })], {}, NOW), []);
 });
 
-test("a merged PR has landed, even with conflicts, pr-reviewed and ship still on", () => {
-  const prs = [pr(62, ["conflicts", "pr-reviewed", "ship"], { state: "closed", merged: true, merged_at: hoursAgo(5) })];
+test("a merged PR has landed, even with pr-reviewed and ship still on", () => {
+  const prs = [pr(62, ["pr-reviewed", "ship"], { state: "closed", merged: true, merged_at: hoursAgo(5) })];
   assert.deepEqual(pick(toCards("acme/app", [], prs, {}, NOW)), [[62, "pr", "landed", "merged"]]);
 });
 
@@ -629,7 +627,6 @@ test("a reviewed PR's card offers Approve, a ship PR's card Un-approve, others n
     { ...pr(1, ["pr-reviewed"]), body: REVIEW },
     pr(2, ["pr-reviewed", "ship"]),
     pr(3, ["ship"], { updated: hoursAgo(30) }),
-    pr(4, ["pr-reviewed", "conflicts"]),
     pr(5, ["pr-reviewed", "changes-requested"]),
     pr(6, ["pr-reviewed"], { draft: true }),
     pr(7, ["ship"], { state: "closed", merged: true, merged_at: hoursAgo(5) }),
@@ -639,7 +636,6 @@ test("a reviewed PR's card offers Approve, a ship PR's card Un-approve, others n
     1: ["needs-you", "approve"],
     2: ["in-flight", "unapprove"],
     3: ["needs-you", "unapprove"],
-    4: ["needs-you", null],
     5: ["in-flight", null],
     6: ["needs-you", null], // a draft is never approved, wherever it sits
     7: ["landed", null],
@@ -705,7 +701,6 @@ test("labelWrite: a PR that changed since the page loaded is refused, and the pr
   const changed = { error: "#1 changed since the page loaded: refreshing", refetch: true };
   const cases = {
     "gained changes-requested": fresh(["pr-reviewed", "changes-requested"]),
-    "gained conflicts": fresh(["pr-reviewed", "conflicts"]),
     "went draft": fresh(["pr-reviewed"], { draft: true }),
     "lost pr-reviewed": fresh([]),
     "closed": fresh(["pr-reviewed"], { state: "closed" }),
@@ -759,13 +754,13 @@ test("each card that needs a ship skill maps to its button and command; every ot
     issue(5, ["spec:draft"], { state: "CLOSED" }),
   ];
   const prs = [
-    pr(10, ["conflicts"]),
+    pr(10, ["pr-reviewed", "ship"], { updated: hoursAgo(30) }),
     pr(11, ["pr-reviewed"]),
     pr(12, ["pr-reviewed", "ship"]),
     pr(13, ["pr-reviewed", "changes-requested"]),
     pr(14, ["pr-reviewed"], { draft: true }),
     pr(15, ["ship"], { updated: hoursAgo(30) }),
-    pr(16, ["conflicts"], { state: "closed", merged: true, merged_at: hoursAgo(5) }),
+    pr(16, ["ship"], { state: "closed", merged: true, merged_at: hoursAgo(5) }),
   ];
   assert.deepEqual(skillOf(issues, prs), {
     spec1: { label: "Resume spec", command: "/ship:spec-me #1" },
@@ -773,7 +768,7 @@ test("each card that needs a ship skill maps to its button and command; every ot
     spec3: null,
     spec4: null,
     spec5: null,
-    pr10: { label: "Resolve", command: "/ship:resolve-conflicts #10" },
+    pr10: null,
     pr11: null, // reviewed: Approve is its action, and no command sends one PR back
     pr12: null,
     pr13: null,
@@ -783,8 +778,15 @@ test("each card that needs a ship skill maps to its button and command; every ot
   });
 });
 
-test("a conflicting PR that was also reviewed is offered Resolve", () => {
-  assert.deepEqual(skillOf([], [pr(20, ["pr-reviewed", "conflicts"])]).pr20, { label: "Resolve", command: "/ship:resolve-conflicts #20" });
+test("a leftover conflicts label changes nothing: no bucket, no Resolve, no refusal", () => {
+  const prs = [{ ...pr(20, ["pr-reviewed", "conflicts"]), body: REVIEW }, pr(21, ["conflicts"]), pr(22, ["conflicts", "ship"])];
+  const cards = toCards("acme/app", [], prs, {}, NOW);
+  assert.deepEqual(cards.map((c) => [c.number, c.bucket, c.reason, c.action, skillFor(c)]), [
+    [20, "needs-you", "reviewed, waiting for your verdict", "approve", null],
+    [22, "in-flight", "ship label on, landing", "unapprove", null],
+  ]);
+  const card = { project: "acme/app", number: 20, action: "approve", labels: ["pr-reviewed", "conflicts"] };
+  assert.deepEqual(labelWrite(card, { ...prs[0], labels: [{ name: "pr-reviewed" }, { name: "conflicts" }] }), { labels: ["pr-reviewed", "conflicts", "ship"] });
 });
 
 const env = (id, name, kind = "anthropic_cloud") => ({ environment_id: id, name, kind, state: "active" });

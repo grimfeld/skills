@@ -136,7 +136,7 @@ It shows every project set up for ship (a repo with `docs/agents/shipping.md` am
 
 | Bucket | Holds |
 |---|---|
-| **Needs you** | `spec:draft` and `spec:stuck` specs, `design:ready` designs, PRs labelled `conflicts`, PRs with failing checks, PRs that have carried `ship` for over 24 h without merging, and reviewed PRs (`pr-reviewed`, without `changes-requested`) waiting for your `ship` |
+| **Needs you** | `spec:draft` and `spec:stuck` specs, `design:ready` designs, PRs with failing checks, PRs that have carried `ship` for over 24 h without merging, and reviewed PRs (`pr-reviewed`, without `changes-requested`) waiting for your `ship` |
 | **Ready for tonight** | `spec:ready` specs |
 | **In flight** | `spec:building` specs, PRs labelled `changes-requested` (back with the night shift), draft PRs, and approved PRs landing now |
 | **Landed** | specs closed and PRs merged in the last 7 days |
@@ -152,7 +152,7 @@ Cards carry the details that decide the next step, read from what the other ship
 Links in descriptions and comments are only followed when they are `https://`.
 
 Approving and landing can be done from the page:
-- **Approve** on a reviewed PR's card (`pr-reviewed`, no `ship`, not a draft, not sent back or conflicting) adds `ship`, and the card moves to In flight. It needs the description's `/ship:pr-review` section to be of the PR's current head: without one, or after a push since, the button is off and says to re-run the review. Just before writing, the page reads the PR again: if that read fails, or the PR no longer qualifies (it went draft, gained `changes-requested` or `conflicts`, lost `pr-reviewed`, or was pushed since), nothing is written. **Un-approve** on a card carrying `ship` removes it, with the same fresh read.
+- **Approve** on a reviewed PR's card (`pr-reviewed`, no `ship`, not a draft, not sent back) adds `ship`, and the card moves to In flight. It needs the description's `/ship:pr-review` section to be of the PR's current head: without one, or after a push since, the button is off and says to re-run the review. Just before writing, the page reads the PR again: if that read fails, or the PR no longer qualifies (it went draft, gained `changes-requested`, lost `pr-reviewed`, or was pushed since), nothing is written. **Un-approve** on a card carrying `ship` removes it, with the same fresh read.
 - **Land** on a project row asks first, in place ("Land 2 PRs: #4, #7?", the PRs the board shows carrying `ship`), then on **Confirm** starts a Claude cloud session on the project's repo running `/ship:land`, which lands every PR carrying `ship`. It starts like the skill buttons below: in the environment chosen for the project (asking the first time), with the title `/ship:land · owner/name`. While it starts, the button says so and can't be pressed twice; then the row links the new session (**Open session**). A failed start shows its error on the row and isn't retried. Land is off while no PR on the board carries `ship`, and hidden without Claude Code Remote. On a phone, pick the project's chip to see its row.
 
 Each click is one change, made with your GitHub connector (Approve, Un-approve) or Claude Code Remote (Land), which ask for your approval the first time. The page is given the whole of GitHub's `issue_write` tool, since a page's access can't be narrowed to part of a tool, so in principle it could edit any issue. It only ever calls `issue_write` to update a PR's labels. On Claude Code Remote it likewise holds the whole `create_session` tool, so in principle it could start a session on any repo with any prompt and permission mode, including in an environment on your own machine; it only ever sends the four pinned fields: the card's ship command (`/ship:land` for Land), a title of that command and the repo, the card's or row's repo, and the environment you chose. A test checks the page's source for any other use.
@@ -164,7 +164,6 @@ Cards that need a ship skill start one in a Claude cloud session on the card's r
 | Card | Button | Command |
 |---|---|---|
 | `spec:draft` spec | **Resume spec** | `/ship:spec-me #n` |
-| PR labelled `conflicts` | **Resolve** | `/ship:resolve-conflicts #n` |
 | `design:ready` design | **Spec design** | `/ship:design-me #n` |
 
 While it starts, the button says so and can't be pressed twice; then the card links to the new session (**Open session**). A failed start shows its error on the card and isn't retried. The first time you start one for a project, the page asks which of your Claude Code environments it runs in (a bottom sheet on a phone), suggesting the one named like the repo, else your first cloud environment. It remembers the choice for that project in this browser, and starts later ones at once; **change** under the button picks again. Without browser storage it remembers the choice only until the page is closed; when the remembered environment is gone, it asks again.
