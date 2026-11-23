@@ -105,14 +105,17 @@ test("a dispatch with nothing labelled stays green", () => {
 test("a dispatch tries every PR, lists each, and fails when any couldn't land", () => {
   const r = run(landScript, {
     files: {
-      list: [1, 2, 3, 4, 5, 6, 7].map((number) => ({ number, isDraft: number === 7 })),
+      list: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((number) => ({ number, isDraft: number === 7 })),
       "1.auto": "ok", "1.view": open(),
       "2.auto": "ok merges",
       "3.auto": "Pull request is in clean status", "3.view": open("OPEN", "CLEAN"), "3.merge": "ok",
       "4.auto": "GraphQL: Resource not accessible by integration (enablePullRequestAutoMerge)", "4.view": open(),
-      "5.auto": "Pull request is in unstable status", "5.view": open("OPEN", "UNSTABLE"),
+      "5.auto": "GraphQL: Pull request is in has_hooks status", "5.view": open("OPEN", "HAS_HOOKS"),
       "5.merge": "GraphQL: Resource not accessible by integration (mergePullRequest)",
       "6.auto": "already queued", "6.view": open("OPEN", "BLOCKED", true),
+      "8.auto": "Pull request is in unstable status", "8.view": open("OPEN", "UNSTABLE"), "8.merge": "ok",
+      "9.auto": "Pull request is in clean status", "9.view": open("MERGED", "UNKNOWN"),
+      "10.auto": "GraphQL: Could not resolve to a PullRequest",
     },
   });
   assert.equal(r.code, 1);
@@ -121,10 +124,14 @@ test("a dispatch tries every PR, lists each, and fails when any couldn't land", 
   assert.match(line(2), /: merged$/);
   assert.match(line(3), /: merged$/);
   assert.match(line(4), /couldn't land it: GraphQL: Resource not accessible by integration \(enablePullRequestAutoMerge\)/);
-  assert.match(line(5), /couldn't land it: .*mergePullRequest/, "an unstable PR is merged directly, and its refusal reported");
+  assert.match(line(5), /couldn't land it: .*mergePullRequest/, "a has-hooks PR is merged directly, and its refusal reported");
   assert.match(line(6), /auto-merge already on/);
   assert.equal(line(7), undefined, "drafts are left out");
-  assert.match(r.summary, /Merged 2, set 2 to auto-merge, couldn't land 2, skipped 0\./);
+  assert.match(line(8), /couldn't land it: a check that isn't required is failing/, "an unstable PR is never merged");
+  assert.doesNotMatch(r.calls, /pr merge 8 --merge/);
+  assert.match(line(9), /: already merged$/, "another run merged it: not a failure");
+  assert.match(line(10), /couldn't land it: GraphQL: Could not resolve to a PullRequest/, "unreadable after a refusal");
+  assert.match(r.summary, /Merged 3, set 2 to auto-merge, couldn't land 4, skipped 0\./);
   assert.match(r.summary, /Each failure gives GitHub's reason/);
   assert.match(r.out, /::error::#4: /);
 });
@@ -139,7 +146,7 @@ test("a run that lands or queues everything stays green", () => {
 test("a merge lands its moved children by number, never through search", () => {
   const r = run(landScript, {
     event: "pull_request",
-    only: "7 8 9 10 11 12",
+    only: "7 8 9 10 11 12 13",
     files: {
       list: [{ number: 99, isDraft: false }],
       "7.api": child(), "7.auto": "ok", "7.view": open(),
@@ -147,6 +154,7 @@ test("a merge lands its moved children by number, never through search", () => {
       "9.api": child({ labels: [{ name: "other" }] }),
       "11.api": child({ base: { ref: "feature" } }),
       "12.api": child({ state: "closed", merged: true }),
+      "13.api": child({ state: "closed" }),
     },
   });
   assert.doesNotMatch(r.calls, /pr list/);
@@ -157,7 +165,8 @@ test("a merge lands its moved children by number, never through search", () => {
   assert.match(r.summary, /#10\].*couldn't land it: gh: Not Found/);
   assert.match(r.summary, /#11\].*not landed: it targets `feature`, not `main`/);
   assert.match(r.summary, /#12\].*not landed: it is already merged/);
-  assert.match(r.summary, /skipped 4\./);
+  assert.match(r.summary, /#13\].*not landed: it is closed/);
+  assert.match(r.summary, /skipped 5\./);
   assert.equal(r.code, 1, "an unreadable child fails the run");
 });
 

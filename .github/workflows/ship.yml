@@ -260,6 +260,9 @@ jobs:
           auto_merging() { queued=$((queued + 1)); note "$1" "$2"; }
           skip() { skipped=$((skipped + 1)); note "$1" "not landed: $2"; }
           fail() { failed=$((failed + 1)); note "$1" "couldn't land it: $2"; echo "::error::#$1: couldn't land it: $2"; }
+          # Auto-merge can't be turned on for a PR that can already merge, so that one merges now (has-hooks: clean,
+          # plus pre-receive hooks). Never one whose optional check failed (unstable): that waits for a person.
+          can_merge_now() { case "$1" in CLEAN|HAS_HOOKS) return 0;; *) return 1;; esac; }
           # GitHub's error, on one line.
           oneline() { printf '%s' "$1" | tr '\n' ' ' | sed 's/  */ /g; s/^ //; s/ $//' | cut -c1-300; }
           if [ "$EVENT" = pull_request ]; then
@@ -302,10 +305,10 @@ jobs:
             IFS=$'\t' read -r state merge_state auto_merge_on <<< "$st"
             if [ "$state" = MERGED ]; then landed "$n" "already merged"
             elif [ "$auto_merge_on" = true ]; then auto_merging "$n" "auto-merge already on"
-            # Auto-merge can't be turned on for a PR that can already merge (its required checks passed, even if an
-            # optional one failed), so that one merges now.
-            elif [ "$state" = OPEN ] && case "$merge_state" in CLEAN|UNSTABLE|HAS_HOOKS) true;; *) false;; esac; then
+            elif [ "$state" = OPEN ] && can_merge_now "$merge_state"; then
               if err=$(gh pr merge "$n" "--$MERGE_METHOD" 2>&1); then landed "$n"; else fail "$n" "$(oneline "$err")"; fi
+            elif [ "$merge_state" = UNSTABLE ]; then
+              fail "$n" "a check that isn't required is failing; fix it, or merge the PR by hand"
             else
               fail "$n" "$(oneline "$err")"
             fi
