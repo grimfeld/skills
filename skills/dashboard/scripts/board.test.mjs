@@ -1,7 +1,7 @@
 // node --test skills/dashboard/scripts/board.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { toCards, counts, ago, BUCKETS, normaliseRepo, mergeProjects, sortBucket, LANDED_WINDOW, isMissingFile, needsCheckRead, parseReview, safeUrl, openQuestions, designLink, morningPage, morningSpecs } from "./board.mjs";
+import { toCards, counts, ago, BUCKETS, normaliseRepo, mergeProjects, sortBucket, LANDED_WINDOW, isMissingFile, needsCheckRead, parseReview, safeUrl, openQuestions, designLink, morningPage, morningSpecs, shipYml, actionsEnabled, approveLabels, unapproveLabels, fileText } from "./board.mjs";
 
 const NOW = Date.parse("2026-11-23T12:00:00Z");
 const hoursAgo = (h) => new Date(NOW - h * 3600e3).toISOString();
@@ -433,4 +433,74 @@ test("a spec's open PR is linked before a merged one, and a PR closed unmerged n
 test("a design card links its design artifact", () => {
   const [card] = toCards("acme/app", [{ ...issue(3, ["design:ready"]), body: design("https://claude.ai/artifact/abc123") }], [], {}, NOW);
   assert.equal(card.designUrl, "https://claude.ai/artifact/abc123");
+});
+
+// ---- Approve, Un-approve and Land: the ship.yml version gate and the label lists.
+
+const shipFile = (first, branch = "main") =>
+  `${first}\n# Installed by /ship:setup-ship.\nname: Ship\n\non:\n  pull_request:\n    types: [opened]\n  push:\n    branches: [${branch}]\n  workflow_dispatch:\n`;
+
+test("ship.yml's version comes from its first line: 1, 2 and 3 read as such", () => {
+  assert.equal(shipYml(shipFile("# ship.yml version: 1")).version, 1);
+  assert.equal(shipYml(shipFile("# ship.yml version: 2")).version, 2);
+  assert.equal(shipYml(shipFile("# ship.yml version: 3")).version, 3);
+});
+
+test("a missing ship.yml, or one whose first line isn't the version line, has no version", () => {
+  assert.equal(shipYml(null).version, null);
+  for (const first of ["name: Ship", "# ship.yml version: two", "# ship.yml version:", "# Installed by /ship:setup-ship.", ""]) {
+    assert.equal(shipYml(shipFile(first)).version, null, first);
+  }
+  assert.equal(shipYml("name: Ship\n# ship.yml version: 2\n").version, null, "only the first line counts");
+});
+
+test("actions are enabled from ship.yml version 2 on, never for 1, missing or malformed", () => {
+  assert.deepEqual([1, 2, 3, null].map(actionsEnabled), [false, true, true, false]);
+});
+
+test("Approve writes the PR's labels plus ship, once; Un-approve writes them without it", () => {
+  assert.deepEqual(approveLabels(["pr-reviewed", "spec:in-review"]), ["pr-reviewed", "spec:in-review", "ship"]);
+  assert.deepEqual(approveLabels([{ name: "pr-reviewed" }, { name: "ship" }]), ["pr-reviewed", "ship"]);
+  assert.deepEqual(approveLabels(undefined), ["ship"]);
+  assert.deepEqual(unapproveLabels(["pr-reviewed", "ship", "needs-docs"]), ["pr-reviewed", "needs-docs"]);
+  assert.deepEqual(unapproveLabels([{ name: "ship" }]), []);
+  assert.deepEqual(unapproveLabels(["pr-reviewed"]), ["pr-reviewed"]);
+});
+
+test("a file's text is read from get_file_contents' resource block, past its status line", () => {
+  const text = shipFile("# ship.yml version: 2");
+  const result = {
+    content: [
+      { type: "text", text: "successfully downloaded text file (SHA: 39dc28f)" },
+      { type: "resource", resource: { uri: "repo://acme/app/sha/049e1ed/contents/.github/workflows/ship.yml", mimeType: "text/plain", text } },
+    ],
+    payload: "successfully downloaded text file (SHA: 39dc28f)",
+  };
+  assert.equal(fileText(result), text);
+  assert.equal(fileText({ payload: { content: Buffer.from(text).toString("base64"), encoding: "base64" } }), text, "the REST shape too");
+  assert.equal(fileText({ content: [{ type: "text", text: "successfully downloaded text file" }] }), null);
+  assert.equal(fileText(undefined), null);
+});
+
+test("a reviewed PR's card offers Approve, a ship PR's card Un-approve, others neither", () => {
+  const prs = [
+    pr(1, ["pr-reviewed"]),
+    pr(2, ["pr-reviewed", "ship"]),
+    pr(3, ["ship"], { updated: hoursAgo(30) }),
+    pr(4, ["pr-reviewed", "conflicts"]),
+    pr(5, ["pr-reviewed", "changes-requested"]),
+    pr(6, ["pr-reviewed"], { draft: true }),
+    pr(7, ["ship"], { state: "closed", merged: true, merged_at: hoursAgo(5) }),
+  ];
+  const got = Object.fromEntries(toCards("acme/app", [], prs, {}, NOW).map((c) => [c.number, [c.bucket, c.action]]));
+  assert.deepEqual(got, {
+    1: ["needs-you", "approve"],
+    2: ["in-flight", "unapprove"],
+    3: ["needs-you", "unapprove"],
+    4: ["needs-you", null],
+    5: ["in-flight", null],
+    6: ["needs-you", null], // a draft is never approved, wherever it sits
+    7: ["landed", null],
+  });
+  assert.deepEqual(toCards("acme/app", [], [pr(1, ["pr-reviewed", "spec:in-review"])], {}, NOW)[0].labels, ["pr-reviewed", "spec:in-review"]);
 });

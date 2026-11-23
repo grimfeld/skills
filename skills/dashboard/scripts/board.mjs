@@ -124,7 +124,18 @@ function prCard(project, pr, check, now, openPrs) {
     project, number: pr.number, title: pr.title, url: `https://github.com/${project}/pull/${pr.number}`,
     kind: "pr", bucket: rule.bucket, reason: rule.reason(age), since, age,
     review: parseReview(pr.body), landsAfter: p.open ? landsAfter(pr, openPrs) : null,
+    labels: [...p.l], action: prAction(p),
   };
+}
+
+// The label step a PR card offers, the two /ship:land takes (skills/land/SKILL.md): Approve on an open,
+// ready, reviewed PR without `ship`, and not one already sent back (changes-requested) or taken out of
+// the queue (conflicts); Un-approve on an open PR carrying `ship`. → "approve", "unapprove" or null.
+function prAction(p) {
+  if (!p.open) return null;
+  if (p.l.has("ship")) return "unapprove";
+  if (p.draft || !p.l.has("pr-reviewed") || p.l.has("changes-requested") || p.l.has("conflicts")) return null;
+  return "approve";
 }
 
 // toCards(project, issues, prs, checks, now) → cards, issues first, then PRs.
@@ -137,7 +148,8 @@ function prCard(project, pr, check, now, openPrs) {
 // Each card: { project, number, title, url, kind: "spec"|"design"|"pr", bucket, reason, since, age }, plus
 //   spec cards:   openQuestions (a count, or null without the section), pr ({ number, url } or null)
 //   design cards: designUrl (https, or null)
-//   PR cards:     review (parseReview, or null), landsAfter (the PR it is stacked on, or null)
+//   PR cards:     review (parseReview, or null), landsAfter (the PR it is stacked on, or null),
+//                 labels (names), action ("approve", "unapprove" or null: the label step it offers)
 // Items that need nothing from the dashboard (spec:in-review specs, unreviewed ready PRs,
 // PRs closed unmerged, anything older than a week in Landed) get no card.
 export function toCards(project, issues, prs, checks, now) {
@@ -287,4 +299,46 @@ export function morningPage(comments) {
     if (url && (!best || Date.parse(c.created_at) > Date.parse(best.at))) best = { url, at: c.created_at };
   }
   return best;
+}
+
+// ---- Actions: Approve, Un-approve and Land, as /ship:land does them (skills/land/SKILL.md, step 1).
+
+// setup-ship's .github/workflows/ship.yml (skills/setup-ship/templates/ship.yml): its first line is
+// "# ship.yml version: N", and its push trigger names the default branch ("branches: [main]"),
+// the value setup-ship's upgrade reads back too. text: the file, or null when it is missing.
+// → { version (a number, or null when missing or the first line isn't a version line), defaultBranch (or null) }
+export function shipYml(text) {
+  const lines = String(text ?? "").split(/\r?\n/);
+  const version = lines[0]?.match(/^#\s*ship\.yml version:\s*(\d+)\s*$/);
+  return { version: version ? Number(version[1]) : null, defaultBranch: null };
+}
+
+// Version 2 is the first where `ship` only approves and a landing run lands: older ones land a PR as
+// soon as it's labelled. So every action needs 2 or later, as /ship:land does.
+export const MIN_SHIP_VERSION = 2;
+export const actionsEnabled = (version) => Number.isInteger(version) && version >= MIN_SHIP_VERSION;
+
+// issue_write's `labels` replaces a PR's whole label list, so a label change sends every label it
+// keeps. labels: as the connector lists them (names or { name }). → the full list to write.
+export const SHIP_LABEL = "ship";
+export const approveLabels = (labels) => [...names(labels).filter((n) => n !== SHIP_LABEL), SHIP_LABEL];
+export const unapproveLabels = (labels) => names(labels).filter((n) => n !== SHIP_LABEL);
+
+// A file's text from a get_file_contents result: the GitHub connector answers with a status line,
+// then the file as an embedded resource; the REST shape ({ content, encoding: "base64" }) is read too.
+// → the text, or null when the result carries none.
+export function fileText(result) {
+  for (const block of result?.content ?? []) {
+    if (block?.type === "resource" && typeof block.resource?.text === "string") return block.resource.text;
+  }
+  const p = result?.payload;
+  if (p && typeof p.content === "string" && p.encoding === "base64") {
+    try {
+      const bytes = Uint8Array.from(atob(p.content.replace(/\s/g, "")), (c) => c.charCodeAt(0));
+      return new TextDecoder().decode(bytes);
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }

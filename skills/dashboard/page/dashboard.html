@@ -160,6 +160,13 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
 .card-facts { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 12px; color: var(--muted); min-width: 0; }
 .card-facts a { display: inline-flex; align-items: center; min-height: 24px; color: var(--accent); }
 .card-facts .fact-warn { color: var(--needs); }
+/* Actions sit at the bottom of their card, full width: one 44 px target, on every screen. */
+.card-actions { display: grid; gap: 6px; padding-top: 4px; }
+.card-actions .btn { width: 100%; }
+.btn[aria-disabled="true"] { opacity: 0.7; cursor: progress; }
+.act-note { margin: 0; font-size: 12px; color: var(--muted); }
+.act-note code { font-family: var(--font-mono); color: var(--fg); }
+.act-error { margin: 0; font-size: 13px; color: var(--danger); overflow-wrap: anywhere; }
 
 @media (max-width: 720px) {
   .board { grid-template-columns: minmax(0, 1fr); }
@@ -259,7 +266,7 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
   // The connector tools this page calls. Keep in step with the `mcp` capabilities in SKILL.md
   // (build.test.mjs checks they match).
   const CONNECTORS = {
-    github: { server: "github", tools: ["list_issues", "list_pull_requests", "pull_request_read", "get_file_contents", "issue_read"] },
+    github: { server: "github", tools: ["list_issues", "list_pull_requests", "pull_request_read", "get_file_contents", "issue_read", "issue_write"] },
     remote: { server: "Claude Code Remote", tools: ["list_repos"] },
   };
   const GH = CONNECTORS.github.server;
@@ -534,7 +541,7 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
   function watchProject(full) {
     stopProject(full);
     const reads = Object.entries(readsFor(full));
-    const load = { full, watched: watchesInUse + reads.length <= WATCH_BUDGET, unsubs: [], poll: null, parts: {}, errors: {}, checks: {}, checkReads: {}, comments: {}, commentReads: {}, storedAt: null };
+    const load = { full, watched: watchesInUse + reads.length <= WATCH_BUDGET, unsubs: [], poll: null, refetch: null, parts: {}, errors: {}, checks: {}, checkReads: {}, comments: {}, commentReads: {}, storedAt: null, ship: { phase: "loading" } };
     loads.set(full, load);
     const current = () => loads.get(full) === load;
     const deliver = (part, result) => {
@@ -569,6 +576,103 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
       };
       load.poll();
     }
+    // After a write: read this project again now, not at the next 5-minute refetch. A watched read
+    // re-runs when its cache entry is invalidated; a shell without invalidate reads it fresh instead.
+    load.refetch = () => {
+      if (!current() || !state.mcp) return;
+      if (!load.watched) return load.poll(true);
+      for (const [part, [tool, input]] of reads) {
+        state.mcp.invalidate(GH, tool, input).catch(() =>
+          readOnce(tool, input, { refresh: true }).then((r) => deliver(part, r), (e) => fail(part, e)));
+      }
+    };
+    readShip(load);
+  }
+
+  // ---- The ship.yml gate: actions need version 2 or later on the default branch, as /ship:land does.
+  // Read once per project load, and again on Refresh, so a just-merged upgrade counts.
+  const SHIP_YML = ".github/workflows/ship.yml";
+  function readShip(load) {
+    if (!state.tools.github.has("get_file_contents")) { load.ship = { phase: "failed", code: "no file reads" }; return; }
+    load.ship = { ...load.ship, phase: load.ship.phase === "ready" ? "ready" : "loading" };
+    const settle = (ship) => { if (loads.get(load.full) === load) { load.ship = ship; scheduleRender(); } };
+    readOnce("get_file_contents", { ...splitRepo(load.full), path: SHIP_YML }, { cache: false }).then(
+      (r) => settle({ phase: "ready", ...shipYml(fileText(r)) }),
+      (e) => settle(isMissingFile(e) ? { phase: "ready", ...shipYml(null) } : { phase: "failed", code: codeOf(e) }));
+  }
+
+  // Whether a project's actions can run, and if not, the note that says why. tool: the write it needs.
+  function gateOf(full, tool) {
+    const ship = loads.get(full)?.ship ?? { phase: "loading" };
+    if (!state.tools.github.has(tool)) return { ok: false, note: [`Your GitHub connector has no ${tool}, so this can't run from here.`] };
+    if (ship.phase === "loading") return { ok: false, note: ["Checking ship.yml…"] };
+    if (ship.phase === "failed") return { ok: false, note: [`Couldn't read ship.yml (${ship.code}): Refresh to try again.`] };
+    if (!actionsEnabled(ship.version)) {
+      const what = ship.version == null ? "No ship.yml version 2 or later on the default branch" : `ship.yml is version ${ship.version}`;
+      return { ok: false, note: [`${what}: run `, el("code", { text: "/ship:setup-ship" }), " to upgrade."] };
+    }
+    return { ok: true };
+  }
+
+  // ---- Actions. Each click makes one write (never retried: a failed write may still have run),
+  // then the project is read again at once. Their state lives here, outside the render, keyed like
+  // their buttons, so a re-render keeps "running" and errors where they were.
+  const actions = new Map(); // key -> { kind, status: "running" | "done" | "error", text, at }
+  const DONE_FOR = 60e3;
+
+  // The words for a failed write, by code. A write that may have gone through says so.
+  function writeError(e, verb) {
+    const code = codeOf(e);
+    if (code === "approval_required" || code === "consent_required") return `GitHub needs your approval to ${verb}. ${verb[0].toUpperCase()}${verb.slice(1)} again to be asked.`;
+    if (code === "not_in_manifest") return `This page isn't allowed to ${verb}: turn the GitHub connector's tool on in Permissions, or rerun /ship:dashboard.`;
+    if (code === "blocked_by_policy") return `Your organization's policy doesn't let this page ${verb}.`;
+    if (code === "needs_reauth") return "Reconnect GitHub in claude.ai Settings → Connectors, then try again.";
+    if (code === "tool_error") return `GitHub refused: ${e?.message || code}`;
+    if (code === "server_unavailable" || code === "upstream_error" || code === "cancelled") return `No answer from GitHub (${code}): it may have gone through. Check the page after it refreshes before trying again.`;
+    return `Couldn't ${verb} (${code}${e?.message ? `: ${e.message}` : ""}).`;
+  }
+
+  async function runAction(key, kind, full, work) {
+    if (actions.get(key)?.status === "running") return;
+    actions.set(key, { kind, status: "running" });
+    scheduleRender();
+    try {
+      const text = await work();
+      actions.set(key, { kind, status: "done", text, at: Date.now() });
+      loads.get(full)?.refetch?.();
+    } catch (e) {
+      actions.set(key, { kind, status: "error", text: e?.shown ?? writeError(e, e?.verb ?? "do that") });
+      // A write that may have run: read the project again too, so the page shows what GitHub has.
+      if (!e?.shown) loads.get(full)?.refetch?.();
+    }
+    scheduleRender();
+  }
+
+  // Approve and Un-approve: one issue_write with the PR's whole label list, ship added or removed.
+  // The labels are read fresh just before (one cheap read), so a label added since the last refetch
+  // isn't dropped; if that read fails, the last refetch's labels are used.
+  function labelAction(card) {
+    const approve = card.action === "approve";
+    const verb = approve ? "approve" : "un-approve";
+    const { owner, repo } = splitRepo(card.project);
+    runAction(`pr:${card.project}#${card.number}`, card.action, card.project, async () => {
+      let labels = card.labels;
+      try {
+        const fresh = (await readOnce("pull_request_read", { method: "get", owner, repo, pullNumber: card.number }, { cache: false })).payload;
+        if (fresh && String(fresh.state).toLowerCase() !== "open") throw { shown: `#${card.number} isn't open any more.` };
+        if (Array.isArray(fresh?.labels)) labels = fresh.labels;
+      } catch (e) {
+        if (e?.shown) throw e;
+      }
+      const has = labels.some((l) => (typeof l === "string" ? l : l?.name) === SHIP_LABEL);
+      if (has === approve) return approve ? "Already approved" : "Already un-approved";
+      try {
+        await state.mcp.callTool(GH, "issue_write", { method: "update", owner, repo, issue_number: card.number, labels: approve ? approveLabels(labels) : unapproveLabels(labels) }, { cache: false });
+      } catch (e) {
+        throw Object.assign(Object.create(null), { code: e?.code, message: e?.message, verb });
+      }
+      return approve ? "Approved" : "Un-approved";
+    });
   }
 
   function stopProject(full) {
@@ -673,7 +777,7 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
   async function refresh() {
     if (!state.mcp || connectorShowing() || state.fileReads) return boot();
     try { await state.mcp.invalidate(GH); } catch { stopAll(); syncWatches(); }
-    for (const load of loads.values()) { load.poll?.(true); readChecks(load, true); }
+    for (const load of loads.values()) { load.poll?.(true); readChecks(load, true); readShip(load); }
   }
 
   // ---- Rendering
@@ -715,6 +819,33 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
     return rows.length ? el("div", { class: "card-details" }, ...rows) : null;
   }
 
+  const LABEL_ACTION = {
+    approve: { idle: "Approve", running: "Approving…", hint: "Adds ship: it lands with the next landing run" },
+    unapprove: { idle: "Un-approve", running: "Un-approving…", hint: "Removes ship: it won't land until approved again" },
+  };
+
+  // A PR card's Approve or Un-approve, with its progress, error or the gate's note.
+  function renderCardActions(card) {
+    if (!card.action) return null;
+    const key = `pr:${card.project}#${card.number}`;
+    let act = actions.get(key);
+    // A finished action stays shown until the card has moved on (its offer changed) or a minute passed.
+    if (act?.status === "done" && (act.kind !== card.action || Date.now() - act.at > DONE_FOR)) { actions.delete(key); act = null; }
+    const words = LABEL_ACTION[card.action];
+    const gate = gateOf(card.project, "issue_write");
+    const busy = act?.status === "running" || act?.status === "done";
+    const text = act?.status === "running" ? words.running : act?.status === "done" ? act.text : words.idle;
+    const button = el("button", { class: `btn${card.action === "approve" ? " primary" : ""}`, type: "button", title: words.hint, "data-key": `act:${card.project}#${card.number}` }, text);
+    // Running: aria-disabled, not disabled, so the button keeps keyboard focus through the re-render.
+    if (!gate.ok) button.disabled = true;
+    else if (busy) button.setAttribute("aria-disabled", "true");
+    if (act?.status === "running") button.setAttribute("aria-busy", "true");
+    button.addEventListener("click", () => { if (gateOf(card.project, "issue_write").ok && !busy) labelAction(card); });
+    return el("div", { class: "card-actions" }, button,
+      !gate.ok ? el("p", { class: "act-note" }, ...gate.note) : null,
+      act?.status === "error" ? el("p", { class: "act-error", role: "alert", text: act.text }) : null);
+  }
+
   // One card. Sibling specs extend the dashboard here: details, actions and sessions hang off the card.
   function renderCard(card) {
     return el("article", { class: `card b-${TONE[card.bucket]}`, "data-project": card.project, "data-kind": card.kind },
@@ -729,6 +860,7 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
         el("span", { class: "card-reason", text: card.reason }),
         el("time", { class: "card-age mono", datetime: card.since, title: new Date(card.since).toLocaleString(), text: card.age }),
       ),
+      renderCardActions(card),
     );
   }
 

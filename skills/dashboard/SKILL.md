@@ -28,13 +28,13 @@ List the user's artifacts with the Artifact tool, `action: "list"`, `limit: 200`
 
 ## 3. Publish
 
-Every publish passes these capabilities. They are the connector tools the page calls, and must match `CONNECTORS` in `page/dashboard.html`:
+Every publish passes these capabilities. They are the connector tools the page calls, and must match `CONNECTORS` in `page/dashboard.html`. `issue_write` is the page's one label write: Approve and Un-approve on PR cards.
 
 ```json
 {
   "mcp": {
     "servers": [
-      { "server": "github", "tools": ["list_issues", "list_pull_requests", "pull_request_read", "get_file_contents", "issue_read"] },
+      { "server": "github", "tools": ["list_issues", "list_pull_requests", "pull_request_read", "get_file_contents", "issue_read", "issue_write"] },
       { "server": "Claude Code Remote", "tools": ["list_repos"] }
     ]
   }
