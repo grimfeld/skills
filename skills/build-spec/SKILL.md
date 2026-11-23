@@ -81,6 +81,11 @@ Round = fix every approved finding and every red CI check on the branch, push, w
 - A finding you think is wrong: record it in Decisions with your reason, and leave it.
 - After round 2, anything still blocking makes the spec stuck. Name each blocking item and what you tried.
 
+**Reaching the chain:** after a fix round on a spec whose branch a later spec in this chain is built on, merge it into its child, then that child into the next, down the chain:
+- `git merge --no-ff --no-commit <parent's branch>` on the child's branch, then `git commit` with the build's message conventions and attribution, then push. Never rebase.
+- A conflict: resolve it keeping what both sides meant, then run the child's local checks (step 3) before the push.
+- A child already reviewed is reviewed again if the merge changed files in its diff: `pr-review <pr> unattended` in fix-round mode where `pr-review` has one (it falls back to a full review on a range holding a base merge), else a full review. Its findings start the child's next fix round.
+
 ### 6. Finish the spec
 
 **Ready** (CI green apart from `ship`, and no blocker or major left open):
