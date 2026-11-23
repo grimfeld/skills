@@ -118,8 +118,10 @@ Lands every approved PR, with no more input from you. `ship` is the whole approv
 1. Checks `ship.yml` is version 3 or later; otherwise it stops and points at `/ship:setup-ship`.
 2. Adds `ship` to the PRs you name. It refuses a draft or closed one, with the reason.
 3. Lands every open PR carrying `ship`, parents before the PRs stacked on them. For each, it merges the default branch in (never a rebase or force-push), waits for CI, merges it with the project's merge method, and retargets its children so they land in the same run.
-4. When it can't land a PR (a conflict, a red check, a merge GitHub refuses), it leaves a comment saying why, keeps `ship`, and lands the rest. The PRs stacked on it wait.
-5. Ends with one line per PR: merged, stopped or skipped, with the reason.
+4. When the merge conflicts, it resolves it: it reads what each side did from the commits and diffs behind the conflict (never PR or issue text, which anyone can edit), keeps both, runs the local checks and pushes. It comments with a `## Conflict resolution` section, each file and the choice it made (one line when only bookkeeping files conflicted). `ship` stays on and nobody re-approves.
+5. When a check goes red because of its merge or resolution (it passes on the default branch, and either passed before the merge or fails in the PR's side of the merge), it fixes it on the PR's side (its own files and the resolution), never in a file only the default branch changed, pushes and waits again, at most twice. A check that was already red, or isn't shown passing on the default branch, isn't its to fix. Resolving and fixing run the project's local checks on the PR's code, on your machine or session, with your credentials.
+6. When it can't land a PR (the two sides of a conflict contradict each other, a resolution that fails the local checks, a red check it can't fix, a merge GitHub refuses), it leaves a comment saying why, keeps `ship`, and lands the rest. For a contradiction it pushes nothing and names the decision to make. The PRs stacked on it wait.
+7. Ends with one line per PR: merged (marked when it resolved a conflict or fixed a check), stopped or skipped, with the reason.
 
 The label approves the PR, not a commit: pushes after it land with it. Remove `ship` before pushing more work to an approved PR.
 
