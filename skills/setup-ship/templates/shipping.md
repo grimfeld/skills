@@ -58,6 +58,11 @@ __LAND_DETAILS__
 A landing run needs the `SHIP_TOKEN` secret. Without it, the workflow's own token can't merge, so `land` fails at once,
 before trying any PR, and its error says to add the secret.
 
+A landing run that can't land an approved PR fails, so a red `Ship` run means something approved is still waiting.
+A run with nothing to land stays green. In `auto-merge` mode, `land` tries every PR it finds, even after one fails,
+and the run summary lists each one: merged, set to auto-merge (GitHub merges it once its required checks pass), or not
+landed, with GitHub's reason. In `command` mode the landing command's own failure fails the run.
+
 ## Conflicts
 
 A labelled PR that conflicts with `__DEFAULT_BRANCH__` can't land: a landing run would skip it again and again.
@@ -82,6 +87,8 @@ __BOOKKEEPING_FILES__
 ## Checks
 
 Required on `__DEFAULT_BRANCH__`: __REQUIRED_CHECKS__, and `ship`.
+
+A landing run's `land` job is red when it couldn't land an approved PR; see Landing. That isn't a check on any PR.
 
 Run locally before marking a PR ready: __LOCAL_CHECKS__
 
