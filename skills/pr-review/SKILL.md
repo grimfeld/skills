@@ -19,7 +19,7 @@ Files in this skill, reached by path from `${CLAUDE_SKILL_DIR}` (the directory h
 - `references/state-format.md`: the review state file, and how to rewrite findings for people.
 - `references/spec-template.md`, `references/ticket-template.md`.
 - `references/fidelity-manifest.md`: what `scripts/design-capture.mjs` reads, for the `design-fidelity` lens.
-- `scripts/check-drift.py`, `scripts/find-preview-url.sh`, `scripts/render-report.py`, `scripts/update-pr-body.py`, `scripts/design-capture.mjs`.
+- `scripts/check-drift.py`, `scripts/find-preview-url.sh`, `scripts/render-report.py`, `scripts/update-pr-body.py` (tests: `python3 -m unittest discover -s scripts`), `scripts/design-capture.mjs`.
 
 Run Python scripts with `uv run --no-project python <script>`.
 
@@ -92,7 +92,7 @@ Done when every lens is selected or skipped with a reason, with `web-quality` le
 
 Only when `web-quality` or `design-fidelity` runs. `design-fidelity` uses the URL when one is found, and otherwise serves the app from its manifest.
 
-1. `${CLAUDE_SKILL_DIR}/scripts/find-preview-url.sh gh <pr-number-or-branch>`: the PR's deployment statuses and Vercel bot comments.
+1. `${CLAUDE_SKILL_DIR}/scripts/find-preview-url.sh gh <pr-number-or-branch>`: the PR's deployment statuses and Vercel bot comments. Exit 1 means no preview there. Exit 3 (`gh unavailable` on stderr) means it couldn't look: read the same two places through the GitHub MCP tools before going on. The PR's comments (`pull_request_read` `get_comments`): the newest `*.vercel.app` link from a Vercel bot. The head commit's deployments: a successful status's `environment_url`, where the MCP tools reach deployment statuses.
 2. Vercel MCP: `list_deployments` for the project, filtered to this branch, newest `READY` preview.
 3. `${CLAUDE_SKILL_DIR}/scripts/find-preview-url.sh local`: a dev server already listening on 3000, 5173, 4321 or 8080.
 
@@ -149,7 +149,7 @@ Done when every blocker and major is `confirmed` or `refuted` with a reason.
    - No `artifact_url` in state: publish with `icon: "checklist"` and a one-sentence `description` (verdict and counts), then save the returned URL as `artifact_url` and re-render.
    - `artifact_url` set, page not yet published in this conversation: `action: "read"` that URL first, then publish with `url` = `artifact_url`.
    - Already published in this conversation: publish the same `file_path` again.
-5. **Update the PR description.** Only when the target is a PR: `uv run --no-project python ${CLAUDE_SKILL_DIR}/scripts/update-pr-body.py <n> .scratch/pr-review/<id>.pr.md`. It replaces the section between the `pr-review` markers and leaves the rest of the description alone. The description is where the reviewer decides whether to add the `ship` label, so it must match the page. If `gh` can't edit the PR (in a cloud session without `gh`, use the GitHub MCP's pull request update tool with the same spliced body), say so in the summary and carry on.
+5. **Update the PR description.** Only when the target is a PR: `uv run --no-project python ${CLAUDE_SKILL_DIR}/scripts/update-pr-body.py <n> .scratch/pr-review/<id>.pr.md`. It replaces the section between the `pr-review` markers and leaves the rest of the description alone. The description is where the reviewer decides whether to add the `ship` label, so it must match the page. When `gh` can't edit the PR, use the "Splice a section into a PR body" row of `${CLAUDE_PLUGIN_ROOT}/references/github.md`: one MCP read of the body into a file, `update-pr-body.py --body-file <that file> .scratch/pr-review/<id>.pr.md > <new file>`, and one MCP update with the new file's contents. Never retype the body by hand. If that fails too, say so in the summary and carry on.
 6. **Summarise** in the terminal: the verdict line, the "fix before merge" titles, counts of smaller improvements, skipped reviewers with their reasons, any fallback reviewer agent, whether web-quality and design-fidelity had live evidence, the report path and the page link.
 
 ## 9. Approval
