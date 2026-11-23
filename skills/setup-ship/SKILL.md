@@ -25,6 +25,7 @@ Deploying after a merge stays with the project's CD. This skill checks that one 
 Files, in `${CLAUDE_SKILL_DIR}`:
 - `templates/ship.yml` (the workflow) and `templates/shipping.md` (the doc). The workflow's first line, `# ship.yml version: <n>`, is the template's version; `shipping.md` follows it.
 - `templates/history/ship.v<n>.yml` and `shipping.v<n>.md`: every earlier version, as released. An upgrade renders the installed version from them to tell the project's own edits from the template's.
+- `scripts/render.mjs`: renders the current templates from a values file (step 4). Its test, `scripts/render.test.mjs`, also checks that this plugin's own repository matches the render with `scripts/this-repo.values.json`: a change to a template, or to grimfeld/skills' `ship.yml` or `shipping.md`, updates the others in the same PR.
 
 Changes to GitHub settings reach outside the repository, so show them all first and apply them only after a yes.
 File changes go through a PR like any other change.
@@ -121,28 +122,27 @@ Work in a branch, through a worktree if the project's docs say so.
 0. **Upgrade only: keep the project's edits.** For each of `ship.yml` and `shipping.md`, take three copies:
    - *base*: the installed version's template from `templates/history/`, rendered with the values from step 2, that version's rendering rules (the "Versions" list) and the same `uses:` pinning as the installed file
    - *ours*: the installed file as it is
-   - *theirs*: the current template, rendered by steps 1 and 2 below
+   - *theirs*: the current template, rendered by steps 1 and 2 below (`scripts/render.mjs`)
 
    `git merge-file -p <theirs> <base> <ours>` gives the upgraded file with the project's edits carried over. The project's edits are the hunks of `diff <base> <ours>`; list them in step 3. A conflict in the merge is one of them clashing with the template: show both sides and let the user pick. A dropped edit is left out of the result. The files written below are these merged results, not plain renders.
 
    An edit to a part the newer template removes (a job, a section) clashes with nothing in it and has nothing left to apply to: list it in step 3 as dropped, with why.
 
-1. **`ship.yml`:** copy the template and fill `__DEFAULT_BRANCH__`.
-   - Keep the first line, `# ship.yml version: <n>`, as it is: `/ship:land` and later runs of this skill read it.
-   - Pin any `uses:` the way the repo's other workflows do. If they pin to commit SHAs, pin these too (`actions/checkout@<sha> # vX.Y.Z`): a repo that requires SHAs fails the whole workflow at startup over one tag.
-   - Done when `grep -n '__[A-Z_]*__' ship.yml` prints nothing, and the file parses as YAML (`ruby -ryaml -e 'YAML.load_file(ARGV[0])'` or `python3 -c 'import yaml,sys; yaml.safe_load(open(sys.argv[1]))'`, whichever exists). If `actionlint` is installed, run it too.
-2. **`shipping.md`:** fill every placeholder from steps 1 and 2.
-   - `__DEFAULT_BRANCH__`: the default branch.
-   - `__MERGE_METHOD__`: merge, squash or rebase.
-   - `__REQUIRED_CHECKS__`: the required checks, each in backticks, comma-separated, or "no CI checks".
-   - `__LOCAL_CHECKS__`: the local check commands, each in backticks.
-   - `__CD_SUMMARY__`: what deploys after a merge, or "Nothing deploys on merge."
-   - `__SCREENS__`: the command, or "none".
-   - `__BOOKKEEPING_FILES__`: a Markdown list with one glob per item, each in backticks, or a single "none" item.
+1. **Values.** Write the values from steps 1 and 2 to a JSON file outside the repository (the scratchpad), one key per placeholder, named without its underscores:
+   - `DEFAULT_BRANCH`: the default branch.
+   - `MERGE_METHOD`: merge, squash or rebase.
+   - `REQUIRED_CHECKS`: the required checks, as a list (`[]` for none).
+   - `LOCAL_CHECKS`: the local check commands, as a list.
+   - `CD_SUMMARY`: what deploys after a merge, or "Nothing deploys on merge."
+   - `SCREENS`: the command, or "none".
+   - `BOOKKEEPING_FILES`: the globs, as a list (`[]` for none).
 
-   Done when `grep -n '__[A-Z_]*__' shipping.md` prints nothing.
-
-   On a re-run, keep any section the project has added. On an upgrade, step 0's merge does this.
+   A list is formatted for you (each item in backticks; "no CI checks", "none", "- none" when empty). A string goes in as it is, for wording a list can't give.
+2. **Render.** For each of `ship.yml` and `shipping.md`, run `node ${CLAUDE_SKILL_DIR}/scripts/render.mjs ${CLAUDE_SKILL_DIR}/templates/<file> <values.json>`. It prints the file, keeping `ship.yml`'s first line, `# ship.yml version: <n>`, as it is: `/ship:land` and later runs of this skill read it. It exits non-zero, printing nothing, when a placeholder has no value or one is left over; fix the values and run it again.
+   - On a fresh install, write the output to `.github/workflows/ship.yml` and `docs/agents/shipping.md`. On an upgrade, it is *theirs* in step 0's merge.
+   - On a re-run, keep any section the project has added to `shipping.md`. On an upgrade, step 0's merge does this.
+   - Pin any `uses:` in `ship.yml` the way the repo's other workflows do. If they pin to commit SHAs, pin these too (`actions/checkout@<sha> # vX.Y.Z`): a repo that requires SHAs fails the whole workflow at startup over one tag.
+   - Done when `ship.yml` parses as YAML (`ruby -ryaml -e 'YAML.load_file(ARGV[0])'` or `python3 -c 'import yaml,sys; yaml.safe_load(open(sys.argv[1]))'`, whichever exists). If `actionlint` is installed, run it too.
 3. **Settings and `CLAUDE.md`:** edit them in place.
 4. **Commit and open the PR.**
    - Body: what each file does, the settings that follow the merge, and the user's to-do list from step 3.
