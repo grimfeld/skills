@@ -6,50 +6,85 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 
-const REMOTE = process.env.SHIP_REMOTE || "https://github.com/grimfeld/skills";
-const root = process.argv[2];
-if (!root) {
-  console.log("Plugin root unknown: not loaded as a plugin (copied skills, or run outside Claude Code). The version can't be told.");
-  process.exit(0);
-}
-
 const real = (p) => { try { return realpathSync(p); } catch { return p; } };
 const git = (...args) => execFileSync("git", args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 15000 }).trim();
 const short = (sha) => sha.slice(0, 12);
 
-function installed() {
-  const config = process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
-  let registry;
-  try { registry = JSON.parse(readFileSync(join(config, "plugins", "installed_plugins.json"), "utf8")); } catch { return null; }
-  const hits = Object.entries(registry.plugins || {})
-    .filter(([key]) => key.startsWith("ship@"))
-    .flatMap(([key, entries]) => entries.map((e) => ({ key, ...e })))
-    .filter((e) => e.installPath && real(e.installPath) === real(root));
-  return hits.length ? hits : null;
+// The plugin registry: { plugins } when read, { missing } when absent, { unreadable } otherwise.
+function readRegistry(config) {
+  const path = join(config, "plugins", "installed_plugins.json");
+  let text;
+  try { text = readFileSync(path, "utf8"); } catch (err) {
+    return err.code === "ENOENT" ? { path, missing: true } : { path, unreadable: true };
+  }
+  try {
+    const parsed = JSON.parse(text);
+    const plugins = parsed && typeof parsed.plugins === "object" && parsed.plugins ? parsed.plugins : {};
+    return { path, plugins };
+  } catch { return { path, unreadable: true }; }
 }
 
-let sha;
-const hits = installed();
-if (hits) {
+// ship@* registry entries installed at root; entries that aren't arrays or lack a string installPath are skipped.
+function registryHits(plugins, root) {
+  return Object.entries(plugins)
+    .filter(([key, entries]) => key.startsWith("ship@") && Array.isArray(entries))
+    .flatMap(([key, entries]) => entries.map((e) => ({ key, ...e })))
+    .filter((e) => typeof e.installPath === "string" && real(e.installPath) === real(root));
+}
+
+// Describe a registry install: { lines, sha, source, key }.
+function describeInstalled(hits) {
   const e = hits[0];
-  sha = e.gitCommitSha || null;
-  console.log(`ship ${e.version || "(no version)"}: ${e.key}, installed ${hits.map((h) => h.scope + (h.projectPath ? ` (${h.projectPath})` : "")).join(", ")}`);
-  if (sha) console.log(`Commit: ${sha}`);
-  console.log(`Updated: ${e.lastUpdated || e.installedAt || "unknown"}`);
-} else {
+  const sha = e.gitCommitSha || null;
+  const lines = [`ship ${e.version || "(no version)"}: ${e.key}, installed ${hits.map((h) => h.scope + (h.projectPath ? ` (${h.projectPath})` : "")).join(", ")}`];
+  if (sha) lines.push(`Commit: ${sha}`);
+  lines.push(`Updated: ${e.lastUpdated || e.installedAt || "unknown"}`);
+  return { lines, sha, source: "registry", key: e.key };
+}
+
+// Describe a --plugin-dir working copy: { lines, sha, source, key }.
+function describeWorkingCopy(root) {
   try {
-    sha = git("-C", root, "rev-parse", "HEAD");
+    const sha = git("-C", root, "rev-parse", "HEAD");
     const branch = git("-C", root, "rev-parse", "--abbrev-ref", "HEAD");
     const dirty = git("-C", root, "status", "--porcelain") ? ", with uncommitted changes" : "";
-    console.log(`ship working copy at ${root}: ${branch} @ ${short(sha)}${dirty}`);
+    return { lines: [`ship working copy at ${root}: ${branch} @ ${short(sha)}${dirty}`], sha, source: "working-copy", key: null };
   } catch {
-    console.log(`ship at ${root}: not in the plugin registry and not a git checkout, so the version can't be told.`);
+    return { lines: [`ship at ${root}: not in the plugin registry and not a git checkout, so the version can't be told.`], sha: null, source: "unknown", key: null };
   }
 }
 
-let latest;
-try { latest = git("ls-remote", REMOTE, "HEAD").split(/\s/)[0]; } catch { latest = null; }
-if (!latest) console.log(`Latest: couldn't reach ${REMOTE}.`);
-else if (!sha) console.log(`Latest on main: ${short(latest)}`);
-else if (latest === sha) console.log(`Up to date with main (${short(latest)}).`);
-else console.log(`main is at ${short(latest)}. Update: claude plugin update ship@grimfeld`);
+// What's loaded from root: { lines, sha, source, key }, with a note first when the registry couldn't be read.
+function describe(root, config) {
+  const registry = readRegistry(config);
+  const note = registry.unreadable ? [`Plugin registry ${registry.path} couldn't be read; checking for a working copy.`] : [];
+  const hits = registry.plugins ? registryHits(registry.plugins, root) : [];
+  const found = hits.length ? describeInstalled(hits) : describeWorkingCopy(root);
+  return { ...found, lines: [...note, ...found.lines] };
+}
+
+// Lines comparing the loaded sha with latest on the remote (null when unreachable).
+function compare(sha, latest, remote) {
+  if (!latest) return [`Latest: couldn't reach ${remote}.`];
+  if (!sha) return [`Latest on main: ${short(latest)}`];
+  if (latest === sha) return [`Up to date with main (${short(latest)}).`];
+  return [`main is at ${short(latest)}. Update: claude plugin update ship@grimfeld`];
+}
+
+function latestOn(remote) {
+  try { return git("ls-remote", remote, "HEAD").split(/\s/)[0] || null; } catch { return null; }
+}
+
+function main() {
+  const remote = process.env.SHIP_REMOTE || "https://github.com/grimfeld/skills";
+  const root = process.argv[2];
+  if (!root) {
+    console.log("Plugin root unknown: not loaded as a plugin (copied skills, or run outside Claude Code). The version can't be told.");
+    return;
+  }
+  const config = process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
+  const loaded = describe(root, config);
+  for (const line of [...loaded.lines, ...compare(loaded.sha, latestOn(remote), remote)]) console.log(line);
+}
+
+main();

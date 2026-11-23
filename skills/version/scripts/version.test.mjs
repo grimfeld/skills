@@ -64,3 +64,24 @@ test("unreachable remote", () => {
   const out = run([root], { CLAUDE_CONFIG_DIR: mkdtempSync(join(tmpdir(), "c-")), SHIP_REMOTE: join(root, "nope") });
   assert.match(out, /Latest: couldn't reach/);
 });
+
+function rawRegistry(text) {
+  const config = mkdtempSync(join(tmpdir(), "ship-config-"));
+  mkdirSync(join(config, "plugins"));
+  writeFileSync(join(config, "plugins", "installed_plugins.json"), text);
+  return config;
+}
+
+test("malformed registry entry is skipped", () => {
+  const root = repo();
+  const config = rawRegistry(JSON.stringify({ version: 2, plugins: { "ship@grimfeld": {} } }));
+  const out = run([root], { CLAUDE_CONFIG_DIR: config, SHIP_REMOTE: root });
+  assert.match(out, /ship working copy at .*: main @ [0-9a-f]{12}/);
+});
+
+test("unparsable registry says it couldn't be read", () => {
+  const root = repo();
+  const out = run([root], { CLAUDE_CONFIG_DIR: rawRegistry("{ not json"), SHIP_REMOTE: root });
+  assert.match(out, /Plugin registry .*installed_plugins\.json couldn't be read/);
+  assert.match(out, /ship working copy at .*: main @ [0-9a-f]{12}/);
+});
