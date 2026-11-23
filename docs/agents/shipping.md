@@ -1,7 +1,7 @@
 # Shipping
 
 How work gets from a branch to main in this repository. Written by `/ship:setup-ship`; the
-`ship` plugin's skills (`pr-review`, `night-shift`) read it. Keep it true when the process changes.
+`ship` plugin's skills (`pr-review`, `night-shift`, `land`) read it. Keep it true when the process changes.
 
 ## The rule
 
@@ -57,8 +57,8 @@ PRs and specs behind the conflicting commits, keeps both, runs the local checks 
 the PR with a `## Conflict resolution` section, each conflicted file and the choice it made, or one line when only
 bookkeeping files conflicted. `ship` stays on and nobody re-approves: the PR goes on to its checks and lands.
 
-It stops only when the two sides contradict each other, changing the same behaviour in incompatible ways. Then it
-pushes nothing, keeps `ship`, and comments naming the decision to make; the PRs stacked on it wait. Settle it on the
+It stops when the two sides contradict each other, changing the same behaviour in incompatible ways, or when it
+can't make the local checks pass after resolving. Then it pushes nothing, keeps `ship`, and comments naming the decision to make; the PRs stacked on it wait. Settle it on the
 branch (merge `main` into it and push), and the next `/ship:land` lands it.
 
 Bookkeeping files (a conflict only in these is mechanical):
