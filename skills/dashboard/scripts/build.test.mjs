@@ -42,3 +42,28 @@ test("SKILL.md's capabilities name exactly the connector tools the page calls", 
   assert.deepEqual(shape(declared), shape(called));
   assert.equal(declared.length, called.length, "each server once");
 });
+
+test("the page writes only through callWrite (issue_write's update with labels, actions_run_trigger's run_workflow on ship.yml) and its one create_session", () => {
+  const page = readFileSync(join(here, "..", "page", "dashboard.html"), "utf8");
+  // Every connector call: reads go through readOnce, discovery through list_repos, GitHub writes
+  // through callWrite, and a session start through its one create_session.
+  const callTools = [...page.matchAll(/callTool\(([^,]+), ([^,]+),/g)].map((m) => `${m[1]} ${m[2]}`);
+  assert.deepEqual(callTools.sort(), ["REMOTE \"list_repos\"", "REMOTE \"create_session\"", "server tool", "GH tool"].sort(),
+    "callTool only in readOnce, callWrite, discovery and startSession");
+  const reads = [...page.matchAll(/readOnce\("(\w+)"/g)].map((m) => m[1]);
+  assert.ok(!reads.some((t) => ["issue_write", "actions_run_trigger", "create_session"].includes(t)), "no write through readOnce");
+  // create_session, explicitly: one call site, its inputs fixed to the card's command, title, repo and the chosen environment.
+  const sessions = [...page.matchAll(/callTool\(REMOTE, "create_session", \{([^]*?)\n\s*\}, /g)].map((m) => m[1]);
+  assert.equal(sessions.length, 1, "one create_session call site");
+  const input = Object.fromEntries(sessions[0].split(/,\n/).map((kv) => kv.trim()).filter(Boolean).map((kv) => [kv.slice(0, kv.indexOf(":")), kv.slice(kv.indexOf(":") + 1).trim().replace(/,$/, "")]));
+  assert.deepEqual(Object.keys(input), ["prompt", "title", "source_url", "environment_id"]);
+  assert.equal(input.prompt, "skill.command");
+  assert.equal(input.source_url, "`https://github.com/${card.project}`");
+  assert.equal(input.environment_id, "env.environment_id");
+  const writes = [...page.matchAll(/callWrite\(([^)]*?)\{ method: "(\w+)"([^}]*)\}/g)].map((m) => [m[1].trim(), m[2], m[3]]);
+  assert.equal(writes.length, [...page.matchAll(/await callWrite\(/g)].length, "every callWrite call names its method inline");
+  assert.deepEqual(writes.map(([tool, method]) => `${tool} ${method}`).sort(), ['"actions_run_trigger", run_workflow', '"issue_write", update']);
+  const issue = writes.find(([tool]) => tool.includes("issue_write"))[2];
+  assert.deepEqual(issue.split(",").map((k) => k.split(":")[0].trim()).filter(Boolean), ["owner", "repo", "issue_number", "labels"]);
+  assert.match(writes.find(([tool]) => tool.includes("actions_run_trigger"))[2], /workflow_id: "ship\.yml"/);
+});

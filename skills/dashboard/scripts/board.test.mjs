@@ -1,7 +1,7 @@
 // node --test skills/dashboard/scripts/board.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { toCards, counts, ago, BUCKETS, normaliseRepo, mergeProjects, sortBucket, LANDED_WINDOW, isMissingFile, needsCheckRead, parseReview, safeUrl, openQuestions, designLink, morningPage, morningSpecs, shipYml, actionsEnabled, approveLabels, unapproveLabels, fileText, landingRun, skillFor, preselectEnvironment, sessionLink } from "./board.mjs";
+import { toCards, counts, ago, BUCKETS, normaliseRepo, mergeProjects, sortBucket, LANDED_WINDOW, isMissingFile, needsCheckRead, needsCommentRead, parseReview, safeUrl, openQuestions, designLink, morningPage, morningSpecs, shipYml, actionsEnabled, approveLabels, unapproveLabels, fileText, landingRun, prAction, labelWrite, writeError, WRITE_DEFINITE, skillFor, preselectEnvironment, sessionLink } from "./board.mjs";
 
 const NOW = Date.parse("2026-11-23T12:00:00Z");
 const hoursAgo = (h) => new Date(NOW - h * 3600e3).toISOString();
@@ -52,9 +52,12 @@ test("specs closed in the last 7 days have landed; older ones and open issues st
   assert.deepEqual(pick(toCards("acme/app", issues, [], {}, NOW)), [[1, "spec", "landed", "closed"]]);
 });
 
+// list_pull_requests' head and base carry the repo; a PR from a fork has the fork as its head repo.
+const HEAD_SHA = "4cdf6f5e0123456789abcdef0123456789abcdef";
+const ref = (name, repo = "acme/app", sha = HEAD_SHA) => ({ ref: name, sha, repo: { full_name: repo } });
 const pr = (number, labels, { draft = false, state = "open", merged = false, updated = hoursAgo(3), merged_at = null } = {}) => ({
   number, title: `PR ${number}`, state, draft, merged, merged_at, labels, html_url: `https://evil.example/acme/app/pull/${number}`,
-  created_at: hoursAgo(200), updated_at: updated,
+  created_at: hoursAgo(200), updated_at: updated, head: ref(`branch-${number}`), base: ref("main"),
 });
 
 test("each PR state lands in its bucket", () => {
@@ -227,6 +230,25 @@ test("needsCheckRead: a read still in flight is never doubled, even on Refresh",
   assert.equal(needsCheckRead(inFlight, undefined, PR, true), false);
 });
 
+const SPEC = { number: 7, updated_at: hoursAgo(3) };
+
+test("needsCommentRead: a spec never read is read", () => {
+  assert.equal(needsCommentRead(undefined, SPEC), true);
+});
+
+test("needsCommentRead: a read in flight is never doubled", () => {
+  assert.equal(needsCommentRead({ updatedAt: hoursAgo(9), pending: true, failed: false }, SPEC), false);
+});
+
+test("needsCommentRead: an unchanged spec read fine isn't read again; one updated since is", () => {
+  assert.equal(needsCommentRead({ updatedAt: SPEC.updated_at, pending: false, failed: false }, SPEC), false);
+  assert.equal(needsCommentRead({ updatedAt: hoursAgo(9), pending: false, failed: false }, SPEC), true);
+});
+
+test("needsCommentRead: a spec whose last read failed is read again", () => {
+  assert.equal(needsCommentRead({ updatedAt: SPEC.updated_at, pending: false, failed: true }, SPEC), true);
+});
+
 // ---- PR card details: the pr-review section render-report.py writes into PR descriptions.
 
 // PR #88's section, as pr-review wrote it.
@@ -264,7 +286,7 @@ const REVIEW = `Closes #71
 
 test("parseReview reads the verdict line, the risks and the Full report link from the review section", () => {
   assert.deepEqual(parseReview(REVIEW), {
-    verdict: "Approve with suggestions",
+    verdict: "Approve with suggestions", tone: "warn", head: "4cdf6f5",
     line: "Approve with suggestions. nothing blocking · 4 smaller improvements · no CI checks in this repository",
     risks: 2,
     reportUrl: "https://claude.ai/artifact/49w8qQ97Gh5XNtkCBgHKev",
@@ -285,11 +307,11 @@ test("parseReview: the 'None found' bullet means zero risks; Preview and Full re
     "[Preview](https://app-git-x.vercel.app/) · [Full report](https://claude.ai/artifact/abc)", "",
     "### Risks", "",
     "- None found: no migration, data removal, auth, dependency or deploy change.", "",
-    "<sub>pr-review · head `abc` · 2026-11-23 · reviewers: quality</sub>", "",
+    "<sub>pr-review · head `abc1234` · 2026-11-23 · reviewers: quality</sub>", "",
     "<!-- pr-review:end -->",
   ].join("\n");
   assert.deepEqual(parseReview(body), {
-    verdict: "Approve", line: "Approve. nothing blocking · CI green", risks: 0,
+    verdict: "Approve", tone: "good", head: "abc1234", line: "Approve. nothing blocking · CI green", risks: 0,
     reportUrl: "https://claude.ai/artifact/abc", previewUrl: "https://app-git-x.vercel.app/",
   });
 });
@@ -303,12 +325,40 @@ test("parseReview: links that aren't https are dropped", () => {
   assert.equal(review.risks, null, "no Risks heading: the count is unknown, not zero");
 });
 
+test("parseReview: each verdict render-report.py writes carries its tone; an unknown one has none", () => {
+  const tone = (verdict) => parseReview(`<!-- pr-review:start -->\n**${verdict}.** x\n<!-- pr-review:end -->`).tone;
+  assert.equal(tone("Approve"), "good");
+  assert.equal(tone("Approve with suggestions"), "warn");
+  assert.equal(tone("Changes requested"), "bad");
+  assert.equal(tone("Ship it"), null);
+});
+
+test("parseReview: no head line, or one that isn't a commit, gives no head", () => {
+  assert.equal(parseReview("<!-- pr-review:start -->\n**Approve.** x\n<!-- pr-review:end -->").head, null);
+  assert.equal(parseReview("<!-- pr-review:start -->\n**Approve.** x\n<sub>pr-review · head `?` · d</sub>\n<!-- pr-review:end -->").head, null);
+});
+
 test("safeUrl keeps https links only", () => {
   assert.equal(safeUrl("https://claude.ai/artifact/x"), "https://claude.ai/artifact/x");
   for (const bad of ["javascript:alert(1)", "data:text/html,x", "http://claude.ai", "//claude.ai/x", "", null]) assert.equal(safeUrl(bad), null, bad);
 });
 
-const branchPr = (number, head, base, extra = {}) => ({ ...pr(number, ["pr-reviewed"], extra), head: { ref: head, sha: "abc" }, base: { ref: base } });
+test("safeUrl with hosts keeps only links on those hosts", () => {
+  assert.equal(safeUrl("https://claude.ai/artifact/x", ["claude.ai"]), "https://claude.ai/artifact/x");
+  assert.equal(safeUrl("https://evil.example/artifact/x", ["claude.ai"]), null);
+  assert.equal(safeUrl("https://claude.ai.evil.example/x", ["claude.ai"]), null);
+  assert.equal(safeUrl("https://user@evil.example/x", ["claude.ai"]), null);
+  assert.equal(safeUrl("http://claude.ai/x", ["claude.ai"]), null);
+});
+
+test("parseReview: a Full report link off claude.ai is dropped; Preview may be any https host", () => {
+  const body = "<!-- pr-review:start -->\n**Approve.** fine\n\n[Preview](https://evil.example/p) · [Full report](https://evil.example/r)\n<!-- pr-review:end -->";
+  const review = parseReview(body);
+  assert.equal(review.reportUrl, null);
+  assert.equal(review.previewUrl, "https://evil.example/p");
+});
+
+const branchPr = (number, head, base, extra = {}, headRepo = "acme/app") => ({ ...pr(number, ["pr-reviewed"], extra), head: ref(head, headRepo), base: ref(base) });
 
 test("a PR whose base is another open PR's branch lands after it; a PR on the default branch lands on its own", () => {
   const prs = [
@@ -321,11 +371,40 @@ test("a PR whose base is another open PR's branch lands after it; a PR on the de
   assert.deepEqual(by, { 10: null, 11: 10, 13: null });
 });
 
+test("a PR doesn't land after a fork's PR whose branch has the same name as its base", () => {
+  const prs = [branchPr(20, "feature", "main", {}, "mallory/app"), branchPr(21, "next", "feature")];
+  assert.equal(toCards("acme/app", [], prs, {}, NOW).find((c) => c.number === 21).landsAfter, null);
+  const own = [branchPr(20, "feature", "main"), branchPr(21, "next", "feature")];
+  assert.equal(toCards("acme/app", [], own, {}, NOW).find((c) => c.number === 21).landsAfter, 20);
+});
+
 test("a PR card carries its review, or null when the description has none", () => {
   const [reviewed, unreviewed] = toCards("acme/app", [], [{ ...pr(1, ["pr-reviewed"]), body: REVIEW }, pr(2, ["pr-reviewed"])], {}, NOW);
   assert.equal(reviewed.review.risks, 2);
   assert.equal(reviewed.review.reportUrl, "https://claude.ai/artifact/49w8qQ97Gh5XNtkCBgHKev");
   assert.equal(unreviewed.review, null);
+});
+
+test("a review of an older head is out of date: no verdict, tone, line or risks, links kept", () => {
+  const [card] = toCards("acme/app", [], [{ ...pr(1, ["pr-reviewed"]), body: REVIEW, head: ref("x", "acme/app", "9999999aaaa") }], {}, NOW);
+  assert.deepEqual(card.review, {
+    verdict: null, tone: null, line: null, risks: null, head: "4cdf6f5", outOfDate: true,
+    reportUrl: "https://claude.ai/artifact/49w8qQ97Gh5XNtkCBgHKev", previewUrl: null,
+  });
+});
+
+test("a review of the PR's current head is believed", () => {
+  const [card] = toCards("acme/app", [], [{ ...pr(1, ["pr-reviewed"]), body: REVIEW }], {}, NOW);
+  assert.equal(card.review.verdict, "Approve with suggestions");
+  assert.equal(card.review.tone, "warn");
+  assert.equal(card.review.outOfDate, false);
+});
+
+test("a review section on a PR from a fork is ignored, verdict and links alike", () => {
+  const [card] = toCards("acme/app", [], [{ ...pr(1, ["pr-reviewed"]), body: REVIEW, head: ref("x", "mallory/app") }], {}, NOW);
+  assert.equal(card.review, null);
+  const [gone] = toCards("acme/app", [], [{ ...pr(2, ["pr-reviewed"]), body: REVIEW, head: { ref: "x", sha: HEAD_SHA, repo: null } }], {}, NOW);
+  assert.equal(gone.review, null, "a deleted fork has no head repo");
 });
 
 // ---- Spec, design and morning-page details.
@@ -338,6 +417,10 @@ test("openQuestions: 'None' or an empty section counts 0; three questions count 
   assert.equal(openQuestions(spec("- None.")), 0);
   assert.equal(openQuestions(spec("")), 0);
   assert.equal(openQuestions(spec("- Which tab first?\n- Who owns retries?\n  - one option\n  - another\n- Cache or not?")), 3);
+});
+
+test("openQuestions: prose that isn't 'None' counts as one question", () => {
+  assert.equal(openQuestions(spec("Whether the cache should outlive a reload is still open.")), 1);
 });
 
 test("openQuestions: a body without the section has no count", () => {
@@ -362,7 +445,7 @@ test("designLink: no link, a placeholder or a link that isn't https gives none",
 });
 
 // night-shift's morning step 5 comment.
-const morning = (url, hours) => ({ body: `<!-- ship:morning-page -->\nReviewed on this morning's page: ${url}`, created_at: hoursAgo(hours) });
+const morning = (url, hours, author_association = "OWNER") => ({ body: `<!-- ship:morning-page -->\nReviewed on this morning's page: ${url}`, created_at: hoursAgo(hours), user: { login: "someone" }, author_association });
 const remark = (hours) => ({ body: "night-shift: building tonight in https://claude.ai/code/session_1.", created_at: hoursAgo(hours) });
 
 test("morningPage: no marker comment, no page", () => {
@@ -386,7 +469,24 @@ test("morningPage: a marker comment whose link isn't https is skipped", () => {
   assert.equal(morningPage([{ body: "Reviewed on this morning's page: https://claude.ai/artifact/x", created_at: hoursAgo(1) }]), null, "no marker");
 });
 
-test("morningSpecs: specs updated in the last 7 days, newest first, at most 10; other issues and older specs left out", () => {
+test("designLink: a link off claude.ai gives none", () => {
+  assert.equal(designLink(design("https://evil.example/artifact/abc123")), null);
+});
+
+test("morningPage: a marker comment linking off claude.ai is skipped", () => {
+  assert.equal(morningPage([morning("https://claude.ai/artifact/ok", 30), morning("https://evil.example/artifact/x", 2)]).url, "https://claude.ai/artifact/ok");
+});
+
+test("morningPage: a newer marker from someone without write access is ignored", () => {
+  for (const who of ["NONE", "CONTRIBUTOR", "FIRST_TIME_CONTRIBUTOR", null]) {
+    const comments = [morning("https://claude.ai/artifact/real", 30, "OWNER"), morning("https://claude.ai/artifact/fake", 1, who)];
+    assert.equal(morningPage(comments).url, "https://claude.ai/artifact/real", String(who));
+  }
+  assert.equal(morningPage([morning("https://claude.ai/artifact/m", 1, "MEMBER")]).url, "https://claude.ai/artifact/m");
+  assert.equal(morningPage([morning("https://claude.ai/artifact/c", 1, "COLLABORATOR")]).url, "https://claude.ai/artifact/c");
+});
+
+test("morningSpecs: specs updated in the last 7 days, newest first, at most 3; other issues and older specs left out", () => {
   const issues = [
     issue(1, ["spec:in-review"], { updated: hoursAgo(20) }),
     issue(2, ["spec:in-review"], { state: "CLOSED", updated: hoursAgo(2) }),
@@ -396,10 +496,10 @@ test("morningSpecs: specs updated in the last 7 days, newest first, at most 10; 
   ];
   assert.deepEqual(morningSpecs(issues, NOW).map((i) => i.number), [2, 1]);
   const many = Array.from({ length: 14 }, (_, n) => issue(n + 1, ["spec:building"], { updated: hoursAgo(n + 1) }));
-  assert.deepEqual(morningSpecs(many, NOW).map((i) => i.number), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+  assert.deepEqual(morningSpecs(many, NOW).map((i) => i.number), [1, 2, 3]);
 });
 
-const linked = (number, body, head, extra = {}) => ({ ...pr(number, [], extra), body, head: { ref: head }, base: { ref: "main" } });
+const linked = (number, body, head, extra = {}, headRepo = "acme/app") => ({ ...pr(number, [], extra), body, head: ref(head, headRepo), base: ref("main") });
 
 test("a spec card counts its open questions and links its PR, found by a closing keyword or its spec/<n>- branch", () => {
   const issues = [
@@ -428,6 +528,26 @@ test("a spec's open PR is linked before a merged one, and a PR closed unmerged n
   ];
   assert.equal(toCards("acme/app", issues, prs, {}, NOW).find((c) => c.kind === "spec").pr.number, 32);
   assert.equal(toCards("acme/app", issues, prs.slice(0, 2), {}, NOW).find((c) => c.kind === "spec").pr.number, 30);
+});
+
+const specPrOf = (prs) => toCards("acme/app", [{ ...issue(7, ["spec:building"]), body: spec("None") }], prs, {}, NOW).find((c) => c.kind === "spec").pr?.number ?? null;
+
+test("a spec's PR: 'Closes #70' doesn't close spec 7, nor does a spec/70- branch", () => {
+  assert.equal(specPrOf([linked(40, "Closes #70", "feature/y", { draft: true }), linked(41, "x", "spec/70-other", { draft: true })]), null);
+});
+
+test("a spec's PR: of two merged PRs, the newer one", () => {
+  const merged = (n, hours) => linked(n, "Closes #7", `b${n}`, { state: "closed", merged: true, merged_at: hoursAgo(hours) });
+  assert.equal(specPrOf([merged(50, 60), merged(51, 10), merged(52, 30)]), 51);
+});
+
+test("a spec's PR: a PR from a fork never counts, even one that closes it or uses its branch name", () => {
+  assert.equal(specPrOf([linked(60, "Closes #7", "spec/7-thing", { draft: true }, "mallory/app")]), null);
+});
+
+test("a spec's PR: when several open PRs match, the spec/<n>- branch wins over a closing keyword", () => {
+  assert.equal(specPrOf([linked(70, "Closes #7", "feature/z", { draft: true }), linked(71, "x", "spec/7-thing", { draft: true })]), 71);
+  assert.equal(specPrOf([linked(71, "x", "spec/7-thing", { draft: true }), linked(70, "Closes #7", "feature/z", { draft: true })]), 71);
 });
 
 test("a design card links its design artifact", () => {
@@ -484,7 +604,7 @@ test("a file's text is read from get_file_contents' resource block, past its sta
 
 test("a reviewed PR's card offers Approve, a ship PR's card Un-approve, others neither", () => {
   const prs = [
-    pr(1, ["pr-reviewed"]),
+    { ...pr(1, ["pr-reviewed"]), body: REVIEW },
     pr(2, ["pr-reviewed", "ship"]),
     pr(3, ["ship"], { updated: hoursAgo(30) }),
     pr(4, ["pr-reviewed", "conflicts"]),
@@ -522,6 +642,109 @@ test("the landing run is the newest workflow_dispatch run created since the clic
   assert.equal(landingRun({ workflow_runs: [run(4, "2026-11-23T12:00:03Z", "push")] }, click), null);
   assert.equal(landingRun({ workflow_runs: [{ ...run(5, "2026-11-23T12:00:03Z"), html_url: "javascript:alert(1)" }] }, click), null);
   assert.equal(landingRun(undefined, click), null);
+});
+
+// ---- Who may be approved: prAction, on a card's PR and again on the fresh read before a write.
+
+const reviewed = (labels, opts) => ({ ...pr(1, labels, opts), body: REVIEW });
+const actionOf = (p) => toCards("acme/app", [], [p], {}, NOW)[0]?.action ?? null;
+
+test("prAction: an open, ready, reviewed PR with a current review gets Approve; one carrying ship gets Un-approve", () => {
+  assert.equal(actionOf(reviewed(["pr-reviewed"])), "approve");
+  assert.equal(actionOf(reviewed(["pr-reviewed", "ship"])), "unapprove");
+  assert.equal(actionOf(pr(2, ["ship"])), "unapprove", "taking ship off never needs a review");
+});
+
+test("prAction: a reviewed PR whose review is missing or out of date gets Approve withheld until it's reviewed again", () => {
+  assert.equal(actionOf(pr(1, ["pr-reviewed"])), "review-first", "no review section");
+  assert.equal(actionOf({ ...reviewed(["pr-reviewed"]), head: ref("x", "mallory/app") }), "review-first", "a fork's review isn't believed");
+  assert.equal(actionOf({ ...reviewed(["pr-reviewed"]), head: ref("x", "acme/app", "9999999aaaa") }), "review-first", "a review of an older head");
+});
+
+test("prAction: an open, non-draft PR without pr-reviewed gets no action, failing checks or not", () => {
+  const p = pr(1, []);
+  const [card] = toCards("acme/app", [], [p], { 1: { check_runs: [{ conclusion: "failure" }] } }, NOW);
+  assert.equal(card.reason, "checks failing");
+  assert.equal(card.action, null);
+});
+
+test("prAction takes the PR and its review, as the page calls it on a fresh read", () => {
+  const review = { outOfDate: false };
+  assert.equal(prAction({ state: "open", draft: false, labels: [{ name: "pr-reviewed" }] }, review), "approve");
+  assert.equal(prAction({ state: "open", draft: false, labels: [{ name: "pr-reviewed" }] }, { outOfDate: true }), "review-first");
+  assert.equal(prAction({ state: "closed", labels: ["ship"] }, review), null);
+  assert.equal(prAction({ state: "open", draft: true, labels: ["pr-reviewed"] }, review), null);
+});
+
+// ---- labelWrite: the label list to write, from the fresh pull_request_read get, or why nothing is written.
+
+const card = (action, labels = ["pr-reviewed"]) => ({ project: "acme/app", number: 1, action, labels });
+const fresh = (labels, extra = {}) => ({ ...reviewed(labels), ...extra });
+
+test("labelWrite: Approve writes the fresh labels plus ship, keeping a label added since the page loaded", () => {
+  assert.deepEqual(labelWrite(card("approve"), fresh([{ name: "pr-reviewed" }, { name: "needs-docs" }])),
+    { labels: ["pr-reviewed", "needs-docs", "ship"] });
+});
+
+test("labelWrite: Un-approve writes the fresh labels without ship", () => {
+  assert.deepEqual(labelWrite(card("unapprove", ["pr-reviewed", "ship"]), fresh([{ name: "pr-reviewed" }, { name: "ship" }, { name: "x" }])),
+    { labels: ["pr-reviewed", "x"] });
+});
+
+test("labelWrite: no fresh read, or one without a labels list, writes nothing and asks to try again", () => {
+  for (const f of [undefined, null, {}, { ...reviewed([]), labels: undefined }, { ...reviewed([]), labels: "ship" }]) {
+    assert.deepEqual(labelWrite(card("approve"), f), { error: "Couldn't read #1's labels: try again" });
+    assert.deepEqual(labelWrite(card("unapprove", ["ship"]), f), { error: "Couldn't read #1's labels: try again" });
+  }
+});
+
+test("labelWrite: a PR that changed since the page loaded is refused, and the project read again", () => {
+  const changed = { error: "#1 changed since the page loaded: refreshing", refetch: true };
+  const cases = {
+    "gained changes-requested": fresh(["pr-reviewed", "changes-requested"]),
+    "gained conflicts": fresh(["pr-reviewed", "conflicts"]),
+    "went draft": fresh(["pr-reviewed"], { draft: true }),
+    "lost pr-reviewed": fresh([]),
+    "already approved": fresh(["pr-reviewed", "ship"]),
+    "closed": fresh(["pr-reviewed"], { state: "closed" }),
+    "pushed since its review": fresh(["pr-reviewed"], { head: ref("x", "acme/app", "9999999aaaa") }),
+  };
+  for (const [what, f] of Object.entries(cases)) assert.deepEqual(labelWrite(card("approve"), f), changed, what);
+  assert.deepEqual(labelWrite(card("unapprove", ["ship"]), fresh(["pr-reviewed"])), changed, "ship already off");
+});
+
+// ---- writeError: a write that surely failed says what to do; any other says it may have gone through.
+
+test("writeError: each definite failure says so; every other code says the write may have gone through", () => {
+  const MAYBE = /may have gone through/;
+  for (const code of ["server_not_connected", "selection_required", "server_not_found", "bad_request", "not_granted",
+    "capability_disabled", "rate_limited", "not_in_manifest", "blocked_by_policy"]) {
+    assert.ok(WRITE_DEFINITE.has(code), code);
+    const text = writeError({ code, message: "m" }, "approve");
+    assert.doesNotMatch(text, MAYBE, code);
+    assert.ok(text.length > 10, code);
+  }
+  for (const e of [{ code: "server_unavailable" }, { code: "upstream_error" }, { code: "cancelled" }, { code: "timeout" }, { code: "something_new" }, {}, undefined]) {
+    assert.match(writeError(e, "approve"), MAYBE, JSON.stringify(e));
+  }
+});
+
+test("writeError names the connector that refused, and where to look, for a session start", () => {
+  const remote = (code) => writeError({ code }, "start a session", "Claude Code Remote", "Check your sessions at claude.ai/code");
+  assert.match(remote("needs_reauth"), /^Reconnect Claude Code Remote/);
+  assert.match(remote("timeout"), /^No clear answer from Claude Code Remote \(timeout\): it may have gone through\. Check your sessions at claude\.ai\/code before/);
+  assert.match(writeError({ code: "needs_reauth" }, "approve"), /^Reconnect GitHub/);
+});
+
+// ---- ship.yml's push block.
+
+test("ship.yml: the default branch is read only inside the push block; a list elsewhere doesn't count", () => {
+  const other = "# ship.yml version: 2\non:\n  push:\n    paths: [src]\n  pull_request:\n    branches: [develop]\n";
+  assert.equal(shipYml(other).defaultBranch, null, "pull_request's branches aren't push's");
+  const multi = "# ship.yml version: 2\non:\n  push:\n    branches:\n      - main\n";
+  assert.equal(shipYml(multi).defaultBranch, null, "no inline list: no branch, Land stays off");
+  const after = "# ship.yml version: 2\non:\n  push:\n\n    # trunk only\n    branches: [trunk]\njobs:\n  x:\n    branches: [nope]\n";
+  assert.equal(shipYml(after).defaultBranch, "trunk", "blank and comment lines stay inside the block");
 });
 
 // ---- Run a skill: the command a card's button starts a cloud session with.
