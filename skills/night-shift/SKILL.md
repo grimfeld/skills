@@ -1,6 +1,6 @@
 ---
 name: night-shift
-description: Evening, with the user — turn designs marked done into specs, slice tonight's spec:ready specs, find conflicts between them, grill the user only on real ones, then start one cloud builder per spec (or per dependent chain). Morning, with `morning` — gather what the night built into one page to review from.
+description: Evening, with the user — turn designs marked done into specs, slice tonight's spec:ready specs, find conflicts between them, grill the user only on real ones, then start one cloud builder per spec (or per dependent chain). Morning, with `morning` — gather what the night built into one page to review from, then take the user's answers to its decisions.
 disable-model-invocation: true
 argument-hint: "[morning]"
 ---
@@ -10,7 +10,7 @@ argument-hint: "[morning]"
 **Evening** (no argument): turn every `spec:ready` spec into a cloud build, so that by morning each spec is a PR that has been reviewed by `pr-review` and is waiting for the user.
 You run locally, with the user present. The builds themselves run in Claude Code cloud sessions, one per spec or per chain of dependent specs, each running `/ship:build-spec`.
 
-**Morning** (`morning`): gather the results into one page.
+**Morning** (`morning`): gather the results into one page, then take the user's answers to its decisions.
 
 Before each step, read `docs/agents/shipping.md`, `docs/agents/issue-tracker.md` and `${CLAUDE_PLUGIN_ROOT}/references/github.md`.
 
@@ -111,15 +111,15 @@ Tell the user:
    - **Ready:** the PRs to review, smallest first. Each card has the PR link, the verdict line, the risks, and the decisions to check. Show the `ship` status as "awaiting your `ship` label", apart from the CI checks: it waits on the user by design. A stacked PR (its base is another PR's branch) sits under its parent's card, whatever its size, marked "lands after #<parent>", so the order is visible before approving.
    - **Design PRs** add their fidelity grid: per place, reference beside app for each look × theme × viewport. Flagged views are shown full size with their finding; the rest are thumbnails. Upload the PNGs as the page's assets (the `assets` capability) and reference each by the URL the upload returns.
    - **Stuck:** what each one needs from the user. A PR stacked on a stuck spec it doesn't depend on sits under that card, with its note "stacked on stuck #N; lands after it, or retarget".
-   - **Answer lines:** each Stuck card, and each decision to check on a Ready card, ends with one line: "Answer: tell Claude in the morning session (`#<pr>: <choice>`)", with the PR link beside it for reading. A card with several decisions has one line per decision; a card with none has no answer line.
+   - **Answer lines:** each Stuck card, and each decision to check on a Ready card, ends with one line: "Answer: tell Claude in the morning session (`#<pr>: <choice>`)", with the PR link beside it for reading. A stuck spec with no PR uses its spec number and links the spec issue. A card with several decisions has one line per decision, each naming its decision (`#<pr> <decision>: <choice>`); a card with none has no answer line.
    - **Cost line:** every Ready and Stuck card ends with one line, "≈ $4.20 at API prices · 310k out · 1.2M in · 48M cache read".
      - A spec that is `null` gets "cost not reported" instead, never a partial figure.
      - A spec with `unpriced` models adds "+ <model> (no price)" after the dollar figure.
-   - **Totals:** exactly two things, the night's cost and a small table with one row per session (its specs, the shared bucket and the session total). Totals hold these and nothing else.
+   - **Totals:** the night's cost and a small table with one row per session (its specs, the shared bucket and the session total), with no other rows. Under them go only the notes below.
      - A session or night with `not_reported` specs reads "at least ≈ $X (N not reported: #…)", never a plain total.
      - Name every model in the night's `unpriced`: its tokens are counted but not priced, and `scripts/prices.json` needs an entry for it.
      - Footnote: the figures are API-price estimates, not a bill, and builder turns after the last count are missing.
-   - **Next:** the command that ships what the user approves: `/ship:land <ready PRs, in review order>`, to cut down to the ones they approve. A PR left out isn't landed; to have it rebuilt, label it `changes-requested` and move its spec back to `spec:ready`.
+   - **Next:** the command that ships what the user approves: `/ship:land <ready PRs, in review order>`, to cut down to the ones they approve. A PR left out isn't landed; to have it rebuilt, send it back as `docs/agents/shipping.md`'s Spec labels section says.
 5. **Link the page from each spec.** Once the page is published, post one comment on each spec collected in step 1, so anything reading GitHub (the ship dashboard, a person on the spec) can find it:
 
    ```
@@ -128,10 +128,12 @@ Tell the user:
    ```
 
    Post a new comment every morning, even on a spec that already has one: the newest is the current link. Post with `gh issue comment`, or `add_issue_comment` where `${CLAUDE_PLUGIN_ROOT}/references/github.md` says to use the GitHub MCP tools. If a comment fails, name the spec in the report and go on.
-6. **Report in the terminal:** the page link, one line per PR in the order to review them (children under their parent), one line with the night's cost, worded as on the page, any spec whose morning-page comment failed (step 5), and the same `/ship:land` line.
-7. **Take answers.** Stay in the terminal for the user's answers, given as `#<pr>: <choice>`. For each:
-   - Comment it on the PR ("Morning answer: <choice>"), so the choice is on record where the reviewer looks. For a stuck spec, comment it on the spec issue too, where the next build reads it.
-   - Keep the PR in the `/ship:land` line, or send it back: label it `changes-requested` and move its spec back to `spec:ready`. A stuck PR is never in the line; its answered spec goes back to `spec:ready` for the next night.
+6. **Report in the terminal:** the page link, one line per PR in the order to review them (children under their parent), one line with the night's cost, worded as on the page, any spec whose morning-page comment failed (step 5), and the same `/ship:land` line. End with the open decisions and stuck specs, and "Answer here as `#<pr>: <choice>`."
+7. **Take answers.** Stay in the terminal for the user's answers, given as `#<pr>: <choice>` (or `#<spec>` for a stuck spec with no PR). Match each to the decision it settles; ask when that isn't clear. For each:
+   - Comment it on the PR ("Morning answer to <decision>: <choice>"), so the choice is on record where the reviewer looks. For a stuck spec, comment it on the spec issue too (only there when it has no PR), where the next build reads it.
+   - Keep a ready PR in the `/ship:land` line when the choice is what it built. Send it back, as `shipping.md`'s Spec labels section says, when the choice differs from what it built or the user says so. A stuck spec's PR is never in the line: its answered spec goes back to `spec:ready` for the next night.
    - Reprint the `/ship:land` line.
+
+   Done when the user says they're finished.
 
 The user reviews each PR from its description and comments, then runs `/ship:land` with the PRs they approve. Adding `ship` by hand approves a PR; `/ship:land` lands every PR carrying it.
