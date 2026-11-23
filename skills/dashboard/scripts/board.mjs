@@ -351,7 +351,7 @@ export function morningPage(comments) {
   return best;
 }
 
-// ---- Actions: Approve and Un-approve, as /ship:land does them (skills/land/SKILL.md), and Land,
+// ---- Actions: Approve (the label step /ship:land <pr> takes, skills/land/SKILL.md), Un-approve, and Land,
 // which starts /ship:land itself.
 
 // setup-ship's .github/workflows/ship.yml (skills/setup-ship/templates/ship.yml): its first line is

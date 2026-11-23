@@ -185,7 +185,6 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
 .project .land-confirm { display: flex; gap: 8px; min-width: 0; }
 .project .land-confirm .btn { flex: 1 1 auto; }
 .land-msg { grid-column: 1 / -1; margin: 0; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
-.land-msg a { color: var(--accent); }
 .land-msg code { font-family: var(--font-mono); color: var(--fg); }
 .land-msg.act-error { color: var(--danger); }
 .land-msg.act-done { color: var(--good); }
@@ -861,21 +860,21 @@ dialog.sheet::backdrop { background: rgb(0 0 0 / 0.45); }
     }
   }
 
-  // card: what the session is for, as skillTarget or landTarget give it: { project, label }.
-  async function startSession(card, skill, env) {
+  // target: what the session is for, as skillTarget or landTarget give it: { project, label }.
+  async function startSession(target, skill, env) {
     let result;
     try {
       result = await state.mcp.callTool(REMOTE, "create_session", {
         prompt: skill.command,
-        title: `${skill.command} · ${card.project}`,
-        source_url: `https://github.com/${card.project}`,
+        title: `${skill.command} · ${target.project}`,
+        source_url: `https://github.com/${target.project}`,
         environment_id: env.environment_id,
       }, { cache: false });
     } catch (e) {
       throw remoteFailure(e, "start a session");
     }
     const link = sessionLink(result);
-    const said = `Session started for ${card.label} in ${env.name}`;
+    const said = `Session started for ${target.label} in ${env.name}`;
     return link ? { text: `Started in ${env.name}`, url: link.url, said } : { text: `Started in ${env.name}: its link didn't come back, so find it among your sessions.`, url: SESSIONS_URL, said };
   }
 
@@ -1035,13 +1034,13 @@ dialog.sheet::backdrop { background: rgb(0 0 0 / 0.45); }
     const target = landTarget(full);
     const key = target.key;
     const act = actions.get(key);
-    if (act?.status === "done") {
-      return [openSession(key, act.url, "small land"), el("p", { class: "land-msg act-done", text: act.text })];
-    }
+    // A started session keeps its link, and Land stays usable for the next batch.
+    const done = act?.status === "done" ? [openSession(`session:${full}`, act.url, "small land"), el("p", { class: "land-msg act-done", text: act.text })] : [];
     const gate = gateOf(full, null);
     const land = gate.ok ? landFor(cardsOf(full), loads.get(full)?.ship?.version) : null;
     let off = gate.ok ? null : gate.note;
-    if (land?.off) off = ["No PR here carries ship: approve one first."];
+    if (land?.off === "no-ship") off = ["No PR here carries ship: approve one first."];
+    else if (land?.off) off = [`Needs ship.yml version ${MIN_SHIP_VERSION} or later: run /ship:setup-ship to upgrade.`];
     const running = act?.status === "running";
     const waiting = choosing.holder() !== null && choosing.holder() !== key;
     if (off || running || waiting) confirming.delete(full);
@@ -1057,7 +1056,7 @@ dialog.sheet::backdrop { background: rgb(0 0 0 / 0.45); }
       confirm.setAttribute("aria-describedby", askId);
       const group = el("div", { class: "land land-confirm", role: "group", "aria-label": `Land ${full}?` }, confirm, cancel);
       group.addEventListener("keydown", (ev) => { if (ev.key === "Escape") { ev.preventDefault(); cancelIt(); } });
-      return [group, el("p", { class: "land-msg", id: askId }, question)];
+      return [...done, group, el("p", { class: "land-msg", id: askId }, question)];
     }
     const [button, note] = actionButton({ key, text: running && !act.choosing ? "Starting…" : LAND.label, small: true, busy: running, waiting, noteClass: "land-msg",
       hint: `Start a Claude session on ${full} running ${LAND.command}: it lands every PR carrying ship`, off,
@@ -1071,7 +1070,7 @@ dialog.sheet::backdrop { background: rgb(0 0 0 / 0.45); }
       } });
     button.classList.add("land");
     const error = act?.status === "error" ? el("p", { class: "land-msg act-error", text: act.text }) : null;
-    return [button, note ?? error, off ? null : envLine(target, LAND, running || waiting, "land-msg env-line")];
+    return [...done, button, note ?? error, off ? null : envLine(target, LAND, running || waiting, "land-msg env-line")];
   }
 
   function stopProject(full) {
