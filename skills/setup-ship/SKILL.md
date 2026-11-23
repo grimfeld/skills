@@ -42,7 +42,7 @@ Read only. Collect:
    - **No `origin` remote** (`git remote get-url origin` fails): no GitHub repo. A local repo with commits pushes its default branch as it is; one without commits needs a first commit.
    - **A remote with no commits** (`gh repo view --json defaultBranchRef` gives an empty `name`, or `git ls-remote --heads origin` prints nothing): no first commit.
 
-   In any of the three, this is a fresh install with a **Repository** group to plan (step 3). Don't abort. Take the default branch name from `git config init.defaultBranch`, else `main`. Skip what has nothing to read yet (rulesets, CI checks, CD, merged PRs, labels, bookkeeping files) and take the defaults: no required checks besides `ship`, nothing deploys, no bookkeeping files. A normal repo with a remote and commits runs as below, exactly as before.
+   In any of the three, this is a fresh install with a **Repository** group to plan (step 3). Don't abort. Take the default branch name from the local repo's current branch (`git symbolic-ref --short HEAD`, which works before the first commit too) when there is one; only when step 1.1 found no git repo, from `git config init.defaultBranch`, else `main`. Skip what has nothing to read yet (rulesets, CI checks, CD, merged PRs, labels, bookkeeping files) and take the defaults: no required checks besides `ship`, nothing deploys, no bookkeeping files. A normal repo with a remote and commits runs as below, exactly as before.
    - `gh repo view --json nameWithOwner,visibility,isPrivate,defaultBranchRef,isInOrganization,mergeCommitAllowed,squashMergeAllowed,rebaseMergeAllowed`
    - `gh api repos/{owner}/{repo} -q .allow_auto_merge`: on an upgrade, whether there is auto-merge to turn off.
    - A private repository owned by a personal account on the free plan can create rulesets but doesn't enforce them: warn that the gate becomes advisory, and continue only if the user agrees.
@@ -75,6 +75,8 @@ Otherwise, ask the user the open choices in one `AskUserQuestion` round, giving 
 - **Required checks:** from step 1.3.
 - **Local checks:** the commands from step 1.5.
 - **Bookkeeping files:** the candidates from step 1.7, as globs. A conflict only in these files is mechanical to resolve.
+
+When step 1.1 planned a Repository group, there is no history to read: don't ask the required checks or bookkeeping files (take step 1.1's defaults), and recommend `merge` as the merge method.
 - **The GitHub repo**, only when step 1.1 found none: its owner (preselect the signed-in user, `gh api user --jq .login`; offer their organisations), name (preselect the folder's name) and visibility (preselect private). Private on a personal account on the free plan: show step 1.1's warning that the gate becomes advisory.
 
 ## 3. Show the plan
@@ -121,9 +123,9 @@ The user's part is the to-dos the "Versions" list gives for each version passed.
     - `non_fast_forward` and `deletion`, if missing
 
     Use `gh api -X PUT repos/{owner}/{repo}/rulesets/<id> --input <file>`, with the full rule list (read, change, write).
-- **What only the user can do.** Never ask for a token's value or handle one.
+- **What only the user can do.** Never ask for a token's value or handle one. In every to-do you show, this list's and the "Versions" list's, the setup PR body included, replace `<owner>/<repo>` with the real repository.
   - Create a fine-grained token for this repository with Pull requests read/write.
-  - Add it as the Dependabot secret `SHIP_TOKEN`: run `gh secret set SHIP_TOKEN --app dependabot --repo <owner>/<repo>` in a separate terminal, not with `!` in the Claude session (it can't prompt there and saves an empty value), or paste the token at `https://github.com/<owner>/<repo>/settings/secrets/dependabot`. Fill in the real owner and repo wherever you show this, the setup PR body included.
+  - Add it as the Dependabot secret `SHIP_TOKEN`: run `gh secret set SHIP_TOKEN --app dependabot --repo <owner>/<repo>` in a separate terminal, not with `!` in the Claude session (it can't prompt there and saves an empty value), or paste the token at `https://github.com/<owner>/<repo>/settings/secrets/dependabot`.
   - Why it's needed: a label added with GitHub's default token doesn't start other workflows, so without it the `ship` label `dependabot` adds never turns the `ship` status green.
   - Cloud sessions don't install plugins from `.claude/settings.json`. Point the user to the `grimfeld/skills` README's cloud setup script for their cloud environment.
 
