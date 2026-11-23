@@ -119,7 +119,7 @@ Tell the user:
    Reviewed on this morning's page: <page URL>
    ```
 
-   Post a new comment every morning, even on a spec that already has one: the newest is the current link. Where `gh` is absent, use the GitHub MCP issue comment tool (`${CLAUDE_PLUGIN_ROOT}/references/github.md`). If a comment fails, name the spec in the report and go on.
-6. **Report in the terminal:** the page link, one line per PR in the order to review them (children under their parent), one line with the night's cost, worded as on the page, and the same `/ship:land` line.
+   Post a new comment every morning, even on a spec that already has one: the newest is the current link. Post with `gh issue comment`, or `add_issue_comment` where `${CLAUDE_PLUGIN_ROOT}/references/github.md` says to use the GitHub MCP tools. If a comment fails, name the spec in the report and go on.
+6. **Report in the terminal:** the page link, one line per PR in the order to review them (children under their parent), one line with the night's cost, worded as on the page, any spec whose morning-page comment failed (step 5), and the same `/ship:land` line.
 
 The user reviews each PR from its description, approving it or leaving a comment, then runs `/ship:land` with the PRs they approve. Adding `ship` by hand approves a PR but doesn't land it; `/ship:land` with no arguments does, or in `command` mode the landing schedule.
