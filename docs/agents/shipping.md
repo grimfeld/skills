@@ -22,7 +22,7 @@ Dependabot patch updates and GitHub Actions updates get `ship` from `ship.yml` a
 
 ## Landing
 
-`/ship:land` is an agent, run when you start it (or from the dashboard's Land button). `ship.yml` lands nothing:
+`/ship:land` is an agent, run when you start it. `ship.yml` lands nothing:
 its `gate` job only sets the required `ship` status.
 
 For each open, non-draft PR carrying `ship`, parents before the PRs stacked on them, the agent:

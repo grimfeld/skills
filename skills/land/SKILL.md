@@ -75,7 +75,16 @@ git checkout -q --detach origin/<head>
 
 If it already contains the default branch's tip (`git merge-base --is-ancestor origin/<default> HEAD`), push nothing and go to 4.3.
 
-Otherwise merge it in with a merge commit, never a rebase: `git merge --no-ff --no-edit origin/<default> -m "Merge <default> into <head>"`. Then push to the PR's branch: `git push -q origin HEAD:<head>`. A rejected push means someone pushed meanwhile: fetch and merge again, once. If it's rejected again, stop the PR (4.5) with "push rejected: <git's message>".
+Otherwise merge it in with a merge commit, never a rebase: `git merge --no-ff --no-edit origin/<default> -m "Merge <default> into <head>"`. Then push to the PR's branch: `git push -q origin HEAD:<head>`. A rejected push means someone pushed meanwhile: fetch and merge again, once. If it's rejected again, stop the PR (4.5):
+
+```
+<!-- land {"status":"stopped","reason":"push-rejected"} -->
+land: couldn't push the merge of `<default>` into this branch, which changed during the run:
+
+> <git's message>
+
+`ship` stays on. The next `/ship:land` tries again.
+```
 
 **On a conflict:** list the conflicting files (`git diff --name-only --diff-filter=U`), then `git merge --abort`. Push nothing. Stop the PR (4.5):
 

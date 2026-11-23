@@ -2,7 +2,7 @@
 # Installed by /ship:setup-ship. The rules it enforces are in docs/agents/shipping.md.
 #
 # A PR reaches main only once a person has reviewed it and added the `ship` label.
-# This workflow lands nothing: /ship:land merges every `ship` PR itself, resolving what it has to.
+# This workflow lands nothing: /ship:land merges every `ship` PR itself.
 # - `gate` sets the required `ship` commit status: pending until labelled, success after.
 # - `dependabot` labels low-risk dependency PRs `ship`, so the next /ship:land merges them.
 #
