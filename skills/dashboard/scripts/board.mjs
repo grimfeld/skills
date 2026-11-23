@@ -394,10 +394,14 @@ export const unapproveLabels = (labels) => names(labels).filter((n) => n !== SHI
 // payload, or undefined when the read failed). The labels come from that read only, so none added
 // since the page loaded is dropped, and the PR must still offer the card's action, so a PR that went
 // draft, lost pr-reviewed, gained changes-requested or conflicts, or was pushed since its review, is
-// never approved. card: { project, number, action }.
-// → { labels } to write, or { error, refetch? } when nothing is written (refetch: read the project again).
+// never approved. An open PR already in the action's end state (ship on for approve, off for
+// un-approve) needs no write. card: { project, number, action }.
+// → { labels } to write, { already: true } when there is nothing to change, or { error, refetch? } when
+// nothing is written (refetch: read the project again).
 export function labelWrite(card, fresh) {
   if (!fresh || !Array.isArray(fresh.labels)) return { error: `Couldn't read #${card.number}'s labels: try again` };
+  if (isOpenPr(fresh) && (card.action === "approve" || card.action === "unapprove")
+    && names(fresh.labels).includes(SHIP_LABEL) === (card.action === "approve")) return { already: true };
   const now = prAction(fresh, trustedReview(card.project, fresh));
   if (now !== card.action || (now !== "approve" && now !== "unapprove")) return { error: `#${card.number} changed since the page loaded: refreshing`, refetch: true };
   return { labels: now === "approve" ? approveLabels(fresh.labels) : unapproveLabels(fresh.labels) };
