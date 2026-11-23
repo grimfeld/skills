@@ -18,7 +18,7 @@ You must never:
 - merge a PR
 - add the `ship` label
 - push to the default branch
-- force-push a branch you didn't create tonight
+- force-push a branch you didn't create in this session
 - touch another spec's branch, except the one in your own chain you build on
 
 Read first:
@@ -85,7 +85,7 @@ Round = fix every approved finding and every red CI check on the branch, push, w
 
 - A finding you think is wrong: record it in Decisions with your reason, and leave it.
 - After round 2, anything still blocking makes the spec stuck. Name each blocking item and what you tried.
-- Without `unattended`, ask instead of going stuck: for each item still blocking after round 2, one question as in step 2, naming the choices (for example a fix you describe, accepting it as is with a note, or leaving the spec stuck) and your recommendation. Record the answer under Decisions as decided by the owner and apply it, with no third review round: the two-round cap still holds. An item settled this way counts as closed for step 6; one the owner leaves stuck keeps the spec stuck.
+- Without `unattended`, ask instead of going stuck: for each item still blocking after round 2, one question as in step 2, naming the choices (for example a fix you describe, accepting it as is with a note, or leaving the spec stuck) and your recommendation. Record the answer under Decisions as in step 2 ("<item>: decided by the owner: <choice>") and apply it, with no third review round: the two-round cap still holds. An item settled this way counts as closed for step 6; one the owner leaves stuck keeps the spec stuck.
 
 ### 6. Finish the spec
 
