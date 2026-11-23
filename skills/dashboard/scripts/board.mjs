@@ -364,8 +364,8 @@ export function landingRun(payload, clickedAt) {
 // card: a toCards card. → { label, command }, or null when the card needs no skill.
 //   an open spec:draft spec        Resume spec   /ship:spec-me #n
 //   an open conflicts PR           Resolve       /ship:resolve-conflicts n
-//   a reviewed PR (offers Approve) Send back     /ship:land n   (land decides whether there is a comment to send back)
 //   a design:ready design          Spec design   /ship:design-me #n
+// No "Send back": /ship:land approves every PR it is given, so there is no command that sends one PR back.
 // Landed cards are closed or merged: they need nothing.
 export function skillFor(card) {
   if (!card || card.bucket === "landed") return null;
@@ -375,7 +375,6 @@ export function skillFor(card) {
   if (card.kind === "design") return { label: "Spec design", command: `/ship:design-me #${n}` };
   if (card.kind !== "pr") return null;
   if (l.has("conflicts")) return { label: "Resolve", command: `/ship:resolve-conflicts ${n}` };
-  if (card.action === "approve") return { label: "Send back", command: `/ship:land ${n}` };
   return null;
 }
 

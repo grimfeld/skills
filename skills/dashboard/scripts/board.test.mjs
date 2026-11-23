@@ -552,7 +552,7 @@ test("each card that needs a ship skill maps to its button and command; every ot
     spec4: null,
     spec5: null,
     pr10: { label: "Resolve", command: "/ship:resolve-conflicts 10" },
-    pr11: { label: "Send back", command: "/ship:land 11" },
+    pr11: null, // reviewed: Approve is its action, and no command sends one PR back
     pr12: null,
     pr13: null,
     pr14: null,
@@ -561,7 +561,7 @@ test("each card that needs a ship skill maps to its button and command; every ot
   });
 });
 
-test("a conflicting PR that was also reviewed is resolved first, not sent back", () => {
+test("a conflicting PR that was also reviewed is offered Resolve", () => {
   assert.deepEqual(skillOf([], [pr(20, ["pr-reviewed", "conflicts"])]).pr20, { label: "Resolve", command: "/ship:resolve-conflicts 20" });
 });
 

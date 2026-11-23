@@ -163,7 +163,6 @@ Cards that need a ship skill start one in a Claude cloud session on the card's r
 |---|---|---|
 | `spec:draft` spec | **Resume spec** | `/ship:spec-me #n` |
 | PR labelled `conflicts` | **Resolve** | `/ship:resolve-conflicts n` |
-| reviewed PR (the one offering Approve) | **Send back** | `/ship:land n` (it decides whether there's a comment to send back) |
 | `design:ready` design | **Spec design** | `/ship:design-me #n` |
 
 While it starts, the button says so and can't be pressed twice; then the card links to the new session (**Open session**). A failed start shows its error on the card and isn't retried. The first time you start one for a project, the page asks which of your Claude Code environments it runs in (a bottom sheet on a phone), suggesting the one named like the repo, else your first cloud environment. It remembers the choice for that project in this browser, and starts later ones at once; **change** under the button picks again. Without browser storage, or when the remembered environment is gone, it asks each time.
