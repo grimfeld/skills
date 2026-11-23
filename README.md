@@ -121,6 +121,8 @@ Lands every approved PR, with no more input from you. `ship` is the whole approv
 4. When it can't land a PR (a conflict, a red check, a merge GitHub refuses), it leaves a comment saying why, keeps `ship`, and lands the rest. The PRs stacked on it wait.
 5. Ends with one line per PR: merged, stopped or skipped, with the reason.
 
+The label approves the PR, not a commit: pushes after it land with it. Remove `ship` before pushing more work to an approved PR.
+
 ```
 /ship:land 512 515 520   # approve these, then land everything carrying `ship`
 /ship:land               # land the PRs already labelled `ship`

@@ -41,7 +41,7 @@ It must be `# ship.yml version: 3` or later. If the file is missing, has no vers
 
 With no arguments, skip this step: the batch is what already carries `ship`.
 
-For each `#n` given, read it (`gh api repos/{owner}/{repo}/pulls/<n>`):
+For each `#n` given, read it with only the fields you need (`gh api repos/{owner}/{repo}/pulls/<n> --jq '{state, merged, draft, labels: [.labels[].name], base: .base.ref, sha: .head.sha}'`). Every PR read in this skill uses this filter, so no title or body reaches you:
 - **Closed or merged:** refuse it, with the reason. Don't label it.
 - **Draft:** refuse it, with the reason. Don't label it.
 - **Otherwise:** add `ship` if it hasn't got it (`gh api repos/{owner}/{repo}/issues/<n>/labels -f 'labels[]=ship'`).
@@ -54,7 +54,7 @@ Approval is per PR. Never label a PR the user didn't name, not even the parent o
 2. **The batch:** the PRs carrying `ship`. Skip, with the reason:
    - a draft ("draft");
    - a PR whose head branch is on a fork ("head branch is on a fork, can't push to it");
-   - a PR whose head or base branch name has anything but letters, digits, `.`, `_`, `/` and `-` ("branch name isn't safe to pass to a shell"). Branch names go into your commands, so check each against `^[A-Za-z0-9._/-]+$` before using it.
+   - a PR whose head or base branch name has anything but letters, digits, `.`, `_`, `/` and `-` ("branch name isn't safe to pass to a shell"). Branch names go into your commands, so check each against `^[A-Za-z0-9._][A-Za-z0-9._/-]*$` (no leading `-`, which git would read as an option) before using it.
 3. **Stacks:** a PR whose base is another open PR's head branch is that PR's child.
    - Parent carries `ship`: the child lands after it.
    - Parent doesn't: the child waits. Report it as "waiting on #<parent>, not approved", and its own children as waiting on it.
@@ -67,7 +67,7 @@ Work in a worktree of your own (`git worktree add --detach <dir> origin/<default
 
 ### 4.1 Still approved?
 
-Read the PR again. If it's closed, a draft, or no longer carries `ship` (the user changed their mind), skip it with that reason. If its base isn't the default branch, stop it (4.5) with "base is `<branch>`, not `<default>`". Its children wait.
+Read the PR again (with the filter from step 2). If it's closed, a draft, or no longer carries `ship` (the user changed their mind), skip it with that reason. If its base isn't the default branch, stop it (4.5) with "base is `<branch>`, not `<default>`". Its children wait.
 
 ### 4.2 Merge the default branch in
 
@@ -108,7 +108,7 @@ Wait on the SHA you pushed (or the head you found already up to date), never on 
 2. **What to wait for:** the checks `docs/agents/shipping.md` "Checks" requires, plus every other check run or status that appears on `<sha>`, except `ship`. The `ship` status counts as passed, since `ship` is on: `gate` may still be catching up with your push.
 3. **No CI:** if "Checks" names no check beyond `ship`, wait 1 minute for any check to appear on `<sha>`. If none does, go to 4.4.
 
-Wait with a single `until` loop over `gh api repos/{owner}/{repo}/commits/<sha>/check-runs` and `.../commits/<sha>/status`, 30 minutes at most, never repeated `sleep` calls. It ends when the PR's head is `<sha>`, every required check exists on it, and every check on it has finished. A required check that never appears counts as not finished.
+Wait with a single `until` loop over `gh api repos/{owner}/{repo}/commits/<sha>/check-runs --jq '.check_runs[] | {name, status, conclusion, html_url}'` and `.../commits/<sha>/status --jq '.statuses[] | {context, state, target_url}'` (only these fields: a check's output text can carry PR content), 30 minutes at most, never repeated `sleep` calls. It ends when the PR's head is `<sha>`, every required check exists on it, and every check on it has finished. A required check that never appears counts as not finished.
 
 **A check failed, or hadn't finished after 30 minutes:** stop the PR (4.5):
 
@@ -121,7 +121,7 @@ Name every check that failed or didn't finish.
 
 ### 4.4 Merge
 
-Read the PR again first. If it no longer carries `ship` (the user changed their mind during the wait), skip it with "`ship` removed". If its base isn't the default branch, stop it (4.5) with "base is `<branch>`, not `<default>`": merging would land it in another branch. Then merge through the API, with the merge method from `docs/agents/shipping.md` and the SHA you checked, so nothing pushed after your wait lands unchecked:
+Read the PR again first (with the filter from step 2). If it no longer carries `ship` (the user changed their mind during the wait), skip it with "`ship` removed". If its base isn't the default branch, stop it (4.5) with "base is `<branch>`, not `<default>`": merging would land it in another branch. Then merge through the API, with the merge method from `docs/agents/shipping.md` and the SHA you checked, so nothing pushed after your wait lands unchecked:
 
 ```
 gh api -X PUT repos/{owner}/{repo}/pulls/<n>/merge -f merge_method=<method> -f sha=<sha>
@@ -148,7 +148,7 @@ Post the comment (`gh api repos/{owner}/{repo}/issues/<n>/comments -F body=@<fil
 
 ### 4.6 After a merge: the children
 
-For each child of the merged PR, read it again. If its base isn't the default branch yet (GitHub moves it itself only when the parent's branch is deleted), retarget it:
+For each child of the merged PR, read it again (with the filter from step 2). If its base isn't the default branch yet (GitHub moves it itself only when the parent's branch is deleted), retarget it:
 
 ```
 gh api -X PATCH repos/{owner}/{repo}/pulls/<child> -f base=<default>
@@ -162,9 +162,9 @@ Done when every PR in the batch is merged, stopped, skipped or waiting. Remove y
 
 One line per PR, each linked, in landing order:
 
-- **Merged:** `merged #12 <title>`, and for a child `(after #11)`.
-- **Stopped:** `stopped #13 <title>: conflict in <files>` / `check <name> failed` / `check <name> didn't finish in 30 minutes` / `GitHub refused: <error>` / `push rejected`.
-- **Skipped:** `skipped #14 <title>: <reason>`: draft, fork, closed, `ship` removed, waiting on #<parent> (not approved, or stopped).
+- **Merged:** `merged #12 <url>`, and for a child `(after #11)`.
+- **Stopped:** `stopped #13 <url>: conflict in <files>` / `check <name> failed` / `check <name> didn't finish in 30 minutes` / `GitHub refused: <error>` / `push rejected`.
+- **Skipped:** `skipped #14 <url>: <reason>`: draft, fork, closed, `ship` removed, waiting on #<parent> (not approved, or stopped).
 - **Refused:** the named PRs step 2 refused, with the reason.
 
 End with the counts: `<n> merged, <n> stopped, <n> skipped, <n> refused`.
