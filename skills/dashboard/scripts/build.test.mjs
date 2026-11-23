@@ -58,6 +58,8 @@ test("the page writes only through callWrite (issue_write's update with labels, 
   const input = Object.fromEntries(sessions[0].split(/,\n/).map((kv) => kv.trim()).filter(Boolean).map((kv) => [kv.slice(0, kv.indexOf(":")), kv.slice(kv.indexOf(":") + 1).trim().replace(/,$/, "")]));
   assert.deepEqual(Object.keys(input), ["prompt", "title", "source_url", "environment_id"]);
   assert.equal(input.prompt, "skill.command");
+  // The title is built from trusted parts only: the card's title is anyone's text on GitHub.
+  assert.equal(input.title, "`${skill.command} · ${card.project}`");
   assert.equal(input.source_url, "`https://github.com/${card.project}`");
   assert.equal(input.environment_id, "env.environment_id");
   const writes = [...page.matchAll(/callWrite\(([^)]*?)\{ method: "(\w+)"([^}]*)\}/g)].map((m) => [m[1].trim(), m[2], m[3]]);

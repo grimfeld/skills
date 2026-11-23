@@ -405,8 +405,9 @@ export function labelWrite(card, fresh) {
 
 // The words for a failed write (issue_write, actions_run_trigger or create_session), by the
 // connector's error code. Only the codes listed here mean the write surely didn't happen; any other
-// (a timeout, an upstream error, a code added later) may have run, and says so. verb: what was tried
-// ("approve"); who: the connector that refused; check: where to look before trying again.
+// (a timeout, an upstream error, a code added later) may have run, and says so. context: { verb, who,
+// check }: verb, what was tried ("approve"); who, the connector that refused (GitHub unless named);
+// check, where to look before trying again (the refreshed page unless named).
 export const WRITE_DEFINITE = new Map([
   ["approval_required", (v, m, w) => `${w} needs your approval to ${v}. ${v[0].toUpperCase()}${v.slice(1)} again to be asked.`],
   ["consent_required", (v, m, w) => `${w} needs your approval to ${v}. ${v[0].toUpperCase()}${v.slice(1)} again to be asked.`],
@@ -422,7 +423,7 @@ export const WRITE_DEFINITE = new Map([
   ["rate_limited", (v, m, w) => `Too many ${w} calls just now: wait a minute, then try again.`],
   ["tool_error", (v, m, w) => `${w} refused: ${m || "tool_error"}`],
 ]);
-export function writeError(e, verb, who = "GitHub", check = "Check the page after it refreshes") {
+export function writeError(e, { verb = "do that", who = "GitHub", check = "Check the page after it refreshes" } = {}) {
   const code = e?.code ?? "upstream_error";
   const definite = WRITE_DEFINITE.get(code);
   if (definite) return definite(verb, e?.message, who);
@@ -463,7 +464,7 @@ export function landingRun(payload, clickedAt) {
 // command as its first message. The commands are the skills' own (skills/<name>/SKILL.md argument-hint).
 // card: a toCards card. → { label, command }, or null when the card needs no skill.
 //   an open spec:draft spec        Resume spec   /ship:spec-me #n
-//   an open conflicts PR           Resolve       /ship:resolve-conflicts n
+//   an open conflicts PR           Resolve       /ship:resolve-conflicts #n
 //   a design:ready design          Spec design   /ship:design-me #n
 // No "Send back": /ship:land approves every PR it is given, so there is no command that sends one PR back.
 // Landed cards are closed or merged: they need nothing.
@@ -474,7 +475,7 @@ export function skillFor(card) {
   if (card.kind === "spec" && l.has("spec:draft")) return { label: "Resume spec", command: `/ship:spec-me #${n}` };
   if (card.kind === "design") return { label: "Spec design", command: `/ship:design-me #${n}` };
   if (card.kind !== "pr") return null;
-  if (l.has("conflicts")) return { label: "Resolve", command: `/ship:resolve-conflicts ${n}` };
+  if (l.has("conflicts")) return { label: "Resolve", command: `/ship:resolve-conflicts #${n}` };
   return null;
 }
 
@@ -491,16 +492,16 @@ export function preselectEnvironment(envs, project) {
 }
 
 // The new session from a Claude Code Remote create_session result. Its shape wasn't observed (the
-// tool says it "returns the new session's ID and status"), so the id is looked for as session_id,
-// id or session.id in the payload, else as a "session_…" id in its text. Only a plain id makes a
-// link. → { id, url: https://claude.ai/code/<id> }, or null.
+// tool says it "returns the new session's ID and status"), so the id is looked for as session_id, id
+// or session.id in the payload, or in a JSON text block. Free text is never searched, and only a plain
+// id makes a link. → { id, url: https://claude.ai/code/<id> }, or null (the page then links the
+// viewer's sessions).
 const SESSION_ID = /^[A-Za-z0-9_-]+$/;
 const idIn = (o) => (o && typeof o === "object" ? [o.session_id, o.id, o.session?.id, o.session?.session_id].find((v) => typeof v === "string") : undefined);
 const json = (text) => { try { return JSON.parse(text); } catch { return null; } };
 export function sessionLink(result) {
   const p = result?.payload;
   const texts = [typeof p === "string" ? p : "", ...(result?.content ?? []).map((b) => (typeof b?.text === "string" ? b.text : ""))];
-  const id = idIn(p) ?? texts.map((t) => idIn(json(t))).find(Boolean) ??
-    texts.join("\n").match(/\bsession_[A-Za-z0-9]+\b/)?.[0];
+  const id = idIn(p) ?? texts.map((t) => idIn(json(t))).find(Boolean);
   return id && SESSION_ID.test(id) ? { id, url: `https://claude.ai/code/${id}` } : null;
 }

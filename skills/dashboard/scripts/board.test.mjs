@@ -720,20 +720,21 @@ test("writeError: each definite failure says so; every other code says the write
   for (const code of ["server_not_connected", "selection_required", "server_not_found", "bad_request", "not_granted",
     "capability_disabled", "rate_limited", "not_in_manifest", "blocked_by_policy"]) {
     assert.ok(WRITE_DEFINITE.has(code), code);
-    const text = writeError({ code, message: "m" }, "approve");
+    const text = writeError({ code, message: "m" }, { verb: "approve" });
     assert.doesNotMatch(text, MAYBE, code);
     assert.ok(text.length > 10, code);
   }
   for (const e of [{ code: "server_unavailable" }, { code: "upstream_error" }, { code: "cancelled" }, { code: "timeout" }, { code: "something_new" }, {}, undefined]) {
-    assert.match(writeError(e, "approve"), MAYBE, JSON.stringify(e));
+    assert.match(writeError(e, { verb: "approve" }), MAYBE, JSON.stringify(e));
   }
 });
 
 test("writeError names the connector that refused, and where to look, for a session start", () => {
-  const remote = (code) => writeError({ code }, "start a session", "Claude Code Remote", "Check your sessions at claude.ai/code");
+  const remote = (code) => writeError({ code }, { verb: "start a session", who: "Claude Code Remote", check: "Check your sessions at claude.ai/code" });
   assert.match(remote("needs_reauth"), /^Reconnect Claude Code Remote/);
   assert.match(remote("timeout"), /^No clear answer from Claude Code Remote \(timeout\): it may have gone through\. Check your sessions at claude\.ai\/code before/);
-  assert.match(writeError({ code: "needs_reauth" }, "approve"), /^Reconnect GitHub/);
+  assert.match(writeError({ code: "needs_reauth" }, { verb: "approve" }), /^Reconnect GitHub/);
+  assert.match(writeError({ code: "timeout" }, { verb: "approve" }), /^No clear answer from GitHub \(timeout\).*Check the page after it refreshes before/);
 });
 
 // ---- ship.yml's push block.
@@ -774,7 +775,7 @@ test("each card that needs a ship skill maps to its button and command; every ot
     spec3: null,
     spec4: null,
     spec5: null,
-    pr10: { label: "Resolve", command: "/ship:resolve-conflicts 10" },
+    pr10: { label: "Resolve", command: "/ship:resolve-conflicts #10" },
     pr11: null, // reviewed: Approve is its action, and no command sends one PR back
     pr12: null,
     pr13: null,
@@ -785,7 +786,7 @@ test("each card that needs a ship skill maps to its button and command; every ot
 });
 
 test("a conflicting PR that was also reviewed is offered Resolve", () => {
-  assert.deepEqual(skillOf([], [pr(20, ["pr-reviewed", "conflicts"])]).pr20, { label: "Resolve", command: "/ship:resolve-conflicts 20" });
+  assert.deepEqual(skillOf([], [pr(20, ["pr-reviewed", "conflicts"])]).pr20, { label: "Resolve", command: "/ship:resolve-conflicts #20" });
 });
 
 const env = (id, name, kind = "anthropic_cloud") => ({ environment_id: id, name, kind, state: "active" });
@@ -812,12 +813,14 @@ test("the new session's link is built from the id create_session returns, wherev
   assert.deepEqual(sessionLink({ payload: { session_id: "session_01AbC", status: "running" } }), link);
   assert.deepEqual(sessionLink({ payload: { id: "session_01AbC" } }), link);
   assert.deepEqual(sessionLink({ payload: { session: { id: "session_01AbC" } } }), link);
-  assert.deepEqual(sessionLink({ payload: "Created session session_01AbC (status: running)" }), link);
   assert.deepEqual(sessionLink({ content: [{ type: "text", text: '{"session_id":"session_01AbC"}' }] }), link);
 });
 
 test("no recognisable session id, or one that isn't a plain id, gives no link", () => {
   assert.equal(sessionLink({ payload: { status: "running" } }), null);
+  // Free text is never searched: only a structured id makes a link.
+  assert.equal(sessionLink({ payload: "Created session session_01AbC (status: running)" }), null);
+  assert.equal(sessionLink({ content: [{ type: "text", text: "see session_01AbC" }] }), null);
   assert.equal(sessionLink({ payload: { id: "../../evil?x=1" } }), null);
   assert.equal(sessionLink(undefined), null);
 });
