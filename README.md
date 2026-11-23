@@ -99,7 +99,7 @@ Sizes each `spec:ready` spec against prior PRs in the same areas. The rule is on
    - Specs that overlap but don't disagree are chained without asking: built in order in one session, each PR on top of the previous one.
    - Conflicting decisions go to you, in one round.
    - A design's place specs wait until its foundation and shell have merged.
-3. Once you approve the plan, it gives each session its prompt on a reused pool of builder routines (`ship-builder-<repo>-N`, since routines can't be deleted through the API) and starts them.
+3. Once you approve the plan, it gives each session its prompt on a reused pool of builder routines (`ship-builder-<repo>-N`, since routines can't be deleted through the API) and starts them. Each builder runs `/ship:build-spec <specs> unattended`, so nothing is asked overnight.
 
 **`/ship:night-shift morning`** gathers the results into one page:
 - PRs ready to review, smallest first, each with its verdict, risks and the decisions to check
