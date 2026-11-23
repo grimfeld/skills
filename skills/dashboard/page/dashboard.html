@@ -76,6 +76,32 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
 .notice p { margin: 0; color: var(--muted); }
 .notice .actions { margin-top: 4px; }
 .hint { font-size: 13px; color: var(--muted); }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.addrepo { display: flex; gap: 8px; flex: 1 1 320px; min-width: 0; max-width: 460px; }
+.addrepo input {
+  flex: 1 1 auto; min-width: 0; min-height: 44px; padding: 0 12px; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--surface); font-family: var(--font-mono); font-size: 14px;
+}
+.addrepo input::placeholder { color: var(--muted); }
+.note { font-size: 13px; color: var(--muted); margin: 0; }
+.note.error { color: var(--danger); }
+
+.projects { display: grid; gap: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); overflow: hidden; }
+.projects h2, .board h2 { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin: 0; }
+.projects > h2 { padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.project {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 8px 16px;
+  padding: 10px 16px; min-height: 52px; border-top: 1px solid var(--line);
+}
+.projects > h2 + .project { border-top: 0; }
+.project .name { font-family: var(--font-mono); font-size: 14px; font-weight: 500; overflow-wrap: anywhere; min-width: 0; }
+.project .name a { text-decoration: none; }
+.project .name a:hover { text-decoration: underline; }
+.project .updated { color: var(--muted); font-size: 13px; white-space: nowrap; }
+.empty { padding: 20px 16px; color: var(--muted); margin: 0; }
+.empty code { font-family: var(--font-mono); color: var(--fg); }
 
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 </style>
@@ -98,7 +124,18 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
     <p class="hint" id="permissions-hint" hidden>The Permissions panel didn't open. Use this page's Permissions menu in claude.ai instead.</p>
   </section>
 
-  <main id="app" hidden></main>
+  <main id="app" class="wrap" hidden>
+    <div class="toolbar">
+      <form class="addrepo" id="addrepo" autocomplete="off">
+        <label class="sr-only" for="addrepo-name">Repository to add</label>
+        <input id="addrepo-name" name="repo" placeholder="owner/name" spellcheck="false" autocapitalize="off">
+        <button class="btn" type="submit" id="addrepo-go">Add repo</button>
+      </form>
+      <button class="btn" id="rescan" type="button" hidden>Rescan</button>
+      <p class="note" id="note" aria-live="polite"></p>
+    </div>
+    <section class="projects" id="projects" aria-label="Projects"></section>
+  </main>
 </div>
 
 <script>
@@ -111,6 +148,9 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
     github: { server: "github", tools: ["list_issues", "list_pull_requests", "pull_request_read", "get_file_contents"] },
     remote: { server: "Claude Code Remote", tools: ["list_repos"] },
   };
+
+  // Codes that mean the viewer has to act before a connector answers.
+  const DENIED = new Set(["needs_reauth", "server_not_connected", "selection_required", "server_not_found", "not_in_manifest", "blocked_by_policy", "approval_required", "not_granted", "capability_disabled", "capability_removed", "consent_required"]);
 
   const $ = (id) => document.getElementById(id);
   const state = { mcp: null, tools: { github: new Set(), remote: new Set() } };
@@ -163,12 +203,151 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
     return null;
   }
 
+  // Per-viewer browser storage. It can throw or come back empty: the page works without it.
+  const store = {
+    get(key, fallback) { try { return JSON.parse(localStorage.getItem(`ship-dashboard:${key}`)) ?? fallback; } catch { return fallback; } },
+    set(key, value) { try { localStorage.setItem(`ship-dashboard:${key}`, JSON.stringify(value)); } catch {} },
+  };
+
+  const el = (tag, attrs = {}, ...kids) => {
+    const node = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) {
+      if (k === "class") node.className = v;
+      else if (k === "text") node.textContent = v;
+      else node.setAttribute(k, v);
+    }
+    node.append(...kids.filter((k) => k != null));
+    return node;
+  };
+  const note = (text, error = false) => { $("note").textContent = text; $("note").classList.toggle("error", error); };
+  const splitRepo = (full) => { const [owner, repo] = full.split("/"); return { owner, repo }; };
+  const codeOf = (e) => e?.code ?? "upstream_error";
+
+  // ---- Projects: discovered (cached with its scan time) plus the ones added by name.
+
+  const SCAN_LIMIT = 100;
+  const projects = () => {
+    const found = store.get("found", null)?.repos ?? [];
+    const added = store.get("added", []);
+    return [...new Set([...found, ...added])];
+  };
+
+  // true when the repo has docs/agents/shipping.md on its default branch (no ref reads that branch).
+  async function hasShipping(full) {
+    try {
+      await state.mcp.callTool(CONNECTORS.github.server, "get_file_contents", { ...splitRepo(full), path: "docs/agents/shipping.md" });
+      return true;
+    } catch (e) {
+      if (codeOf(e) === "tool_error") return false; // GitHub answered: no such file, or no such repo
+      throw e;
+    }
+  }
+
+  // Throws only when GitHub itself refuses (the caller shows the connector state).
+  async function discover() {
+    $("rescan").disabled = true;
+    try {
+      note("Looking for your repos…");
+      let repos;
+      try {
+        const result = await state.mcp.callTool(CONNECTORS.remote.server, "list_repos", { limit: SCAN_LIMIT }, { cache: false });
+        repos = (result.payload?.repos ?? []).map((r) => r.full_name).filter(Boolean).slice(0, SCAN_LIMIT);
+      } catch (e) {
+        return note(`Claude Code Remote couldn't list your repos (${codeOf(e)}). Add repos by name, or try Rescan.`, true);
+      }
+      const found = new Set();
+      let done = 0;
+      const queue = [...repos];
+      const worker = async () => {
+        for (let full; (full = queue.shift()); ) {
+          try {
+            if (await hasShipping(full)) found.add(full);
+          } catch (e) {
+            if (DENIED.has(codeOf(e))) throw e;
+            // A transient failure on one repo: leave it out of this scan.
+          }
+          note(`Checking ${++done} of ${repos.length} repos for docs/agents/shipping.md…`);
+        }
+      };
+      await Promise.all(Array.from({ length: 6 }, worker));
+      const ordered = repos.filter((r) => found.has(r)); // most recently pushed first
+      store.set("found", { repos: ordered, scannedAt: Date.now() });
+      note(`Scanned your ${repos.length} most recently pushed repos just now: ${ordered.length} set up for ship.`);
+    } finally {
+      $("rescan").disabled = false;
+    }
+  }
+
+  function scanNote() {
+    const found = store.get("found", null);
+    if (!canDiscover()) return note("Claude Code Remote isn't connected, so projects are added by name.");
+    if (found?.scannedAt) note(`Last scanned ${ago(Date.now() - found.scannedAt)} ago. Rescan to find repos newly set up for ship.`);
+  }
+
+  const canDiscover = () => state.tools.remote.has("list_repos") && state.tools.github.has("get_file_contents");
+
+  $("rescan").addEventListener("click", async () => {
+    try { await discover(); render(); } catch (e) { showConnector(codeOf(e)); }
+  });
+
+  $("addrepo").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const input = $("addrepo-name");
+    const full = input.value.trim().replace(/^https:\/\/github\.com\//, "").replace(/\.git$|\/$/g, "");
+    if (!/^[\w.-]+\/[\w.-]+$/.test(full)) return note("Type the repo as owner/name, for example acme/app.", true);
+    if (projects().some((p) => p.toLowerCase() === full.toLowerCase())) return note(`${full} is already on the dashboard.`);
+    $("addrepo-go").disabled = true;
+    note(`Checking ${full} for docs/agents/shipping.md…`);
+    try {
+      if (!(await hasShipping(full))) return note(`${full} isn't set up for ship: it has no docs/agents/shipping.md on its default branch, or GitHub can't find it. Run /ship:setup-ship in it first.`, true);
+      store.set("added", [...store.get("added", []), full]);
+      input.value = "";
+      note(`Added ${full}.`);
+      render();
+    } catch (e) {
+      if (DENIED.has(codeOf(e))) return showConnector(codeOf(e));
+      note(`Couldn't check ${full} (${codeOf(e)}). Try again.`, true);
+    } finally {
+      $("addrepo-go").disabled = false;
+    }
+  });
+
+  // ---- Rendering
+
+  function projectRow(full) {
+    return el("div", { class: "project", "data-project": full },
+      el("div", { class: "name" }, el("a", { href: `https://github.com/${full}`, target: "_blank", rel: "noopener", text: full })),
+      el("div", { class: "counts" }),
+      el("div", { class: "updated", text: "updated —" }),
+    );
+  }
+
+  function render() {
+    const list = projects();
+    const box = $("projects");
+    box.replaceChildren(el("h2", { text: "Projects" }));
+    if (!list.length) {
+      const empty = el("p", { class: "empty" }, "No repo set up for ship yet: run ", el("code", { text: "/ship:setup-ship" }), " in one.");
+      box.append(empty);
+      return;
+    }
+    for (const full of list) box.append(projectRow(full));
+  }
+
   async function boot() {
     const problem = await connect();
     if (problem) return showConnector(problem);
     $("connector").hidden = true;
     $("app").hidden = false;
     $("status").textContent = "Connected to GitHub";
+    $("rescan").hidden = !canDiscover();
+    render();
+    if (canDiscover() && !store.get("found", null)) {
+      try { await discover(); } catch (e) { return showConnector(codeOf(e)); }
+      render();
+    } else {
+      scanNote();
+    }
   }
 
   $("refresh").addEventListener("click", () => boot());
