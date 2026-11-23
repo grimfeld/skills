@@ -84,7 +84,9 @@ Round = fix every approved finding and every red CI check on the branch, push, w
 - Add a "Stuck" section to the PR body below Decisions: what blocks, what you tried, and what a person has to decide.
 - Relabel the issue `spec:stuck`.
 
-Either way, comment on the spec issue with one line for the morning page:
+Either way, copy the spec's **Before ship** and **After merge** items to the top of the PR body, above the opening paragraph (below the `Closes` line), as unchecked boxes under `## Before ship` and `## After merge` headings. They are deferred to a person, so they don't count as unmet criteria for Ready. Leave out a section that reads "None", or that the spec doesn't have.
+
+Then comment on the spec issue with one line for the morning page:
 
 ```
 <!-- night-shift {"status":"ready|stuck","pr":<n or null>,"reason":"<stuck reason or empty>","decisions":<count>,"rounds":<0-2>} -->

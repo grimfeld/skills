@@ -44,4 +44,6 @@ Report, quoting the spec line in `evidence` for each:
 - **Scope creep**: behaviour in the diff the spec did not ask for. Usually `minor`; `major` when it changes user-visible behaviour.
 - **Wrong implementation**: a requirement that looks implemented but behaves differently from the spec.
 
-Done when every requirement in the spec is marked delivered, partial or missing, and every behaviour change in the diff is traced to a requirement or flagged as creep.
+An item the spec lists under **Before ship** or **After merge** is deferred to a person, not missing: report no `spec:` finding for it, and mark it deferred.
+
+Done when every requirement in the spec is marked delivered, partial, missing or deferred, and every behaviour change in the diff is traced to a requirement or flagged as creep.

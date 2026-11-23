@@ -41,15 +41,20 @@ Facts come from the code, through subagents, not from the user. Decisions come f
 
 1. **Problem and solution**, from the user's side.
 2. **Acceptance criteria:** each one observable and testable ("a person on a phone can… and sees…"), together covering the whole solution.
-3. **Out of scope**, named explicitly.
-4. **Touches:** the Modules, Apps, packages or surfaces it changes, in the project's own words, plus anything shared it modifies (a core type, a shared component, the schema). The night shift compares this section across specs to find conflicts, so be complete.
-5. **Data:** new or changed fields, collections and migrations, and what happens to existing data. Write "None" if there are none.
-6. **UI states**, for anything a person sees: empty, loading, error, the longest content, phone width. Write "No UI" if there is none.
-7. **Implementation decisions:** interfaces, contracts, schema shapes and architecture choices. No file paths.
-8. **Test seams:** where behaviour is tested, preferring existing seams and the highest one possible, plus the prior art to copy.
-9. **Docs to update:** the user guide, ADRs, glossary, README, the project's own extras. ADRs and glossary entries settled in the session go in full under Decision records.
-10. **Size:** a rough guess of the change ("one screen and a field", "a new Module") and of the number of PRs. `slice` decides properly later; this guess only flags a spec that is clearly too big while the user is still here to split it.
-11. **Open questions:** none left.
+3. **Before ship and After merge:** every acceptance criterion is something an unattended cloud session can do.
+   - A step that needs a person (starting a workflow by hand, a GitHub or Vercel setting, a secret, a physical device, a real connector call with a viewer present) goes under Before ship: a person does it before adding `ship`.
+   - A check that can only run once the change is on the default branch goes under After merge.
+   - Each item is exact steps for a person. Write "None" for a section with none.
+   - Where the repo has an agent-doable route for such a check (for example a label that triggers the full CI run), the criterion uses it and stays a criterion.
+4. **Out of scope**, named explicitly.
+5. **Touches:** the Modules, Apps, packages or surfaces it changes, in the project's own words, plus anything shared it modifies (a core type, a shared component, the schema). The night shift compares this section across specs to find conflicts, so be complete.
+6. **Data:** new or changed fields, collections and migrations, and what happens to existing data. Write "None" if there are none.
+7. **UI states**, for anything a person sees: empty, loading, error, the longest content, phone width. Write "No UI" if there is none.
+8. **Implementation decisions:** interfaces, contracts, schema shapes and architecture choices. No file paths. When the solution runs another skill or command, read that skill's argument hint and what it does with each argument, and record the exact command with its effect (`/ship:land 12`: "approves #12 and lands it").
+9. **Test seams:** where behaviour is tested, preferring existing seams and the highest one possible, plus the prior art to copy.
+10. **Docs to update:** the user guide, ADRs, glossary, README, the project's own extras. ADRs and glossary entries settled in the session go in full under Decision records.
+11. **Size:** a rough guess of the change ("one screen and a field", "a new Module") and of the number of PRs. `slice` decides properly later; this guess only flags a spec that is clearly too big while the user is still here to split it.
+12. **Open questions:** none left.
 
 A question the user answers with "you decide" is settled: record what you chose, and why, in Implementation decisions.
 

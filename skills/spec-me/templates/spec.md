@@ -10,6 +10,14 @@
 
 - [ ] <Observable, testable behaviour.>
 
+## Before ship
+
+- [ ] <Exact steps for a person, or None. What a person does before adding `ship`, because an unattended cloud session can't.>
+
+## After merge
+
+- [ ] <Exact steps for a person, or None. Checks that can only run once the change is on the default branch.>
+
 ## Out of scope
 
 - <What this spec deliberately leaves out.>

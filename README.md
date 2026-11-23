@@ -55,6 +55,7 @@ The flow:
 Grills you about one idea, using `grilling` and, where the project keeps a glossary or ADRs, `domain-modeling`. It stops once the idea is **buildable**:
 
 - testable acceptance criteria
+- checks only a person can run, under Before ship / After merge
 - what's out of scope
 - what it touches
 - data and migrations
