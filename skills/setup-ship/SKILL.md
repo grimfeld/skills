@@ -32,7 +32,7 @@ File changes go through a PR like any other change.
 
 ## 1. Inspect
 
-Read only. Collect:
+Read only, except the required-checks sync on a current install (step 0), which writes only on a yes. Collect:
 
 0. **Installed version.** Read the first line of `.github/workflows/ship.yml`. No file: a fresh install. A file without a `# ship.yml version:` line: version 1. Version 1 changed several times before it was numbered, so an install from an early commit merges against a base that's slightly off: expect more conflicts, and show them rather than guessing. Compare it with the template's version.
    - **Older:** this run is an **upgrade**. Tell the user which version is installed and which is current, and what the newer one changes and removes (the "Versions" list below). Go on only if they want it.
@@ -190,7 +190,7 @@ Re-read each setting to confirm it took:
 
 `docs/agents/shipping.md` is the source of the required checks; the ruleset follows it. Read only until the yes.
 
-1. **Wanted.** Read the "Required on `<default>`" line from the default branch's copy, not the working tree: `git fetch origin <default>`, then `git show origin/<default>:docs/agents/shipping.md`. A check is required only once the doc saying so has merged. The wanted checks are the backticked names on that line other than `ship`; "no CI checks" means none.
+1. **Wanted.** Read the "Required on `<default>`" line from the default branch's copy, not the working tree: `git fetch origin <default>`, then `git show origin/<default>:docs/agents/shipping.md`. A check is required only once the doc saying so has merged. The line has the template's form, ``Required on `<default>`: <checks>, and `ship`.``: the wanted checks are the backticked names after the colon, other than `ship`; "no CI checks" means none.
 2. **Current.** Find the ruleset that targets the default branch (`gh api repos/{owner}/{repo}/rulesets`, then `gh api repos/{owner}/{repo}/rulesets/<id>`) and its `required_status_checks` rule's `required_status_checks[].context`, leaving out `ship`.
 3. **Flag what hasn't run.** For each check to add, look at the most recently merged PR's checks (`gh pr list --state merged --limit 1 --json number`, then `gh pr checks <n> --json name,workflow`). A check that isn't there is flagged "hasn't run on a merged PR yet: requiring it would block every PR" and left out of the change unless the user insists.
 4. **Show the difference**, one line per check: `+ <check>` for a wanted check the ruleset lacks, `- <check>` for one the ruleset requires that the line doesn't name. With none, say "required checks in sync", write nothing, and go back to where you came from.
