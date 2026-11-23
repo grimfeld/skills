@@ -27,7 +27,12 @@ Done when every spec to build has a "Slicing" section and tickets.
 
 ### 2. Conflicts
 
-Compare every pair of specs on their Touches, Data, Docs to update, Implementation decisions and Depends on. Use a subagent if there are more than four specs. Sort each pair into one of three kinds.
+Compare every pair of specs on their Touches, Data, Docs to update, Implementation decisions and Depends on, always in one subagent, so no whole spec body enters the main context. Its brief: the spec numbers, this step's three kinds below (with the numbering rule and the repo docs it names), and the rows to return:
+
+- one row per pair: the two specs, the kind, and the shared area or the disagreement
+- for a Conflicting pair, the two conflicting passages verbatim
+
+Work from the rows: grill a Conflicting pair from its two passages. The three kinds:
 
 - **Independent:** no shared area. They build in parallel.
 - **Ordered:** they share files or areas but don't disagree, for example two specs adding fields to the same form.
@@ -59,7 +64,7 @@ Specs the user wants to hold back stay `spec:ready`.
 
 Builds run on a fixed **pool** of routines, reused every night: `ship-builder-<repo>-1`, `-2`, and so on. A routine can't be deleted through the API, so never create one per spec.
 
-1. **Find the pool.** List the routines (`RemoteTrigger` `list`) and keep the ones with this repository's pool name.
+1. **Find the pool** through a general-purpose subagent: the full listing carries every routine's prompt, and only another context can absorb it. The subagent runs `RemoteTrigger` `list` and returns only this repository's `ship-builder-<repo>-*` routines, one row each with `id`, `name`, `enabled` and the environment ID, under 2 KB.
 2. **Create missing routines,** if the pool is smaller than tonight's session count. Show the user each new routine's configuration first:
    - this repository as `sources`
    - the default cloud environment
