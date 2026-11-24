@@ -20,11 +20,11 @@ Before each step, read `docs/agents/shipping.md` and `docs/agents/issue-tracker.
 
 0. **The checkout:** after the fetch, report to the user, before planning, if the working tree is behind `origin/<default>` (`git rev-list --count HEAD..origin/<default>`: "local `<branch>` is N commits behind `origin/<default>`") or has uncommitted changes (`git status --porcelain`: list them). The night reads the rules from `origin/<default>` either way, so this is for the user to know, not a reason to stop. Never pull, stash, reset or check out anything: the working tree is theirs.
 1. **Designs first:** for each open issue labelled `design:ready`, run `design-me` with `#<n>`, as `${CLAUDE_PLUGIN_ROOT}/references/running-skills.md` says (the Skill tool can't call it). It grills the user on the design's open decisions and writes its specs as `spec:ready`. A design the user leaves with questions open keeps `design:ready` and builds nothing tonight.
-2. **List them:** open issues labelled `spec:ready`.
+2. **List them:** open issues labelled `spec:ready`. Those also labelled `bug` are **bugs**: each is one PR with no tickets, built by `/ship:fix-me #<n> unattended`, never sliced.
 3. **Check for leftovers:** list the `spec:building` and `spec:stuck` issues from earlier nights and show them. A `spec:building` issue whose builder's session has ended is a crashed build: say so. Never rebuild these without the user's say-so.
-4. **Slice:** if any spec lacks a "Slicing" section, run `slice` with `all`, the same way. Slicing asks the user about splits and tickets, so it belongs here, while they're present.
+4. **Slice:** if any spec (not a bug) lacks a "Slicing" section, run `slice` with `all`, the same way; it skips bugs. Slicing asks the user about splits and tickets, so it belongs here, while they're present.
 
-Done when every spec to build has a "Slicing" section and tickets.
+Done when every spec to build has a "Slicing" section and tickets. Bugs need neither.
 
 ### 2. Conflicts
 
@@ -49,13 +49,17 @@ Work from the rows: grill a Conflicting pair from its two passages. The three ki
   - Write the answers into the specs' bodies through a subagent, giving it each spec number, the passage and the answer.
   - If the answer changes a spec's scope, re-run `ship:slice #<n>` for it.
 
+**Bugs** are compared on their Touches (a best guess, from `/ship:fix-me later`) against tonight's specs, never grilled:
+- A bug whose Touches overlap a spec's runs in that spec's session, after `build-spec`, with `base=<the spec's branch>`: its PR is stacked on the spec's PR.
+- The rest are independent: they share one builder session, fixed one after another, each its own PR off the default branch.
+
 Done when every pair is classified and no conflict is open.
 
 ### 3. The night plan
 
 Show the plan and ask for one yes:
 
-- one row per **session**: the spec or chain, in build order, with each spec's estimate
+- one row per **session**: the spec or chain, in build order, with each spec's estimate, then its bugs (the shared bugs session lists only bugs)
 - the builder routine each session goes to
 - the model (`claude-opus-5-5` unless `shipping.md` names another)
 - for each pair of ADR or migration specs left unchained, the numbering command it relied on
@@ -79,9 +83,9 @@ Builds run on a fixed **pool** of routines, reused every night: `ship-builder-<r
 
    Then create it with `RemoteTrigger` `create`, using a `run_once_at` an hour ahead (the API requires one schedule) and `enabled: false`.
 3. **Give each session its prompt and start it.**
-   - Update the routine's `job_config.ccr.events` with tonight's prompt, built from `templates/builder-prompt.md` in `${CLAUDE_SKILL_DIR}`, with a fresh event `uuid`.
+   - Update the routine's `job_config.ccr.events` with tonight's prompt, built from `templates/builder-prompt.md` in `${CLAUDE_SKILL_DIR}`, with a fresh event `uuid`. `{{SPECS}}` is the session's specs and `{{BUGS}}` its bugs, each with its command (`#<n>: /ship:fix-me #<n> unattended [base=spec/<m>-…]`). Drop the template's specs paragraph in a bugs-only session, and its bugs paragraph when there are none.
    - Start it with `RemoteTrigger` `run`. One routine runs one session.
-4. **Check each session started:** `list_runs` should show a new run. Then comment on each spec:
+4. **Check each session started:** `list_runs` should show a new run. Then comment on each spec and bug:
 
 ```
 <!-- night-shift {"status":"dispatched","routine":"<id>","session":"<id>"} -->
@@ -108,7 +112,7 @@ A subagent's transcript sits under `<session>/subagents/`. Its `meta.json` holds
 
 ## Morning
 
-1. **Collect** every spec with a `night-shift` comment from the last 24 hours.
+1. **Collect** every spec with a `night-shift` comment from the last 24 hours. Bugs post the same comments, so they are collected, priced and carded like specs; mark each card "bug".
    - Read the spec's latest `night-shift` JSON comment, its PR, the PR's checks, and the PR's review and Decisions sections.
    - A spec still `spec:building` after its session ended crashed. Read the run log (`RemoteTrigger` `list_runs`, then `get_run_log`) for the cause, then label it `spec:stuck` and comment the cause.
    - **Still building:** a spec whose newest `night-shift` comment since its latest `dispatched` one has no `ready` or `stuck` status, and whose session `list_runs` shows still running (not stopped at the usage limit), is still building, whatever its label. Don't label or comment it. Which state a spec with no `ready` or `stuck` comment is in goes by its session: ended → crashed (above); stopped at the limit → stopped at the limit; still running → still building.

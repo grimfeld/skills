@@ -48,7 +48,7 @@ The flow:
 - [`uv`](https://docs.astral.sh/uv/) to run the drift check.
 - Optional: the Vercel MCP server (preview discovery and protected-preview access), Chrome DevTools MCP or `npx lighthouse` (live web audit), `crapper` and `dryer` (principles metrics).
 - The source skills installed under `~/.claude/skills/` for the drift check: `code-review` from [mattpocock/skills](https://github.com/mattpocock/skills); `code-review-and-quality`, `security-and-hardening`, `performance-optimization` and `code-simplification` from [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills); `web-quality-audit` from [addyosmani/web-quality-skills](https://github.com/addyosmani/web-quality-skills). `design-fidelity` has no upstream; it needs Playwright in the project (`scripts/design-capture.mjs` resolves it from there). `ub-mode` is a local skill; drop or rewrite `lenses/principles.md` if you don't have it.
-- From [mattpocock/skills](https://github.com/mattpocock/skills): `grilling` and `domain-modeling` (spec-me), `to-tickets` (slice), `implement-spec` (pr-review's fix tickets, and the night build), `retro` (retro-issues, which reads it). They're user-invoked only, so the ship skills run them by reading their `SKILL.md` (see `references/running-skills.md`); install them alongside.
+- From [mattpocock/skills](https://github.com/mattpocock/skills): `grilling` and `domain-modeling` (spec-me), `diagnosing-bugs` and `tdd` (fix-me), `to-tickets` (slice), `implement-spec` (pr-review's fix tickets, and the night build), `retro` (retro-issues, which reads it). They're user-invoked only, so the ship skills run them by reading their `SKILL.md` (see `references/running-skills.md`); install them alongside.
 - For the live web audit and the lens sources' extra references, the upstream skills under `~/.claude/skills/`; without them the lenses still run on their own briefs.
 
 ### `/ship:spec-me`
@@ -85,6 +85,22 @@ Turns a design made in Claude Design into specs, so the night shift builds it.
 5. **Grill** you only on the handoff's open decisions, its gaps against the brief, and unaddressed feedback. A design with nothing open asks for one yes.
 6. **Specs:** a foundation spec (looks, themes, Settings) when no ADR records the mechanism yet, a shell spec, then one per place, each `spec:ready` with a Design section pinning the handoff commit. The handoff is pushed on a `design/<module>-<version>` branch, and the first PR built from it commits it.
 
+### `/ship:fix-me`
+
+Fixes a bug you found while testing, without a full spec: for a bug, "correct" is usually already known.
+
+```
+/ship:fix-me the save button does nothing on phone   # fix it now, in this session
+/ship:fix-me #42                                     # fix an existing issue
+/ship:fix-me later                                   # file bugs for tonight, one per line
+```
+
+- **Now (default), one bug:** it opens (or takes) a `bug` issue labelled `spec:building`, runs `diagnosing-bugs` with `tdd` for the regression test, and keeps the issue's symptom, repro, root cause and fix current. Then a draft PR on `fix/<n>-<slug>` (`Closes #n`, the root cause, the test that went red, Decisions), the project's checks, `/ship:pr-review` and at most two fix rounds, as `/ship:build-spec` does. The PR ends ready and the issue `spec:in-review`, waiting for your `ship` label. It never merges.
+- **`later`:** files one `bug` + `spec:ready` issue per line, with the symptom, a repro and a best-guess Touches line from a background read of the code. It asks nothing and fixes nothing; the night shift builds them.
+- **Too big** (nobody has said what correct looks like, it needs a migration, or it's more than one small PR): the same issue becomes a `spec:draft` spec, still labelled `bug`, holding the repro and root cause. `/ship:spec-me #n` resumes it.
+- **Can't reproduce:** it asks you for what's missing. Still no failing check: it writes what it tried and what it needs to the issue and labels it `spec:stuck`, unless you say "fix it anyway", and then the PR says the fix has no failing test.
+- **`unattended`** (the night shift): asks nothing; ends ready, stuck or `spec:draft`, and posts the same `night-shift` comment `build-spec` does. **`base=<branch>`** builds on that branch and opens the PR against it.
+
 ### `/ship:slice`
 
 Sizes each `spec:ready` spec against prior PRs in the same areas. The rule is one PR per spec, about ten minutes to review: by default about 500 reviewable lines and three behaviours in one area.
@@ -102,6 +118,7 @@ Sizes each `spec:ready` spec against prior PRs in the same areas. The rule is on
    - Conflicting decisions go to you, in one round.
    - A design's place specs wait until its foundation and shell have merged.
 3. Once you approve the plan, it gives each session its prompt on a reused pool of builder routines (`ship-builder-<repo>-N`, since routines can't be deleted through the API) and starts them. The routines run in the cloud environment `docs/agents/shipping.md` names (its "Cloud environment" line); without one, the plan asks you to pick tonight's, never taking the default. Each builder runs `/ship:build-spec <specs> unattended`, so nothing is asked overnight.
+4. Bugs (`bug` + `spec:ready`, from `/ship:fix-me later`) are never sliced. Bugs that don't overlap tonight's specs share one builder session, each its own PR off the default branch; a bug that overlaps a spec is fixed in that spec's session after it, with its PR stacked on the spec's. Builders run `/ship:fix-me #<n> unattended` for each, and the morning page lists bugs with their PRs and cost like specs.
 
 **`/ship:night-shift morning`** gathers the results into one page:
 - PRs ready to review, smallest first, each with its verdict, risks and the decisions to check
@@ -203,7 +220,7 @@ Run once per project. It works in an empty folder too: it creates the local repo
 - **Required `ship` status:** a commit status, required by the default branch's ruleset, that stays pending until the label is on, so nothing unreviewed merges. It is the only job of `ship.yml`, apart from Dependabot's label: the workflow merges nothing.
 - **Landing:** `/ship:land`, an agent that merges every `ship` PR itself, parents before their stacked children. Nothing merges on its own: no auto-merge, no scheduled run.
 - **Dependabot:** patch updates and GitHub Actions updates are labelled `ship` and land with the next `/ship:land`.
-- **Labels:** `ship`, `pr-reviewed`, `changes-requested`, and the `spec:*` and `design:*` labels the pipeline uses.
+- **Labels:** `ship`, `pr-reviewed`, `changes-requested`, `bug`, and the `spec:*` and `design:*` labels the pipeline uses. A re-run adds any of them that's missing.
 - **`docs/agents/shipping.md`:** the rules, written down for people and for the other skills, including the cloud environment night-shift's builders run in (it lists your environments and asks). The skills read it, and `docs/agents/issue-tracker.md`, from the fetched default branch, never the working tree; without them they use the defaults in `references/project-docs.md` (GitHub issues, the `spec:*` labels, the project's own checks).
 - **The project's `.claude/settings.json`:** enables the plugin.
 

@@ -15,8 +15,8 @@ Read the project's `docs/agents/issue-tracker.md` (how issues are created, edite
 
 ## 1. Pick the specs
 
-- `#<n>`: that issue. It must be labelled `spec:ready`. If it isn't, stop and say why. A `spec:draft` goes back to `/ship:spec-me #<n>`.
-- `all`: every open `spec:ready` issue without a "Slicing" section.
+- `#<n>`: that issue. It must be labelled `spec:ready`. If it isn't, stop and say why. A `spec:draft` goes back to `/ship:spec-me #<n>`. If it is labelled `bug`, stop: a bug is one PR with no tickets, built by `/ship:fix-me #<n>`.
+- `all`: every open `spec:ready` issue without a "Slicing" section and without the `bug` label.
 
 ## 2. Estimate
 
