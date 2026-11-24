@@ -77,13 +77,23 @@ Append to that section every time you choose something the spec didn't say, and 
 
 **Without the Agent tool:** build `implement-spec`'s tickets one after another in your own context, on the spec branch, instead of in implementer subagents. Record "no Agent tool: tickets built inline" under Decisions. Overrides that describe implementer worktrees, merger subagents or handoff notes don't apply on this path.
 
-**Overrides to `implement-spec`.** Where these replace one of its steps, they win:
-- **The notes dir:** `/tmp/build-spec-<n>/`, made before the first subagent. It's the one folder outside the repo that `implement-spec`'s exploration subagent saves to, and it holds the handoff notes below. Give its absolute path in every brief.
-- **The implementer brief:** the implementer commits on its ticket branch in its own worktree and never pushes it. Its worktree shares your clone's object store, so you see the branch without a push.
-- **Handoff notes:** an implementer whose ticket blocks another writes `<notes dir>/<ticket>.md` before it reports done: the paths it touched and the seams the next ticket plugs into (functions, test helpers, where to extend), as pointers and decisions, never the diff. A ticket that blocks nothing writes none. Done when every ticket it unblocks has a notes file to point at.
-- **The merger step:** a finished ticket branch already holds the spec branch's tip (the implementer merged it before reporting). Merge it yourself, inline, in your clone, on the spec branch: `git merge --no-ff --no-commit <ticket branch>`, then `git commit` with the build's message conventions and attribution, then push the spec branch. Done when the spec branch on the remote holds the implementer's commit. Start a merger subagent only when that merge conflicts; it resolves in your clone the same way and pushes only the spec branch.
-- **The new-frontier step:** each newly unblocked ticket's brief points at its blockers' notes files.
-- **Nothing else is pushed:** after the build, `git ls-remote --heads origin` lists no ticket branch, only the branches that were there before and the spec branch.
+**Overrides to `implement-spec`.** Every step of `implement-spec`, by number and what it does, and what you do with it. Where this list replaces or skips a step, it wins (`running-skills.md`: the caller wins). A choice this list settles is not a Decision: don't record it in the PR's Decisions section.
+1. **Read the spec and tickets** (the task graph): kept.
+2. **Exploration subagent:** kept, optional. **The notes dir** is `/tmp/build-spec-<n>/`, made before the first subagent: the one folder outside the repo the exploration subagent saves to, and the home of the handoff notes (step 4). Give its absolute path in every brief.
+3. **Integration branch and draft PR:** replaced. The branch is the spec's, `spec/<n>-<slug>`, made from the base step 1 chose; the PR is this skill's draft, with the body under "The PR" above, Closes lines included.
+4. **An implementer subagent per ticket:** kept, with these changes.
+   - **Inline tickets:** a ticket that changes no executable code (skill text, docs, config values) is built by you, inline, on its own ticket branch or the spec branch, with no subagent. A ticket that changes executable code goes to an implementer subagent, which builds it with `tdd`, as `implement-spec` says.
+   - **The implementer brief:** the implementer commits on its ticket branch in its own worktree and never pushes it. Its worktree shares your clone's object store, so you see the branch without a push.
+   - **Handoff notes:** an implementer whose ticket blocks another writes `<notes dir>/<ticket>.md` before it reports done: the paths it touched and the seams the next ticket plugs into (functions, test helpers, where to extend), as pointers and decisions, never the diff. A ticket that blocks nothing writes none. Done when every ticket it unblocks has a notes file to point at.
+5. **Merger subagent:** replaced by an inline merge. A finished ticket branch already holds the spec branch's tip (the implementer merged it before reporting). Merge it yourself, in your clone, on the spec branch: `git merge --no-ff --no-commit <ticket branch>`, then `git commit` with the build's message conventions and attribution, then push the spec branch. Done when the spec branch on the remote holds the implementer's commit. Start a merger subagent only when that merge conflicts; it resolves in your clone the same way and pushes only the spec branch.
+6. **New frontier:** kept. Each newly unblocked ticket's brief points at its blockers' notes files.
+7. **`code-review` on the integration branch:** skipped. Step 4 below runs `pr-review`, whose `standards-and-spec` lens is `code-review`'s two axes, plus the other lenses and up to two fix rounds.
+8. **Mark the PR ready, or resolve the tickets:** skipped. Step 6 marks the PR ready only when the spec is Ready, after checks pass and `pr-review` has run. Tickets close through the PR's Closes lines when it merges, never by hand.
+9. **Clean up implementer worktrees:** kept (step 7, End, does it too).
+
+**Nothing else is pushed:** after the build, `git ls-remote --heads origin` lists no ticket branch, only the branches that were there before and the spec branch.
+
+**If `implement-spec`'s steps no longer match this list** (a step added, removed or renumbered upstream): match each step by what it does, not its number; follow `implement-spec` for any step the list doesn't name; and record that one mismatch under Decisions.
 
 Done when every ticket is closed, or one can't be built, which makes the spec stuck.
 
