@@ -21,7 +21,7 @@ Before each step, read `docs/agents/shipping.md` and `docs/agents/issue-tracker.
 0. **The checkout:** after the fetch, report to the user, before planning, if the working tree is behind `origin/<default>` (`git rev-list --count HEAD..origin/<default>`: "local `<branch>` is N commits behind `origin/<default>`") or has uncommitted changes (`git status --porcelain`: list them). The night reads the rules from `origin/<default>` either way, so this is for the user to know, not a reason to stop. Never pull, stash, reset or check out anything: the working tree is theirs.
 1. **Designs first:** for each open issue labelled `design:ready`, run `design-me` with `#<n>`, as `${CLAUDE_PLUGIN_ROOT}/references/running-skills.md` says (the Skill tool can't call it). It grills the user on the design's open decisions and writes its specs as `spec:ready`. A design the user leaves with questions open keeps `design:ready` and builds nothing tonight.
 2. **List them:** open issues labelled `spec:ready`.
-3. **Check for leftovers:** list the `spec:building` and `spec:stuck` issues from earlier nights and show them. A `spec:building` issue whose builder's session has ended is a crashed build: say so. Also show each `spec:ready` spec whose latest `night-shift` comment is `not-started`, with its reason. Never rebuild these without the user's say-so.
+3. **Check for leftovers:** list the `spec:building` and `spec:stuck` issues from earlier nights and show them. A `spec:building` issue whose builder's session has ended is a crashed build: say so. Never rebuild these without the user's say-so. Also show each `spec:ready` spec whose latest `night-shift` comment is `not-started`, with its reason: it is for the user's information, and the spec builds tonight like any other `spec:ready` spec.
 4. **Slice:** if any spec lacks a "Slicing" section, run `slice` with `all`, the same way. Slicing asks the user about splits and tickets, so it belongs here, while they're present.
 
 Done when every spec to build has a "Slicing" section and tickets.
@@ -95,7 +95,7 @@ Builds run on a fixed **pool** of routines, reused every night: `ship-builder-<r
    - **Finished early:** it ended, and every spec it was given already has a `ready` or `stuck` `night-shift` comment from it. Tell the user so, and post nothing more.
    - **Dead:** it ended any other way. Post no "dispatched" comment on its specs. Show the user one block per dead session: the routine, its specs, and the cause, quoted from the end of its log in at most two lines (its last error or refusal; with none, "ended with no error in its log").
    - **One restart offer:** with any dead session, ask once whether to start them again; one yes covers them all. On yes, give each dead routine the same prompt with a fresh event `uuid`, `run` it, and repeat this check once for those sessions only (one more wait). A session that dies again is not offered again.
-   - **Not started:** for each dead session the user doesn't restart, or that dies again, put its specs back to `spec:ready` if it relabelled them, and comment on each:
+   - **Not started:** for each dead session the user doesn't restart, or that dies again, put its specs back to `spec:ready` if it relabelled them, and comment on each. The comment's `<cause>` is not the terminal's quote: it is one line of at most about 200 characters, with anything token- or credential-shaped replaced by `[redacted]` (`gh[pousr]_…` tokens, `x-access-token:…@` and other `user:password@` URLs, `sk-…` keys, `…TOKEN=`, `…KEY=`, `…SECRET=` values), and with `--` written as `- -`, so log text can't leak a secret or close the comment. Build the marker's JSON with a serializer (`jq -n --arg reason "$cause" …` or `JSON.stringify`), never by pasting the text between quotes.
 
      ```
      <!-- night-shift {"status":"not-started","routine":"<id>","session":"<id>","reason":"<cause>"} -->
@@ -124,7 +124,7 @@ A subagent's transcript sits under `<session>/subagents/`. Its `meta.json` holds
 
 ## Morning
 
-1. **Collect** every spec with a `night-shift` comment from the last 24 hours.
+1. **Collect** every spec with a `night-shift` comment from the last 24 hours, except one whose latest comment is `not-started`: the evening already reported it, and it has no session or cost to show.
    - Read the spec's latest `night-shift` JSON comment, its PR, the PR's checks, and the PR's review and Decisions sections.
    - **Crashed:** a spec still `spec:building` after its session ended, or a spec whose latest `night-shift` comment is `dispatched` and whose session has ended, whether it is labelled `spec:building` or still `spec:ready`. Read the run log (`RemoteTrigger` `list_runs`, then `get_run_log`) for the cause, then label it `spec:stuck` and comment the cause.
    - **Stopped at the limit:** a session that hasn't ended, whose run log has a `rate_limit: rejected` line (any window, e.g. `five_hour`) after its last turn that did work. Its specs keep their labels: they are neither stuck nor crashed. Note the UTC time of the first such rejection, and the limit message (e.g. "You've hit your 5-hour limit") when the log has it.
