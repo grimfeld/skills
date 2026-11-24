@@ -4,7 +4,7 @@ The ship skills, `implement-spec`, `to-tickets` and `retro` are all user-invoked
 
 1. **Find its `SKILL.md`.**
    - A ship skill: `${CLAUDE_PLUGIN_ROOT}/skills/<name>/SKILL.md`.
-   - Any other: `find -L ~/.claude ~/.agents -path '*/<name>/SKILL.md'`.
+   - Any other: `find -L ~/.claude ~/.agents -path '*/<name>/SKILL.md' | head -1`. A skill can be listed twice, once through a symlink (`~/.claude/skills/<name>` pointing into `~/.agents`); the first match, under `~/.claude`, is the one to use.
    - Not found: clone its repository (`git clone --depth 1 https://github.com/<owner>/skills /tmp/<owner>-skills`), then find it there with `find /tmp/<owner>-skills -path '*/<name>/SKILL.md'`. Ship skills come from grimfeld/skills; `implement-spec`, `to-tickets` and `retro` from mattpocock/skills. In a pull request or ticket, record that it ran from a clone.
 2. **Fill in what the harness would have.** The file isn't expanded when you read it.
    - `${CLAUDE_SKILL_DIR}`: the folder holding that `SKILL.md`.

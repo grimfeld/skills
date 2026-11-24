@@ -72,6 +72,7 @@ For each spec that will be built, kept or new, run `to-tickets` on its issue, as
 
 - Tickets are tracer-bullet vertical slices with blocking edges, published as sub-issues. That's what `implement-spec` reads.
 - `to-tickets` asks the user to approve the breakdown, which is fine here: slicing happens while the user is present.
+- Tell `to-tickets` to apply no triage label (no `ready-for-agent`): ship tracks work by the spec's `spec:*` label, and the repo may not have that label.
 - When it's done, add a "Tickets" line to the spec's Slicing section listing them in order.
 
 ## 6. Report
