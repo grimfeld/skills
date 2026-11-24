@@ -41,7 +41,7 @@ Read first:
 
 ### 1. Start
 
-1. **Read the issue:** body, comments and labels. If it isn't `spec:building` or `spec:ready`, or it has no "Slicing" section, mark it stuck (step 6) with that reason and go to the next.
+1. **Read the issue:** body, comments and labels. If it isn't `spec:building` or `spec:ready`, or it has no "Slicing" section, mark it stuck (step 6) with that reason and go to the next. If its body has no `## Problem` heading, mark it stuck with the reason "spec body has no Problem section; restore it from the issue's edit history": a wiped body is never built. Either way, the next spec in the chain is handled as for any stuck spec.
 2. **Relabel it:** `spec:ready` → `spec:building`.
 3. **Choose the base:**
    - The spec's Depends on is in this chain: build on that spec's branch.
@@ -84,6 +84,7 @@ Append to that section every time you choose something the spec didn't say, and 
 4. **An implementer subagent per ticket:** kept, with these changes.
    - **Inline tickets:** a ticket that changes no executable code (skill text, docs, config values) is built by you, inline, on its own ticket branch or the spec branch, with no subagent. A ticket that changes executable code goes to an implementer subagent, which builds it with `tdd`, as `implement-spec` says.
    - **The implementer brief:** the implementer commits on its ticket branch in its own worktree and never pushes it. Its worktree shares your clone's object store, so you see the branch without a push.
+   - **Test files in a chain** (the spec has a parent or a child in this chain): the brief says to put the spec's new test cases in a new file named for the feature (following the repo's naming for test files), unless the repo's docs (`CLAUDE.md`, `AGENTS.md`, a test README) say cases for that area live in one named file. A file the repo requires to be edited in place (a registry or list, such as a screens table) is still edited in place; it is expected to conflict down the chain, and the conflict is resolved by keeping both sides. Existing cases in a shared file that the change breaks are still edited where they are: the rule is about where new cases go. When you keep new cases in a shared file because of a repo rule, record "new tests in <file>: <the repo rule>" under Decisions.
    - **Handoff notes:** an implementer whose ticket blocks another writes `<notes dir>/<ticket>.md` before it reports done: the paths it touched and the seams the next ticket plugs into (functions, test helpers, where to extend), as pointers and decisions, never the diff. A ticket that blocks nothing writes none. Done when every ticket it unblocks has a notes file to point at.
 5. **Merger subagent:** replaced by an inline merge. A finished ticket branch already holds the spec branch's tip (the implementer merged it before reporting). Merge it yourself, in your clone, on the spec branch: `git merge --no-ff --no-commit <ticket branch>`, then `git commit` with the build's message conventions and attribution, then push the spec branch. Done when the spec branch on the remote holds the implementer's commit. Start a merger subagent only when that merge conflicts; it resolves in your clone the same way and pushes only the spec branch.
 6. **New frontier:** kept. Each newly unblocked ticket's brief points at its blockers' notes files.
