@@ -145,3 +145,70 @@ test("count splits a session by its marks, and subagents follow the mark of thei
   assert.deepEqual(out.shared, { "claude-opus-5-5": times(3) }); // a1, a8, a9
   assert.deepEqual(out.unmatched, []);
 });
+
+const ns = (json, line = "night-shift: …") => `<!-- night-shift ${JSON.stringify(json)} -->\n${line}`;
+const c = (id, at, body) => ({ id, created_at: `2026-11-${at}Z`, body });
+
+function rowsFixture() {
+  const dir = mkdtempSync(join(tmpdir(), "token-usage-rows-"));
+  const tok = { "claude-opus-5-5": one };
+  const write = (n, comments) => writeFileSync(join(dir, `${n}.json`), JSON.stringify(comments));
+  // Dispatched, then ready with tokens and the session's shared bucket.
+  write(650, [
+    c(1, "24T20:00:00", ns({ status: "dispatched", routine: "r1", session: "sess-a" })),
+    c(2, "24T20:01:00", "a person's comment"),
+    c(3, "25T03:00:00", ns({ status: "ready", pr: 700, reason: "", decisions: 2, rounds: 1, tokens: tok, session_shared: tok })),
+    c(4, "25T07:00:00", "<!-- ship:morning-page -->\nReviewed on this morning's page: https://claude.ai/x"),
+  ]);
+  // Dispatched only: still building.
+  write(651, [c(10, "24T20:00:00", ns({ status: "dispatched", routine: "r1", session: "sess-a" }))]);
+  // Last night's tokens, before tonight's dispatched: null, not last night's numbers.
+  write(652, [
+    c(20, "23T20:00:00", ns({ status: "dispatched", routine: "r2", session: "old" })),
+    c(21, "24T03:00:00", ns({ status: "stuck", pr: null, reason: "x", decisions: 0, rounds: 0, tokens: tok })),
+    c(22, "24T20:00:00", ns({ status: "dispatched", routine: "r2", session: "sess-b" })),
+    c(23, "25T02:00:00", ns({ status: "stuck", pr: null, reason: "depends on #651", decisions: 0, rounds: 0 })),
+  ]);
+  // Posted without tokens, then re-posted with them: the newest wins. Listed out of order.
+  write(653, [
+    c(32, "25T04:00:00", ns({ status: "ready", pr: 701, reason: "", decisions: 1, rounds: 0, tokens: { "claude-opus-5-5": times(2) } })),
+    c(30, "24T20:00:00", ns({ status: "dispatched", routine: "r3", session: "sess-c" })),
+    c(31, "25T03:00:00", ns({ status: "ready", pr: 701, reason: "", decisions: 1, rounds: 0, tokens: tok })),
+  ]);
+  // The builder's count failed: its newest comment says null, which wins over an older count.
+  write(654, [
+    c(40, "24T20:00:00", ns({ status: "dispatched", routine: "r4", session: "sess-d" })),
+    c(41, "25T03:00:00", ns({ status: "ready", pr: 702, reason: "", decisions: 0, rounds: 0, tokens: tok })),
+    c(42, "25T05:00:00", ns({ status: "ready", pr: 702, reason: "", decisions: 0, rounds: 0, tokens: null })),
+  ]);
+  return { dir, tok };
+}
+
+test("rows builds price's input from each spec's comments after its newest dispatched", () => {
+  const { dir, tok } = rowsFixture();
+  const rows = run(["rows", "--specs", "650,#651 652,653,654", "--from", dir]);
+  assert.deepEqual(rows, [
+    { spec: 650, session: "sess-a", tokens: tok, session_shared: tok },
+    { spec: 651, session: "sess-a", tokens: null, status: "building" },
+    { spec: 652, session: "sess-b", tokens: null },
+    { spec: 653, session: "sess-c", tokens: { "claude-opus-5-5": times(2) } },
+    { spec: 654, session: "sess-d", tokens: null },
+  ]);
+});
+
+test("rows | price gives what the hand-written rows give", () => {
+  const { dir, tok } = rowsFixture();
+  const rows = execFileSync("node", [script, "rows", "--specs", "650,651,652,653,654", "--from", dir], { encoding: "utf8" });
+  const byHand = [
+    { spec: 650, session: "sess-a", tokens: tok, session_shared: tok },
+    { spec: 651, session: "sess-a", tokens: null },
+    { spec: 652, session: "sess-b", tokens: null },
+    { spec: 653, session: "sess-c", tokens: { "claude-opus-5-5": times(2) } },
+    { spec: 654, session: "sess-d", tokens: null },
+  ];
+  assert.deepEqual(run(["price"], rows), run(["price"], JSON.stringify(byHand)));
+});
+
+test("rows fails clearly without specs", () => {
+  assert.throws(() => execFileSync("node", [script, "rows"], { stdio: "pipe" }), /rows needs --specs/);
+});

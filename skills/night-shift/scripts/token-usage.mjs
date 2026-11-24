@@ -27,9 +27,20 @@
 //     Run by a builder as it starts (or comes back to) spec <n>. Prints
 //     {"mark":"<n>"} and nothing else: count reads the call from the transcript.
 //
+//   rows --specs 650,657 [--repo <owner/repo>] [--from <dir>]
+//     Run by the morning step: prints the array price reads, one row per spec,
+//     from the spec issue's comments (gh api --paginate; --repo defaults to
+//     origin's; --from reads <dir>/<n>.json, a comments array, instead). The
+//     session is the newest `dispatched` night-shift comment's; tokens (and
+//     session_shared) come from the newest night-shift comment after it whose
+//     JSON has "tokens", passed through as written; none gives null. A spec whose
+//     newest night-shift comment since dispatched isn't ready or stuck also gets
+//     "status": "building".
+//
 //   price [--prices <file>] < specs.json
 //     Run by the morning step. stdin is an array of
-//     {"spec": <n>, "session": "<id>", "tokens": {...} | null, "session_shared": {...}?}
+//     {"spec": <n>, "session": "<id>", "tokens": {...} | null, "session_shared": {...}?,
+//      "status": "building"?} (status is ignored)
 //     and the output is, per spec, per session and for the night: usd, out,
 //     fresh_in, cache_read and the models it couldn't price. Sessions and the
 //     night also list their specs that never reported: tokens null, or {} (an
@@ -39,6 +50,7 @@ import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { join, dirname, basename } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
+import { execFileSync } from "node:child_process";
 
 const FIELDS = ["in", "out", "cache_read", "cache_write_5m", "cache_write_1h"];
 
@@ -257,6 +269,48 @@ function price(opts) {
   return { specs: { ...specs }, sessions: { ...sessions }, night };
 }
 
+// The JSON of a `<!-- night-shift {...} -->` comment, or null.
+function nightShiftJson(body) {
+  const m = /<!--\s*night-shift\s+(\{[\s\S]*?\})\s*-->/.exec(String(body ?? ""));
+  if (!m) return null;
+  try { return JSON.parse(m[1]); } catch { return null; }
+}
+
+function specComments(n, opts) {
+  if (opts.from) return JSON.parse(readFileSync(join(opts.from, `${n}.json`), "utf8"));
+  const repo = opts.repo ?? execFileSync("git", ["remote", "get-url", "origin"], { encoding: "utf8" })
+    .trim().replace(/(\.git)?\/?$/, "").replace(/.*[/:]([^/:]+\/[^/:]+)$/, "$1");
+  // One compact JSON comment per line, whatever gh does with pages.
+  const out = execFileSync("gh", ["api", "--paginate", `repos/${repo}/issues/${n}/comments?per_page=100`,
+    "--jq", ".[] | {id, created_at, body} | @json"], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  return out.split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l));
+}
+
+// One row per spec for price, from its night-shift comments after its newest
+// `dispatched` one (all of them when it has none).
+function rows(opts) {
+  const specs = [...new Set(String(opts.specs ?? "").split(/[,\s#]+/).filter(Boolean))];
+  if (!specs.length) throw new Error("rows needs --specs <n,n,...>");
+  return specs.map((n) => {
+    const notes = specComments(n, opts)
+      .map((c) => ({ c, json: nightShiftJson(c.body) }))
+      .filter((x) => x.json && typeof x.json === "object")
+      .sort((a, b) => String(a.c.created_at).localeCompare(String(b.c.created_at)) || (a.c.id ?? 0) - (b.c.id ?? 0));
+    const lastDispatch = notes.findLastIndex((x) => x.json.status === "dispatched");
+    const tonight = notes.slice(lastDispatch + 1);
+    const row = { spec: Number(n), session: lastDispatch >= 0 ? (notes[lastDispatch].json.session ?? null) : null, tokens: null };
+    const counted = tonight.findLast((x) => Object.hasOwn(x.json, "tokens"));
+    // tokens pass through as the builder wrote them, null and {} included.
+    if (counted) {
+      row.tokens = counted.json.tokens ?? null;
+      if (counted.json.session_shared) row.session_shared = counted.json.session_shared;
+    }
+    const status = tonight.at(-1)?.json.status;
+    if (status !== "ready" && status !== "stuck") row.status = "building";
+    return row;
+  });
+}
+
 // Only validates and echoes: count finds the call itself in the transcript.
 function mark(opts) {
   const m = /^#?(\d+)$/.exec(opts._[1] ?? "");
@@ -267,9 +321,9 @@ function mark(opts) {
 const opts = args(process.argv.slice(2));
 const mode = opts._[0];
 try {
-  const modes = { count, price, mark };
+  const modes = { count, price, mark, rows };
   const result = Object.hasOwn(modes, mode) ? modes[mode](opts) : null;
-  if (!result) throw new Error("usage: token-usage.mjs count --specs <n,...> | mark <n> | price < specs.json");
+  if (!result) throw new Error("usage: token-usage.mjs count --specs <n,...> | mark <n> | rows --specs <n,...> | price < specs.json");
   console.log(JSON.stringify(result, null, 2));
 } catch (err) {
   console.error(`token-usage: ${err.message}`);
