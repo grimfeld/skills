@@ -88,6 +88,16 @@ Tell the user:
 - what's building, and where
 - that `/ship:night-shift morning` gathers the results
 
+## Where the work happens
+
+In one builder session, the work for a spec happens in these places:
+- **The builder:** the cloud session's repo clone, on the `spec/<n>-<slug>` branch (in a worktree if the project's rules say so).
+- **Implementers:** `implement-spec` subagents, each in a `.claude/worktrees/agent-…` worktree on its own ticket branch. The branch stays local: the builder merges it into the spec branch inline and pushes only the spec branch.
+- **Lens reviewers:** `pr-review`'s subagents, read-only, in the spec branch's tree or in `pr-review`'s `.scratch/pr-review/wt-<id>` worktree.
+- **Fix rounds:** the builder itself, on the spec branch.
+
+A subagent's transcript sits under `<session>/subagents/`. Its `meta.json` holds the `toolUseId` of the Agent call that started it, so its work counts toward the spec its parent was on, whatever branch or worktree it ran in. `scripts/token-usage.mjs` relies on this.
+
 ## Morning
 
 1. **Collect** every spec with a `night-shift` comment from the last 24 hours.
