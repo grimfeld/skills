@@ -26,7 +26,7 @@ Read these before the first question, and don't ask the user anything they alrea
 
 **Resuming** (`#<n>` passed): read the issue body and comments. Its "Open questions" section is where the grilling restarts. Treat everything else in it as settled unless the user reopens it.
 
-**New idea:** search open `spec:*` issues for one that already covers it (`gh issue list --label spec:draft`, then `spec:ready`). If one does, offer to resume it instead.
+**New idea:** search the open `spec:draft` and `spec:ready` issues for one that already covers it, the way `docs/agents/issue-tracker.md` says, else with the "Search issues" row of `${CLAUDE_PLUGIN_ROOT}/references/github.md`. If one does, offer to resume it instead.
 
 ## 2. Grill
 

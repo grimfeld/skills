@@ -98,11 +98,11 @@ Done when the script prints no `DRIFT` lines, or every drifted lens is synced or
 
 Parse the arguments: a PR number or URL, an optional `base=`, an optional `paths=`, and `fix-round` (see "Fix round").
 
-1. **Target and id.** With a PR: `gh pr view <n> --json number,title,body,baseRefName,headRefName,headRefOid,url`; id is `pr-<n>`. Without: the current branch; base is `base=` or the merge-base with `main` (fall back to `master`); id is the branch name slugified.
-2. **Checkout.** Reviewers need the head's files on disk. If the working tree is already at the head commit, use it. Otherwise `git fetch origin pull/<n>/head` and `git worktree add .scratch/pr-review/wt-<id> <headRefOid>`; that worktree is `REVIEW_ROOT`. Never switch the user's current branch.
+1. **Target and id.** With a PR, read its number, title, body, base and head refs, head sha and URL with the "Read a PR" row of `${CLAUDE_PLUGIN_ROOT}/references/github.md` (`gh api repos/{owner}/{repo}/pulls/<n>`; without `gh`, the GitHub MCP `pull_request_read` `get`); id is `pr-<n>`. Without: the current branch; base is `base=` or the merge-base with `main` (fall back to `master`); id is the branch name slugified.
+2. **Checkout.** Reviewers need the head's files on disk. If the working tree is already at the head commit, use it. Otherwise `git fetch origin pull/<n>/head` and `git worktree add .scratch/pr-review/wt-<id> <head sha>`; that worktree is `REVIEW_ROOT`. Never switch the user's current branch.
 3. **Diff.** `git diff --shortstat <base>...<head>` and `git diff --name-status`. Over ~3000 changed lines, show the stats and ask: continue, or narrow to paths. Apply `paths=` if given. Write the diff once to `.scratch/pr-review/<id>.diff` (`git -C <REVIEW_ROOT> diff <base>...<head> [-- <paths>] > …`); reviewers read that file instead of running their own diffs.
-4. **Spec.** Look in order: issues referenced in commit messages or the PR body (fetch with `gh issue view`), a path the user passed, a file under `docs/`, `specs/` or `.scratch/` matching the branch or feature. Record the spec text, or "no spec available".
-5. **CI.** With a PR: `gh pr checks <n>`. Failing checks become blockers at the top of the report. Leave out the `ship` commit status and the Ship workflow's own jobs (`gate`, `dependabot`): they are approval gates, not CI. With nothing else left, record `ci.status` `no-checks`.
+4. **Spec.** Look in order: issues referenced in commit messages or the PR body (fetch each with the "Read an issue" row; without `gh`, `issue_read` `get`), a path the user passed, a file under `docs/`, `specs/` or `.scratch/` matching the branch or feature. Record the spec text, or "no spec available".
+5. **CI.** With a PR: the check runs on its head sha, with the "A PR's checks" row (without `gh`, `pull_request_read` `get_check_runs`). Failing checks become blockers at the top of the report. Leave out the `ship` commit status and the Ship workflow's own jobs (`gate`, `dependabot`): they are approval gates, not CI. With nothing else left, record `ci.status` `no-checks`.
 6. **Previous state.** Read `.scratch/pr-review/<id>.json` if it exists: its open findings, decisions and `artifact_url`. If only a legacy `<id>.md` exists, seed state from it as `references/state-format.md` describes.
 7. **Scratch is untracked.** If `git check-ignore -q .scratch` fails, append `.scratch/` to `.git/info/exclude`.
 
@@ -228,7 +228,7 @@ If `docs/agents/issue-tracker.md` names GitHub or GitLab, offer to publish the s
 
 ## 11. Finish
 
-1. **Label the PR.** Only when the target is a PR, not a bare branch. Run `gh api repos/{owner}/{repo}/issues/<n>/labels -f 'labels[]=pr-reviewed'` (REST: `gh pr edit` fails on some repositories). If it fails because the label does not exist, create it with `gh label create pr-reviewed --description "Reviewed with /pr-review" --color 0E8A16` and retry once. If it still fails (no permission, no `gh` auth), say so in the summary and carry on. Label the PR whatever the outcome of the review, including when no finding was approved.
+1. **Label the PR.** Only when the target is a PR, not a bare branch. Run `gh api repos/{owner}/{repo}/issues/<n>/labels -f 'labels[]=pr-reviewed'` (REST: the porcelain PR edit fails on some repositories). If it fails because the label does not exist, create it with the "Create a label" row (`gh api repos/{owner}/{repo}/labels -f name=pr-reviewed -f description='Reviewed with /pr-review' -f color=0E8A16`) and retry once. If it still fails (no permission, no `gh` auth), say so in the summary and carry on. Label the PR whatever the outcome of the review, including when no finding was approved.
 2. **Clean up.** Remove the worktree if you created one (`git worktree remove .scratch/pr-review/wt-<id>`).
 3. **Hand off.** End with whether the label was applied, the report path, the page link, the spec path, and the next command:
 

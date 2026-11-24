@@ -83,7 +83,7 @@ Run the local checks `docs/agents/shipping.md` lists, then the project's own pre
 - Fix failures that are your change's fault.
 - If a failure is also present on the base branch, it isn't your change's fault. Record it under Decisions ("pre-existing failure: …") and go on.
 
-Push, then wait for CI on the PR. Wait with the shell's own blocking wait (`gh pr checks <n> --watch`, or a single `until` loop with a timeout). Don't use repeated `sleep` calls. The `ship` status stays pending until a person reviews the PR. That's expected, so never try to make it pass.
+Push, then wait for CI on the PR with the "Wait for a PR's checks" row of `${CLAUDE_PLUGIN_ROOT}/references/github.md`: one blocking REST loop with a 30-minute timeout, or its GitHub MCP column where there is no `gh`. Don't use repeated `sleep` calls. A timeout means the checks are still pending, not green: record it under Decisions ("CI still pending after 30 minutes: <checks>") and go on. The `ship` status stays pending until a person reviews the PR. That's expected, so never try to make it pass.
 
 **Without the Agent tool**, stop the spec here, once CI has finished: leave the spec `spec:building` and the PR a draft, post no `night-shift` comment, and end with the PR number and "review pending: run build-spec steps 4–6 from a session with the Agent tool". Specs in the chain after it are built the same way, each ending with its own hand-back.
 

@@ -139,7 +139,7 @@ A subagent's transcript sits under `<session>/subagents/`. Its `meta.json` holds
    Reviewed on this morning's page: <page URL>
    ```
 
-   Post a new comment every morning, even on a spec that already has one: the newest is the current link. Post with `gh issue comment`, or `add_issue_comment` where `${CLAUDE_PLUGIN_ROOT}/references/github.md` says to use the GitHub MCP tools. If a comment fails, name the spec in the report and go on.
+   Post a new comment every morning, even on a spec that already has one: the newest is the current link. Post with the "Comment" row of `${CLAUDE_PLUGIN_ROOT}/references/github.md` (its GitHub MCP column, `add_issue_comment`, where there is no `gh`). If a comment fails, name the spec in the report and go on.
 6. **Report in the terminal:** the page link, one line per PR in the order to review them (children under their parent), one line with the night's cost, worded as on the page, any spec whose morning-page comment failed (step 5), and the same `/ship:land` line. End with the open decisions and stuck specs, and "Answer here as `#<pr>: <choice>`, naming the decision when a PR has several."
 7. **Take answers.** Stay in the terminal for the user's answers, given as `#<pr>: <choice>` or `#<pr> <decision>: <choice>` (`#<spec>` for a stuck spec with no PR). Match each to the decision it settles; ask when that isn't clear. For each:
    - Comment it on the PR ("Morning answer to <decision>: <choice>"), so the choice is on record where the reviewer looks. For a stuck spec, comment it on the spec issue too (only there when it has no PR), where the next build reads it.

@@ -35,7 +35,7 @@ Read first:
 - `docs/agents/issue-tracker.md`, and `${CLAUDE_PLUGIN_ROOT}/references/github.md` for when `gh` isn't available.
 - `docs/agents/shipping.md`.
 
-**Prerequisite:** `docs/agents/shipping.md` exists and `gh label list` has `design:ready` and `design:specced`.
+**Prerequisite:** `docs/agents/shipping.md` exists and the repository has the labels `design:ready` and `design:specced` (the "Read a label" row of `${CLAUDE_PLUGIN_ROOT}/references/github.md`).
 If either is missing, stop and tell the user to run `/ship:setup-ship` (again, if it ran before the design labels
 existed).
 
