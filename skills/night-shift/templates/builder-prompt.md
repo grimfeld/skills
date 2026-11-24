@@ -13,9 +13,9 @@ If that skill isn't available, the plugin isn't installed in this session. In th
 
 ## Token usage
 
-The morning page shows what tonight cost. Only you can count it, because your transcript leaves with this session. Count it after `build-spec`'s End step. Count it again at the end of every later turn that did work, for example when a CI result or a notification woke you and you acted on it:
+The count splits this session by spec at each `token-usage.mjs mark <n>` call. `build-spec` marks each spec as it starts. When a later turn works on a spec you had already left (a fix to an earlier spec of this list, say), first run `node /tmp/ship/skills/night-shift/scripts/token-usage.mjs mark <n>` for it (clone `/tmp/ship` as step 1 below says, if needed).
 
-The count splits this session by spec at each `token-usage.mjs mark <n>` call. `build-spec` marks each spec as it starts. When a later turn works on a spec you had already left (a fix to an earlier spec of this list, say), first run `node /tmp/ship/skills/night-shift/scripts/token-usage.mjs mark <n>` for it (clone `/tmp/ship` as in step 1 if needed).
+The morning page shows what tonight cost. Only you can count it, because your transcript leaves with this session. Count it after `build-spec`'s End step. Count it again at the end of every later turn that did work, for example when a CI result or a notification woke you and you acted on it:
 
 1. If `/tmp/ship` doesn't exist, run `git clone --depth 1 https://github.com/grimfeld/skills /tmp/ship`.
 2. Run `node /tmp/ship/skills/night-shift/scripts/token-usage.mjs count --specs "{{SPECS}}"`.

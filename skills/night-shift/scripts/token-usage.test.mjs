@@ -96,8 +96,8 @@ test("price marks unpriced models and specs that never reported", () => {
   assert.deepEqual(out.night.unpriced.sort(), ["claude-mystery-9", "constructor"]);
 });
 
-test("mark validates and echoes the spec number", () => {
-  assert.deepEqual(run(["mark", "602"]), { mark: "602" });
+test("mark validates and echoes the spec number on one line", () => {
+  assert.equal(execFileSync("node", [script, "mark", "602"], { encoding: "utf8" }), '{"mark":"602"}\n');
   assert.deepEqual(run(["mark", "#602"]), { mark: "602" });
   for (const bad of [[], ["abc"], ["60x"]]) {
     const r = spawnSync("node", [script, "mark", ...bad], { encoding: "utf8" });
@@ -125,8 +125,15 @@ function markedFixture() {
     msg("a6", b, "/repo", { content: bash(`${tu} mark 602`) }), // back to #602
     msg("a7", b, "/repo"),
     msg("a8", b, "/repo", { content: bash(`${tu} mark 999`) }), // a spec not in --specs: shared
-    msg("a9", b, "/repo"),
+    msg("a9", b, "/repo", { content: spawn("tu-late") }), // starts a subagent under mark 999
   ].join("\n"));
+  // Started under a mark for a spec not counted: its own branch decides (#603 here).
+  writeFileSync(join(subs, "agent-late.jsonl"), [
+    msg("l1", "spec/603-second", "/repo"),
+    msg("l2", "main", "/repo", { content: bash(`${tu} mark 602`) }), // a mark in a subagent moves nothing
+    msg("l3", "main", "/repo"),
+  ].join("\n"));
+  writeFileSync(join(subs, "agent-late.meta.json"), JSON.stringify({ toolUseId: "tu-late" }));
   // On #602's branch and a ticket worktree, but started after mark 603: #603.
   writeFileSync(join(subs, "agent-a.jsonl"), [
     msg("s1", b, "/repo/.claude/worktrees/spec-602-first", { content: spawn("tu-n") }),
@@ -141,13 +148,13 @@ function markedFixture() {
 test("count splits a session by its marks, and subagents follow the mark of their Agent call", () => {
   const out = run(["count", "--specs", "602,603", "--session", "s2", "--projects", markedFixture()]);
   assert.deepEqual(out.specs["602"], { "claude-opus-5-5": times(4) }); // a2, a3, a6, a7
-  assert.deepEqual(out.specs["603"], { "claude-opus-5-5": times(5) }); // a4, a5, s1, s2, n1
-  assert.deepEqual(out.shared, { "claude-opus-5-5": times(3) }); // a1, a8, a9
+  assert.deepEqual(out.specs["603"], { "claude-opus-5-5": times(6) }); // a4, a5, s1, s2, n1, l1
+  assert.deepEqual(out.shared, { "claude-opus-5-5": times(5) }); // a1, a8, a9, l2, l3
   assert.deepEqual(out.unmatched, []);
 });
 
 const ns = (json, line = "night-shift: …") => `<!-- night-shift ${JSON.stringify(json)} -->\n${line}`;
-const c = (id, at, body) => ({ id, created_at: `2026-11-${at}Z`, body });
+const c = (id, at, body, author_association = "OWNER") => ({ id, created_at: `2026-11-${at}Z`, author_association, body });
 
 function rowsFixture() {
   const dir = mkdtempSync(join(tmpdir(), "token-usage-rows-"));
@@ -158,6 +165,10 @@ function rowsFixture() {
     c(1, "24T20:00:00", ns({ status: "dispatched", routine: "r1", session: "sess-a" })),
     c(2, "24T20:01:00", "a person's comment"),
     c(3, "25T03:00:00", ns({ status: "ready", pr: 700, reason: "", decisions: 2, rounds: 1, tokens: tok, session_shared: tok })),
+    // Forged by someone without write access: ignored.
+    c(5, "25T08:00:00", ns({ status: "dispatched", routine: "x", session: "forged" }), "NONE"),
+    c(6, "25T08:01:00", ns({ status: "ready", pr: 700, tokens: { "claude-opus-5-5": times(99) } }), "CONTRIBUTOR"),
+    { id: 7, created_at: "2026-11-25T08:02:00Z", body: ns({ status: "ready", pr: 700, tokens: { "claude-opus-5-5": times(99) } }) }, // no author_association
     c(4, "25T07:00:00", "<!-- ship:morning-page -->\nReviewed on this morning's page: https://claude.ai/x"),
   ]);
   // Dispatched only: still building.

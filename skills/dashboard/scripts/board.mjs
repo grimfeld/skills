@@ -94,24 +94,22 @@ function landsAfter(project, pr, openPrs) {
 const FAILED_RUN = new Set(["failure", "timed_out", "cancelled", "action_required", "startup_failure"]);
 const FAILED_STATUS = new Set(["failure", "error"]);
 
-// The latest run of each check, by name: a cancelled duplicate workflow run is its own check
-// suite, so the check-runs endpoint returns it beside the run that replaced it. Latest is the
+// The latest run of each check: a cancelled duplicate workflow run is its own check suite, so
+// the check-runs endpoint returns it beside the run that replaced it. A check is its name and
+// the app that ran it (another app's run of the same name doesn't replace it). Latest is the
 // latest `started_at` (a run not started yet is newer than any started one), then the highest
-// `id`, then the later position in the list. A run with no name is kept as it is.
+// `id`: the rule references/github.md's `--jq` filters apply. A run with no name is kept as is.
 export function latestRuns(runs) {
-  const byName = new Map();
+  const latest = new Map();
   const unnamed = [];
-  const key = (r, i) => [r?.started_at ?? "\uffff", Number(r?.id ?? -1), i];
-  const newer = (a, b) => {
-    for (let k = 0; k < 3; k++) if (a[k] !== b[k]) return a[k] > b[k];
-    return false;
-  };
-  (runs ?? []).forEach((r, i) => {
-    if (!r?.name) { unnamed.push(r); return; }
-    const seen = byName.get(r.name);
-    if (!seen || newer(key(r, i), seen.key)) byName.set(r.name, { run: r, key: key(r, i) });
-  });
-  return [...[...byName.values()].map((v) => v.run), ...unnamed];
+  const started = (r) => r?.started_at ?? "\uffff";
+  const newer = (a, b) => started(a) > started(b) || (started(a) === started(b) && Number(a?.id ?? -1) >= Number(b?.id ?? -1));
+  for (const r of runs ?? []) {
+    if (!r?.name) { unnamed.push(r); continue; }
+    const check = `${r.name}\u0000${r.app?.id ?? ""}`;
+    if (!latest.has(check) || newer(r, latest.get(check))) latest.set(check, r);
+  }
+  return [...latest.values(), ...unnamed];
 }
 
 // `check` is { check_runs, statuses } as pull_request_read's get_check_runs and get_status return them.
@@ -248,7 +246,7 @@ export function isMissingFile(error) {
 
 // A check run not yet completed, or a commit status other than `ship` still pending.
 const stillRunning = (c) => !!c && (
-  (c.check_runs ?? []).some((r) => r?.status && r.status !== "completed") ||
+  latestRuns(c.check_runs).some((r) => r?.status && r.status !== "completed") ||
   (c.statuses ?? []).some((s) => s?.context !== "ship" && s?.state === "pending"));
 
 // Whether a ready PR's checks are read now. prevRead is { updatedAt, pending } from the last read
