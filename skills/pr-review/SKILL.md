@@ -139,9 +139,19 @@ A **workflow file** is anything under `.github/workflows/`, an `action.yml` or `
 
 A diff of only docs and config (Markdown, text, other YAML, editor config) runs `standards-and-spec` alone, plus `security` when a file is under `skills/`. When a file's class is ambiguous, run the lens.
 
+**Size rule: by changed code lines.** After pass 1 and before pass 2, count the changed code lines: the insertions plus deletions of `git -C <REVIEW_ROOT> diff --shortstat <base>...<head> -- <the code files pass 1 classified>`. Docs, config and workflow files don't count, so a long Markdown change buys no code lens.
+
+| Code lines | Lenses that stay |
+|---|---|
+| under 200 | `standards-and-spec`, `quality`, `security`, plus `web-quality` when front-end files changed |
+| 200–800 | those, plus the `sonnet` lenses pass 2 keeps |
+| over 800 | every lens pass 2 keeps |
+
+The rule removes only `performance`, `simplification`, `principles` and `web-quality`. `standards-and-spec`, `quality` and `security` always run on code, whatever the size, and `design-fidelity` follows pass 1 only. Record each lens removed this way as skipped, `by size: <n> code lines`.
+
 **Pass 2: by content.** When fewer than ~40 code files changed, read the code hunks of the saved diff yourself. Skip any of `performance`, `simplification`, `principles` and `web-quality` that the hunks give clearly nothing to review: for example `performance` when no data access, query, loop over a collection or worker code changed, or `simplification` and `principles` when the code change is only renames, string or config values. `design-fidelity` follows pass 1 only. Decide `web-quality` after step 4, and never skip it by content when a live URL was found. When in doubt, run the lens. `standards-and-spec`, `quality` and `security` follow pass 1 only; never skip them by judgment.
 
-Record each skipped lens with a one-line reason, prefixed `by type:` or `by content:`.
+Record each skipped lens with a one-line reason, prefixed `by type:`, `by size:` or `by content:`, in its state note, and name it with that reason in step 8's terminal summary.
 
 Done when every lens is selected or skipped with a reason, with `web-quality` left open until step 4 if it was selected by type.
 
