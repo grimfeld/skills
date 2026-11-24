@@ -20,7 +20,7 @@ Before each step, read `docs/agents/shipping.md` and `docs/agents/issue-tracker.
 
 0. **The checkout:** after the fetch, report to the user, before planning, if the working tree is behind `origin/<default>` (`git rev-list --count HEAD..origin/<default>`: "local `<branch>` is N commits behind `origin/<default>`") or has uncommitted changes (`git status --porcelain`: list them). The night reads the rules from `origin/<default>` either way, so this is for the user to know, not a reason to stop. Never pull, stash, reset or check out anything: the working tree is theirs.
 1. **Designs first:** for each open issue labelled `design:ready`, run `design-me` with `#<n>`, as `${CLAUDE_PLUGIN_ROOT}/references/running-skills.md` says (the Skill tool can't call it). It grills the user on the design's open decisions and writes its specs as `spec:ready`. A design the user leaves with questions open keeps `design:ready` and builds nothing tonight.
-2. **List them:** open issues labelled `spec:ready`. Those also labelled `bug` are **bugs**: each is one PR with no tickets, built by `/ship:fix-me #<n> unattended`, never sliced. A `bug` issue whose body carries `<!-- fix-me: converted to a spec -->` is a spec, not a bug.
+2. **List them:** open issues labelled `spec:ready`. Those also labelled `bug` are **bugs**: each is one PR with no tickets, built by `/ship:fix-me #<n> unattended`, never sliced. A `bug` issue that also carries `bug:specced` is a spec, not a bug.
 3. **Check for leftovers:** list the `spec:building` and `spec:stuck` issues from earlier nights and show them. A `spec:building` issue whose builder's session has ended is a crashed build: say so. Never rebuild these without the user's say-so.
 4. **Slice:** if any spec (not a bug) lacks a "Slicing" section, run `slice` with `all`, the same way; it skips bugs. Slicing asks the user about splits and tickets, so it belongs here, while they're present.
 
@@ -112,7 +112,7 @@ A subagent's transcript sits under `<session>/subagents/`. Its `meta.json` holds
 
 ## Morning
 
-1. **Collect** every spec with a `night-shift` comment from the last 24 hours. Bugs post the same comments, so they are collected, priced and carded like specs; mark each card "bug".
+1. **Collect** every spec with a `night-shift` comment from the last 24 hours. Bugs post the same comments, so they are collected, priced and carded like specs; mark each bug's card "bug" (not one carrying `bug:specced`, which is a spec).
    - Read the spec's latest `night-shift` JSON comment, its PR, the PR's checks, and the PR's review and Decisions sections.
    - A spec still `spec:building` after its session ended crashed. Read the run log (`RemoteTrigger` `list_runs`, then `get_run_log`) for the cause, then label it `spec:stuck` and comment the cause.
    - **Still building:** a spec whose newest `night-shift` comment since its latest `dispatched` one has no `ready` or `stuck` status, and whose session `list_runs` shows still running (not stopped at the usage limit), is still building, whatever its label. Don't label or comment it. Which state a spec with no `ready` or `stuck` comment is in goes by its session: ended → crashed (above); stopped at the limit → stopped at the limit; still running → still building.

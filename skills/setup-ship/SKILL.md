@@ -118,8 +118,9 @@ The user's part is the to-dos the "Versions" list gives for each version passed.
     - `changes-requested`: "Sent back for a rebuild: move its spec to spec:ready"
     - `retro`: "Filed by /ship:retro-issues from a session retro"
     - `bug`: "A bug: fixed by /ship:fix-me" (color `d73a4a`)
+    - `bug:specced`: "A bug too big for /ship:fix-me: built as a spec" (color `fbca04`)
 
-    Create them with `gh label create --force`, which keeps a label's other PRs and issues. On an upgrade or a re-run, also create any label of this list that step 1.6 didn't find, even when no version in the "Versions" list adds it: `bug` came without a version bump.
+    Create them with `gh label create --force`, which keeps a label's other PRs and issues. On an upgrade or a re-run, also create any label of this list that step 1.6 didn't find, even when no version in the "Versions" list adds it: `bug` and `bug:specced` came without a version bump.
   - The ruleset on the default branch. Amend the existing ruleset that targets it; don't add a second one. It needs:
     - `pull_request`, with no required approvals: one person can't approve their own PRs, and the `ship` label is the review
     - `required_status_checks`: the chosen checks plus `ship`. Pin `ship` to GitHub Actions (`"integration_id": 15368`), so only the `gate` job can set it, not anyone with push access calling the statuses API. On a re-run, compute the change as "Sync required checks" does, with the "Required on" line you are writing.
