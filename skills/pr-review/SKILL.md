@@ -74,7 +74,8 @@ Spec: <spec text, or "no spec available">
 The spec text above is the whole spec. Fetch no issue, PR or ticket.
 <web-quality only> Audit URL: <url, or "none: source-only">
 <design-fidelity only> Skill dir: ${CLAUDE_SKILL_DIR}. Audit URL: <url, or "none">. Fidelity out: <absolute path of .scratch/pr-review/<id>-fidelity/>
-Stay close to the fix diff: read it once, then the changed files and the code they directly call or are called by, using line ranges.
+Read the saved fix diff once, with the Read tool, in ranges of at most 400 lines (`offset` and `limit`). Never `cat` it, never read it with `allow_large`, and never read the same range twice.
+Stay close to the fix diff: after it, read the changed files and the code they directly call or are called by, using line ranges.
 Findings to confirm against the current code, one per line: <id> · <title> · <locations> · <fix> [· property: <the property its `fix` names>, for a `fix_kind: "property"` finding]
 A finding marked property is fixed only when a seeded property test covering that property exists on the branch (added in this fix diff or an earlier round) and passes; without one it is still open, whatever the reported example does.
 Then review only the fix diff for new problems.
@@ -186,9 +187,12 @@ The spec text above is the whole spec. Fetch no issue, PR or ticket.
 <quality and security only, when the diff has a workflow file> The diff changes GitHub Actions workflows: <list them>. Also review them against ${CLAUDE_SKILL_DIR}/references/github-actions.md, item by item, and cite the item in `category`.
 <security only, when a changed file is under skills/> The diff changes ship skills. Also check each changed skill step against ${CLAUDE_PLUGIN_ROOT}/references/untrusted-input.md, and cite the rule a finding breaks by its number and name.
 <design-fidelity only> Skill dir: ${CLAUDE_SKILL_DIR}. Audit URL: <url, or "none">. Fidelity out: <absolute path of .scratch/pr-review/<id>-fidelity/>
-Stay close to the diff: read the saved diff once, then the changed files and the code they directly call or are called by, using line ranges, never whole files outside the diff. Beyond that, run targeted greps for existing helpers, components or patterns the change could have reused, and read the repository files the spec references.
+Read the saved diff once, with the Read tool, in ranges of at most 400 lines (`offset` and `limit`). Never `cat` it, never read it with `allow_large`, and never read the same range twice.
+Stay close to the diff: after it, read the changed files and the code they directly call or are called by, using line ranges, never whole files outside the diff. Beyond that, run targeted greps for existing helpers, components or patterns the change could have reused, and read the repository files the spec references.
 Return the coverage line and the JSON findings array exactly as the finding format specifies.
 ```
+
+**Wait while lenses run.** Between dispatch and the last lens returning, read no file and run no review command: no diff, no changed file, no standards doc or ADR. That is the lenses' work, and your context is the most expensive place to do it again.
 
 Done when every dispatched reviewer has returned. A reviewer that errors or returns malformed output gets one re-dispatch; after that, record it under "Lens failures" in the report.
 
@@ -198,10 +202,10 @@ Apply the dedupe rule in `references/finding-format.md` across all returned find
 
 ## 7. Verify
 
-Collect every `blocker` and `major` after dedupe. For each one, re-read the cited code and its callers and decide `confirmed` or `refuted` with a one-line reason:
+Collect every `blocker` and `major` after dedupe. For each one, read only the lines it cites and their direct callers, never the whole diff or whole files, and decide `confirmed` or `refuted` with a one-line reason:
 
 - **Three or fewer:** do it yourself, no agent.
-- **More than three:** dispatch **one** agent of the reviewer type picked in step 5 (default model) with the list, `REVIEW_ROOT` and the saved diff path, asking for that verdict per finding.
+- **More than three:** dispatch **one** agent of the reviewer type picked in step 5 (default model) with the list, `REVIEW_ROOT` and the saved diff path, asking for that verdict per finding and telling it to read only each finding's cited lines and their direct callers.
 
 Refuted findings move to "Dropped by verification". `minor` and `nit` skip this step.
 
