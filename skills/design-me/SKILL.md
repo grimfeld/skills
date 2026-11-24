@@ -32,10 +32,10 @@ Specs use `${CLAUDE_PLUGIN_ROOT}/skills/spec-me/templates/spec.md` and must clea
 Read first:
 
 - `CLAUDE.md`, `AGENTS.md`, the glossary, and the ADRs that touch the module, its looks or themes, and the UI kit.
-- `docs/agents/issue-tracker.md`, and `${CLAUDE_PLUGIN_ROOT}/references/github.md` for when `gh` isn't available.
-- `docs/agents/shipping.md`.
+- `docs/agents/issue-tracker.md` and `docs/agents/shipping.md`, read as `${CLAUDE_PLUGIN_ROOT}/references/project-docs.md` says: from the default branch, with its defaults for a missing `issue-tracker.md`.
+- `${CLAUDE_PLUGIN_ROOT}/references/github.md`, for every GitHub call.
 
-**Prerequisite:** `docs/agents/shipping.md` exists and `gh label list` has `design:ready` and `design:specced`.
+**Prerequisite:** `docs/agents/shipping.md` exists and the repository has the labels `design:ready` and `design:specced` (the "Read a label" row of `${CLAUDE_PLUGIN_ROOT}/references/github.md`).
 If either is missing, stop and tell the user to run `/ship:setup-ship` (again, if it ran before the design labels
 existed).
 
@@ -120,7 +120,8 @@ The design tree holds, and nothing else:
 
 Read the handoff's behaviour changes (the "differs from the app today" section) as decisions to confirm, each
 with its ADR and its user-guide change. The ADRs and glossary entries `domain-modeling` writes go into the
-Decision records of the spec they belong to, never into a commit or PR of their own.
+Decision records of the spec they belong to, never into a commit or PR of their own. Write them unnumbered, as
+`/ship:spec-me`'s Decision records rule says; the build numbers them.
 
 A design with nothing open asks nothing: show the spec plan, and take one yes.
 
