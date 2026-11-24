@@ -43,6 +43,15 @@ test("SKILL.md's capabilities name exactly the connector tools the page calls", 
   assert.equal(declared.length, called.length, "each server once");
 });
 
+test("references/connectors.md has an entry for every connector tool the page calls", () => {
+  const page = readFileSync(join(here, "..", "page", "dashboard.html"), "utf8");
+  const reference = readFileSync(join(here, "..", "references", "connectors.md"), "utf8");
+  const literal = page.match(/const CONNECTORS = (\{[^]*?\n\s*\});/)[1];
+  const called = Object.values(new Function(`return ${literal}`)()).flatMap((s) => s.tools).sort();
+  const documented = [...reference.matchAll(/^### `([a-z_]+)`$/gm)].map((m) => m[1]).sort();
+  assert.deepEqual(documented, called);
+});
+
 test("the page writes only through callWrite (issue_write's update with labels) and its one create_session, which Land starts too", () => {
   const page = readFileSync(join(here, "..", "page", "dashboard.html"), "utf8");
   // Every connector call: reads go through readOnce, discovery through list_repos, GitHub writes
