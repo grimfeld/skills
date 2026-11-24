@@ -59,7 +59,10 @@ Run `implement-spec` on the spec issue, as `${CLAUDE_PLUGIN_ROOT}/references/run
   - **Check references.** Every `amends`, `amended-by` and `supersedes` must name an ADR that exists on the base or one numbered above. Fix a wrong one, with a Decisions line.
 - **Migrations:** when a ticket adds one and `CLAUDE.md`, `AGENTS.md` or `docs/agents/shipping.md` names the repo's migration-numbering command, number it with that command and push that commit at once, so a parallel builder sees the number taken. Without one, give it the number after the highest taken on the base and on every other open `spec/*` PR head, found the way ADRs are above.
 - **The branch:** what `implement-spec` calls the integration branch is the spec's branch, `spec/<n>-<slug>`, made from the base above.
-- **The PR:** it's a **draft**, targeting the base branch. Its body opens with the Closes lines (below) and one paragraph on what it delivers. Below that is the decisions section, and directly below it the environment notes section:
+- **The PR:** it's a **draft**, targeting the base branch. Its body opens with the Closes lines and one paragraph on what it delivers.
+  - **Closes lines:** one line per issue, each with its own keyword (GitHub links only the issue right after a keyword): `Closes #<spec>`, then `Closes #<ticket>` for each of the spec's sub-issues, then one for each absorbed spec the spec body asks for. Read the sub-issues again before marking the PR ready (step 6), and add a line for any ticket added mid-build. Never close an issue by hand: the Closes lines close them when the PR merges, and `land` closes any GitHub left open.
+
+  Below that is the decisions section, and directly below it the environment notes section:
 
 ```
 <!-- build:decisions:start -->
@@ -103,7 +106,7 @@ Append to Decisions every time you choose something the spec didn't say, and kee
 
 **If `implement-spec`'s steps no longer match this list** (a step added, removed or renumbered upstream): match each step by what it does, not its number; follow `implement-spec` for any step the list doesn't name; and record that one mismatch under Decisions.
 
-Done when every ticket is closed, or one can't be built, which makes the spec stuck.
+Done when every ticket is built and merged into the spec branch, with its Closes line in the PR body, or one can't be built, which makes the spec stuck.
 
 ### 3. Check
 
@@ -148,7 +151,7 @@ Skipped for a spec handed back at step 3 (no Agent tool): the caller runs it.
 **The head check, first.** Read the PR once (the "Read a PR" row) and take both values from that one read: its head SHA (`.head.sha`) and the head named in its body's review section footer (the `<sub>pr-review · head …` line, which prints a 7-character short SHA). The check passes when that short SHA is a prefix of the head SHA.
 - **It fails** (a commit landed after the last review): run `pr-review <pr> unattended` once more, on the current head, and fix nothing. This confirming review isn't a round: it doesn't count toward the two, or toward `rounds` below. Read the PR once more. The spec can be Ready only if that review left no blocker or major open and its footer head is a prefix of the PR's head; otherwise it is stuck, and the Stuck section names the unreviewed commits (`git log --oneline <footer head>..<PR head>`).
 
-**Ready** (the head check passed, or the confirming review came back clean on the head; CI green apart from `ship`, and no blocker or major left open):
+**Ready** (the head check passed, the Closes lines cover every sub-issue, or the confirming review came back clean on the head; CI green apart from `ship`, and no blocker or major left open):
 - Mark the PR ready.
 - Relabel the spec issue `spec:building` → `spec:in-review`.
 
