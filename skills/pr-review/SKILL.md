@@ -78,6 +78,7 @@ Read the saved fix diff once, with the Read tool, in ranges of at most 400 lines
 Stay close to the fix diff: after it, read the changed files and the code they directly call or are called by, using line ranges.
 Findings to confirm against the current code, one per line: <id> · <title> · <locations> · <fix> [· property: <the property its `fix` names>, for a `fix_kind: "property"` finding]
 A finding marked property is fixed only when a seeded property test covering that property exists on the branch (added in this fix diff or an earlier round) and passes; without one it is still open, whatever the reported example does.
+To test a claim by running code, write files only under `/tmp/pr-review-<id>/<lens>/`, or pass the code on stdin. Write nothing under <REVIEW_ROOT>.
 Then review only the fix diff for new problems.
 Return the coverage line, then one line per finding above: `<id>: fixed` or `<id>: still open`, each with its evidence, then the JSON findings array for new problems in the fix diff, as the finding format specifies.
 ```
@@ -199,8 +200,15 @@ The spec text above is the whole spec. Fetch no issue, PR or ticket.
 <design-fidelity only> Skill dir: ${CLAUDE_SKILL_DIR}. Audit URL: <url, or "none">. Fidelity out: <absolute path of .scratch/pr-review/<id>-fidelity/>
 Read the saved diff once, with the Read tool, in ranges of at most 400 lines (`offset` and `limit`). Never `cat` it, never read it with `allow_large`, and never read the same range twice.
 Stay close to the diff: after it, read the changed files and the code they directly call or are called by, using line ranges, never whole files outside the diff. Beyond that, run targeted greps for existing helpers, components or patterns the change could have reused, and read the repository files the spec references.
+To test a claim by running code, write files only under `/tmp/pr-review-<id>/<lens>/`, or pass the code on stdin. Write nothing under <REVIEW_ROOT>.
 Return the coverage line and the JSON findings array exactly as the finding format specifies.
 ```
+
+**Check the tree around the dispatch.** Just before the dispatch message, save `git -C <REVIEW_ROOT> status --porcelain --untracked-files=all`. After the last lens returns, run it again and compare:
+- a path untracked after but not listed before: delete it;
+- a tracked file not listed before and modified after: restore it with `git -C <REVIEW_ROOT> checkout -- <path>`.
+
+Paths already listed before the dispatch are the builder's own work: leave them alone. `.scratch/` is ignored (step 2.7), so the saved diff and the fidelity output never show. For each path you clean up, add `wrote inside the repo: <path>` to the note of the lens that wrote it; when it can't be tied to one lens, add it to the note of every lens in that dispatch. Those notes are the report's "Lens failures" lines.
 
 **Wait while lenses run.** Between dispatch and the last lens returning, read no file and run no review command: no diff, no changed file, no standards doc or ADR. That is the lenses' work, and your context is the most expensive place to do it again.
 
@@ -215,7 +223,7 @@ Apply the dedupe rule in `references/finding-format.md` across all returned find
 Collect every `blocker` and `major` after dedupe. For each one, read only the lines it cites and their direct callers, never the whole diff or whole files, and decide `confirmed` or `refuted` with a one-line reason:
 
 - **Three or fewer:** do it yourself, no agent.
-- **More than three:** dispatch **one** agent of the reviewer type picked in step 5 (default model) with the list, `REVIEW_ROOT` and the saved diff path, asking for that verdict per finding and telling it to read only each finding's cited lines and their direct callers.
+- **More than three:** dispatch **one** agent of the reviewer type picked in step 5 (default model) with the list, `REVIEW_ROOT` and the saved diff path, asking for that verdict per finding and telling it to read only each finding's cited lines and their direct callers. Its prompt also says: "To test a claim by running code, write files only under `/tmp/pr-review-<id>/verify/`, or pass the code on stdin. Write nothing under <REVIEW_ROOT>." Check the tree around it as in step 5; a path it leaves goes in the note `wrote inside the repo (verifier): <path>` of every lens whose finding it verified.
 
 Refuted findings move to "Dropped by verification". `minor` and `nit` skip this step.
 
@@ -244,7 +252,7 @@ Done when every blocker and major is `confirmed` or `refuted` with a reason, and
    - `artifact_url` set, page not yet published in this conversation: `action: "read"` that URL first, then publish with `url` = `artifact_url`.
    - Already published in this conversation: publish the same `file_path` again.
 5. **Update the PR description.** Only when the target is a PR: `uv run --no-project python ${CLAUDE_SKILL_DIR}/scripts/update-pr-body.py <n> .scratch/pr-review/<id>.pr.md`. It replaces the section between the `pr-review` markers and leaves the rest of the description alone. The description is where the reviewer decides whether to add the `ship` label, so it must match the page. When `gh` can't edit the PR, use the "Splice a section into a PR body" row of `${CLAUDE_PLUGIN_ROOT}/references/github.md`: one MCP read of the body, saved exactly (line endings included) to a file, `update-pr-body.py --body-file <that file> .scratch/pr-review/<id>.pr.md > <new file>`, and one MCP update with the new file's contents. If that fails too, say so in the summary and carry on.
-6. **Summarise** in the terminal: the verdict line, the "fix before merge" titles, counts of smaller improvements, skipped reviewers with their reasons, any fallback reviewer agent, whether web-quality and design-fidelity had live evidence, the report path and the page link.
+6. **Summarise** in the terminal: the verdict line, the "fix before merge" titles, counts of smaller improvements, skipped reviewers with their reasons, lens failures (including each `wrote inside the repo` path), any fallback reviewer agent, whether web-quality and design-fidelity had live evidence, the report path and the page link.
 
 ## 9. Approval
 
