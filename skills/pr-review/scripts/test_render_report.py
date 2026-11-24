@@ -349,3 +349,47 @@ class Stamp(unittest.TestCase):
         self.assertRegex(md, r"- Finding F1 \(`src/F1.py:1`\) _still open_ · F1")
         self.assertRegex(md, r"- Brand new \(`src/F3.py:1`\) _new_ · F3")
         self.assertIn("## Fixed since last run\n\n- Gone · F2", md)
+
+
+class SelfReview(unittest.TestCase):
+    LINE = "This PR changes pr-review. It was reviewed with the installed pr-review (`abc1234`); its own changes weren't applied to this review."
+
+    def test_note_in_all_three_outputs(self):
+        st = state()
+        st["runs"][-1]["self_review"] = "abc1234"
+        out = render(st)
+        self.assertIn(f"_{self.LINE}_\n\n<sub>pr-review", out["pr"])
+        self.assertIn(f"_{self.LINE}_", out["md"])
+        self.assertIn("<em>This PR changes pr-review. It was reviewed with the installed pr-review (<code>abc1234</code>)", out["html"])
+
+    def test_unknown_commit(self):
+        st = state()
+        st["runs"][-1]["self_review"] = "unknown"
+        self.assertIn("installed pr-review (`unknown`)", render(st)["pr"])
+
+    def test_no_note_without_the_field(self):
+        out = render(state())
+        for name in ("md", "html", "pr"):
+            self.assertNotIn("This PR changes pr-review", out[name], name)
+
+
+class References(unittest.TestCase):
+    def test_sources_row_links_references(self):
+        f = finding("F1", "major")
+        f["references"] = ["https://docs.github.com/en/actions/a", "https://docs.github.com/b?x=1&y=2"]
+        out = render(state([f]))
+        self.assertIn("- **Sources:** <https://docs.github.com/en/actions/a>, <https://docs.github.com/b?x=1&y=2>", out["md"])
+        self.assertIn('<dt>Sources</dt><dd><a href="https://docs.github.com/en/actions/a">', out["html"])
+        self.assertIn('href="https://docs.github.com/b?x=1&amp;y=2"', out["html"])
+
+    def test_non_http_reference_is_not_a_link(self):
+        f = finding("F1", "major")
+        f["references"] = ["javascript:alert(1)"]
+        out = render(state([f]))
+        self.assertNotIn('href="javascript', out["html"])
+        self.assertIn("<code>javascript:alert(1)</code>", out["html"])
+
+    def test_no_sources_row_without_references(self):
+        out = render(state([finding("F1", "major")]))
+        self.assertNotIn("Sources", out["md"])
+        self.assertNotIn("Sources", out["html"])
