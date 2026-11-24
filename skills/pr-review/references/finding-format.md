@@ -4,7 +4,7 @@ Shared by every lens reviewer and the orchestrator. Single source of truth for t
 
 ## Reviewer output
 
-Return exactly two things, nothing else:
+Return exactly two things, nothing else (in a fix round, the prompt also asks for one verdict line per finding to confirm, between the two):
 
 1. One **coverage** line: `Coverage: <what you checked> | Skipped: <what you could not check, and why>`.
 2. One fenced `json` block holding an array of findings (empty array when you found nothing).
