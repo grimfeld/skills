@@ -202,7 +202,7 @@ Run once per project. It works in an empty folder too: it creates the local repo
 - **Landing:** `/ship:land`, an agent that merges every `ship` PR itself, parents before their stacked children. Nothing merges on its own: no auto-merge, no scheduled run.
 - **Dependabot:** patch updates and GitHub Actions updates are labelled `ship` and land with the next `/ship:land`.
 - **Labels:** `ship`, `pr-reviewed`, `changes-requested`, and the `spec:*` and `design:*` labels the pipeline uses.
-- **`docs/agents/shipping.md`:** the rules, written down for people and for the other skills, including the cloud environment night-shift's builders run in (it lists your environments and asks).
+- **`docs/agents/shipping.md`:** the rules, written down for people and for the other skills, including the cloud environment night-shift's builders run in (it lists your environments and asks). The skills read it, and `docs/agents/issue-tracker.md`, from the fetched default branch, never the working tree; without them they use the defaults in `references/project-docs.md` (GitHub issues, the `spec:*` labels, the project's own checks).
 - **The project's `.claude/settings.json`:** enables the plugin.
 
 Run it again in a project set up by an older version and it offers an upgrade: it re-renders `ship.yml` and `shipping.md` with the values already installed, keeps your own edits to them, and shows the diff first. Upgrading from version 2 also turns auto-merge off and retires the `conflicts` label. Upgrading from version 3 asks only for the cloud environment.

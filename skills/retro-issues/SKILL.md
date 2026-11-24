@@ -9,7 +9,7 @@ argument-hint: "[session]  (default: the current one)"
 
 A retro turns one session into **findings**: improvements to the agent's environment. You file the ones nobody has filed yet, as specs the night shift can build, after the user picks them. The user is present throughout. You stop at filing: no branch, no fix.
 
-Read first: `docs/agents/issue-tracker.md` and `docs/agents/shipping.md` if the repo has them, and `${CLAUDE_PLUGIN_ROOT}/references/github.md`, for when `gh` isn't available.
+Read first: `docs/agents/issue-tracker.md` and `docs/agents/shipping.md`, as `${CLAUDE_PLUGIN_ROOT}/references/project-docs.md` says (from the default branch, with its defaults for a missing file), and `${CLAUDE_PLUGIN_ROOT}/references/github.md`, for every GitHub call.
 
 ## 1. Retro
 

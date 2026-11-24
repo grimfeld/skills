@@ -21,8 +21,7 @@ Read these before the first question, and don't ask the user anything they alrea
 
 - `CLAUDE.md`, `AGENTS.md`
 - the glossary (`CONTEXT.md`, `GLOSSARY.md`), and the ADRs in `docs/adr/` that touch the idea
-- `docs/agents/issue-tracker.md`: how to create, edit and label issues here. In a cloud session without `gh`, use the GitHub MCP tools it names.
-- `docs/agents/shipping.md`: the project's extra buildable items, if it lists any (for example "a Guide page", "a row in `SCREENS`")
+- `docs/agents/issue-tracker.md` (how to create, edit and label issues here) and `docs/agents/shipping.md` (the project's extra buildable items, if it lists any, for example "a Guide page", "a row in `SCREENS`"), read as `${CLAUDE_PLUGIN_ROOT}/references/project-docs.md` says: from the default branch, with its defaults for a missing file. Reach GitHub through the rows of `${CLAUDE_PLUGIN_ROOT}/references/github.md`.
 
 **Resuming** (`#<n>` passed): read the issue body and comments. Its "Open questions" section is where the grilling restarts. Treat everything else in it as settled unless the user reopens it.
 
