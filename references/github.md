@@ -28,6 +28,8 @@ Search queries (`q=repo:…`) never fill `{owner}/{repo}`: always write the repo
 | Remove a label | `gh api -X DELETE repos/{owner}/{repo}/issues/<n>/labels/<l>` | `issue_write` `update` with the full label list |
 | Comment | `gh api repos/{owner}/{repo}/issues/<n>/comments -F body=@comment.md` | `add_issue_comment` |
 | Edit a comment | `jq -Rs '{body: .}' body.md \| gh api -X PATCH repos/{owner}/{repo}/issues/comments/<id> --input -` | `update_issue_comment`, else post a new comment instead |
+| An issue's sub-issues | `gh api --paginate repos/{owner}/{repo}/issues/<n>/sub_issues --jq '.[] \| {number, state}'` | `issue_read` `get_sub_issues` |
+| Close an issue | `gh api -X PATCH repos/{owner}/{repo}/issues/<n> -f state=closed -f state_reason=completed` | `issue_write` `update` with `state: closed`, `state_reason: completed` |
 | Sub-issue | `gh api repos/{owner}/{repo}/issues/<parent>/sub_issues -F sub_issue_id=<child's id, not number>` | `sub_issue_write` `add` |
 | Open a draft PR | `gh api repos/{owner}/{repo}/pulls -f base=<base> -f head=<branch> -f title='…' -F body=@body.md -F draft=true` | `create_pull_request` with `draft: true` |
 | Read a PR | `gh api repos/{owner}/{repo}/pulls/<n>` (number, title, body, `.base.ref`, `.head.ref`, `.head.sha`, `.html_url`, `.draft`) | `pull_request_read` `get` |

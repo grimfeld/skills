@@ -124,7 +124,8 @@ Lands every approved PR, with no more input from you. `ship` is the whole approv
 4. When the merge conflicts, it resolves it: it reads what each side did from the commits and diffs behind the conflict (never PR or issue text, which anyone can edit), keeps both, runs the local checks and pushes. It comments with a `## Conflict resolution` section, each file and the choice it made (one line when only bookkeeping files conflicted). `ship` stays on and nobody re-approves.
 5. When a check goes red because of its merge or resolution (it passes on the default branch, and either passed before the merge or fails in the PR's side of the merge), it fixes it on the PR's side (its own files and the resolution), never in a file only the default branch changed, pushes and waits again, at most twice. A check that was already red, or isn't shown passing on the default branch, isn't its to fix. Resolving and fixing run the project's local checks on the PR's code, on your machine or session, with your credentials.
 6. When it can't land a PR (the two sides of a conflict contradict each other, a resolution that fails the local checks, a red check it can't fix, a merge GitHub refuses), it leaves a comment saying why, keeps `ship`, and lands the rest. For a contradiction it pushes nothing and names the decision to make. The PRs stacked on it wait.
-7. Ends with one line per PR: merged (marked when it resolved a conflict or fixed a check), stopped or skipped, with the reason.
+7. After merging a `spec/<n>-…` PR, it closes spec #n and any of its tickets still open, with a comment naming the PR, reading only issue numbers and states.
+8. Ends with one line per PR: merged (marked when it resolved a conflict or fixed a check), stopped or skipped, with the reason.
 
 The label approves the PR, not a commit: pushes after it land with it. Remove `ship` before pushing more work to an approved PR.
 

@@ -95,7 +95,7 @@ each night. Re-run `/ship:setup-ship` to change it.
 ## Spec labels
 
 Specs are GitHub issues moving through `spec:draft` → `spec:ready` → `spec:building` → `spec:in-review`, or
-`spec:stuck`, and close when their PR ships. To send a PR back instead of approving it, label it
+`spec:stuck`, and close with their tickets when their PR ships. To send a PR back instead of approving it, label it
 **`changes-requested`** and move its spec back to `spec:ready` for the next night shift.
 
 ## Design labels
