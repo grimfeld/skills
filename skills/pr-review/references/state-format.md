@@ -81,7 +81,8 @@ The agent-facing detail (`evidence`, `verification`, `sources`, `confidence`) is
 |---|---|
 | `runs` | Newest last. Append one per run; never rewrite earlier runs. |
 | `ci.status` | `passing`, `failing`, `pending` or `none` (no PR). `failing` lists `{name, url}`. |
-| `lenses[].status` | `ran`, `skipped`, `failed` or `stale` (run with an un-synced lens). |
+| `lenses[].status` | `ran`, `skipped`, `failed`, `stale` (ran with a lens whose upstream drifted, not synced) or `unverified` (ran as written; the drift check couldn't compare). `stale` and `unverified` lenses show in the reviewer table with their note. |
+| `lenses[].note` | Free text. For an `unverified` lens it starts `reason: <r>` (the reason `check-drift.py` printed); step 5 adds `agent: <type>` after it, separated by `; `. |
 | `findings[].id` | `F<n>`, assigned once and never reused. A finding keeps its id across runs. |
 | `severity` | From `references/finding-format.md`. |
 | `status` | `open` or `fixed`. Set `fixed` with `fixed_in` = the run date when a re-run no longer finds it. |
