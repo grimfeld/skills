@@ -95,6 +95,25 @@ test("failing checks need you; the pending ship status and skipped runs are not 
   ]);
 });
 
+test("each check is judged by its latest run: a cancelled duplicate before a pass isn't failing", () => {
+  const prs = [pr(34, []), pr(35, []), pr(36, []), pr(37, [])];
+  const run = (id, started_at, conclusion, name = "e2e") => ({ id, name, status: "completed", conclusion, started_at });
+  const checks = {
+    // cancelled, then success: not failing
+    34: { check_runs: [run(2, "2026-11-24T10:05:00Z", "success"), run(1, "2026-11-24T10:00:00Z", "cancelled")] },
+    // success, then cancelled: failing
+    35: { check_runs: [run(1, "2026-11-24T10:00:00Z", "success"), run(2, "2026-11-24T10:05:00Z", "cancelled")] },
+    // same start: the higher id wins
+    36: { check_runs: [run(9, "2026-11-24T10:00:00Z", "success"), run(8, "2026-11-24T10:00:00Z", "cancelled")] },
+    // another check's failure still counts
+    37: { check_runs: [run(1, "2026-11-24T10:00:00Z", "cancelled"), run(2, "2026-11-24T10:05:00Z", "success"), run(3, "2026-11-24T10:00:00Z", "failure", "lint")] },
+  };
+  assert.deepEqual(pick(toCards("acme/app", [], prs, checks, NOW)), [
+    [35, "pr", "needs-you", "checks failing"],
+    [37, "pr", "needs-you", "checks failing"],
+  ]);
+});
+
 test("PRs merged in the last 7 days have landed; older merges are dropped", () => {
   const prs = [
     pr(40, ["ship"], { state: "closed", merged: true, merged_at: hoursAgo(24 * 6) }),

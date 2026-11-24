@@ -94,10 +94,32 @@ function landsAfter(project, pr, openPrs) {
 const FAILED_RUN = new Set(["failure", "timed_out", "cancelled", "action_required", "startup_failure"]);
 const FAILED_STATUS = new Set(["failure", "error"]);
 
+// The latest run of each check, by name: a cancelled duplicate workflow run is its own check
+// suite, so the check-runs endpoint returns it beside the run that replaced it. Latest is the
+// latest `started_at` (a run not started yet is newer than any started one), then the highest
+// `id`, then the later position in the list. A run with no name is kept as it is.
+export function latestRuns(runs) {
+  const byName = new Map();
+  const unnamed = [];
+  const key = (r, i) => [r?.started_at ?? "\uffff", Number(r?.id ?? -1), i];
+  const newer = (a, b) => {
+    for (let k = 0; k < 3; k++) if (a[k] !== b[k]) return a[k] > b[k];
+    return false;
+  };
+  (runs ?? []).forEach((r, i) => {
+    if (!r?.name) { unnamed.push(r); return; }
+    const seen = byName.get(r.name);
+    if (!seen || newer(key(r, i), seen.key)) byName.set(r.name, { run: r, key: key(r, i) });
+  });
+  return [...[...byName.values()].map((v) => v.run), ...unnamed];
+}
+
 // `check` is { check_runs, statuses } as pull_request_read's get_check_runs and get_status return them.
+// Each check is judged by its latest run (latestRuns), so a cancelled duplicate followed by a
+// passing run isn't failing; a check whose latest run is cancelled still is.
 // The `ship` status stays pending until the label is on: it is the approval gate, not a check.
 export function checksFailing(check) {
-  const runs = check?.check_runs ?? [];
+  const runs = latestRuns(check?.check_runs);
   const statuses = check?.statuses ?? [];
   return runs.some((r) => FAILED_RUN.has(r?.conclusion)) ||
     statuses.some((s) => s?.context !== "ship" && FAILED_STATUS.has(s?.state));
