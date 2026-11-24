@@ -73,7 +73,7 @@ Bookkeeping files (a conflict only in these is mechanical):
 
 Required on `main`: no CI checks (the repository has no CI yet), and `ship`.
 
-Run locally before marking a PR ready: `claude plugin validate .`
+Run locally before marking a PR ready: `claude plugin validate .`, and `uv run --no-project python -m unittest discover -s skills/pr-review/scripts -p 'test_*.py'` when a PR touches `skills/pr-review/scripts/`.
 
 ## After merge
 
