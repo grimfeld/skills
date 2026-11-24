@@ -162,8 +162,15 @@ class Footer(unittest.TestCase):
         got = self.footer([{"lens": n, "status": "stale"} for n in ("quality", "security", "principles")])
         self.assertEqual(got, "quality (stale), security (stale), principles (stale)")
 
-    def test_none_ran(self):
-        self.assertEqual(self.footer([{"lens": "quality", "status": "skipped"}]), "none")
+    def test_none_ran_is_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "pr-1.json"
+            path.write_text(json.dumps(state(lenses=[{"lens": "quality", "status": "skipped"},
+                                                     {"lens": "security", "status": "failed"}])))
+            r = subprocess.run([sys.executable, str(SCRIPT), str(path)], capture_output=True, text=True)
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn("no reviewer ran", r.stderr)
+            self.assertEqual(sorted(p.name for p in Path(d).iterdir()), ["pr-1.json"])
 
 
 class CI(unittest.TestCase):

@@ -18,6 +18,8 @@ Refusals (non-zero exit, nothing written):
 - `--stamp` on a latest run whose `date` isn't `this-run`: "run already stamped".
 - no `--stamp` while the latest run's `date` is `this-run`: "run not stamped".
 - `git rev-parse` fails in the `--stamp` root.
+- the latest run has no lens with status `ran`, `stale` or `unverified`: "no reviewer ran". A review
+  no lens ran has no verdict to show.
 """
 import argparse
 import html
@@ -482,6 +484,8 @@ def main(argv: list) -> int:
     runs = state.get("runs") or []
     if not runs:
         sys.exit("state has no runs")
+    if not any(l.get("status") in LENS_MARK for l in runs[-1].get("lenses") or []):
+        sys.exit("no reviewer ran")
     unstamped = runs[-1].get("date") == PLACEHOLDER
     if a.stamp is not None:
         if not unstamped:

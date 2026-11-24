@@ -1,6 +1,6 @@
 # Review state and how to write findings for people
 
-The orchestrator keeps one state file per review at `.scratch/pr-review/<id>.json`. It is the single source of truth: re-runs read it, decisions are written to it, and `scripts/render-report.py` turns it into the human report (`<id>.md`) and the shareable page (`<id>.html`). Never hand-edit the `.md` or `.html`; change the JSON and re-render.
+The orchestrator keeps one state file per review at `.scratch/pr-review/<id>.json`. It is the single source of truth: re-runs read it, decisions are written to it, and `scripts/render-report.py` turns it into the human report (`<id>.md`), the shareable page (`<id>.html`) and the PR section (`<id>.pr.md`). Never hand-edit the `.md`, `.html` or `.pr.md`, or a run's `date` or `head`; change the JSON and re-render.
 
 ## Writing findings for people
 
@@ -40,8 +40,8 @@ The agent-facing detail (`evidence`, `verification`, `sources`, `confidence`) is
   },
   "runs": [
     {
-      "date": "2026-11-09 15:34",
-      "head": "e9828ed0",
+      "date": "2026-11-09 15:34 UTC",
+      "head": "e9828ed",
       "mode": "full",
       "ci": { "status": "passing", "failing": [], "note": "check, e2e ×4, CodeQL" },
       "spec": "issues #423, #424–#434",
@@ -59,7 +59,7 @@ The agent-facing detail (`evidence`, `verification`, `sources`, `confidence`) is
       "id": "F1",
       "severity": "major",
       "status": "open",
-      "first_seen": "2026-11-09 15:34",
+      "first_seen": "2026-11-09 15:34 UTC",
       "fixed_in": null,
       "title": "Two listening prompts in a row: the second one never autoplays",
       "why": "…",
@@ -84,13 +84,16 @@ The agent-facing detail (`evidence`, `verification`, `sources`, `confidence`) is
 | Field | Rule |
 |---|---|
 | `runs` | Newest last. Append one per run; never rewrite earlier runs. |
+| `runs[].date` | Written by `render-report.py --stamp`, never typed: the run's first render turns the placeholder `this-run` into the current UTC time, `YYYY-MM-DD HH:MM UTC`. A run not yet stamped has `this-run`. Earlier runs in old state files keep whatever string they were written with. |
+| `runs[].head` | Written by the same stamp: the 7-character short SHA of `REVIEW_ROOT`'s HEAD, the code the lenses read. Absent until the stamp. |
 | `runs[].mode` | `full` or `fix-round` (only the fix diff was re-checked, see SKILL.md "Fix round"). Absent means `full`. |
 | `ci.status` | `passing`, `failing`, `pending`, `no-checks` (a PR whose only checks are the `ship` status and the Ship workflow's jobs) or `none` (not a PR). `failing` lists `{name, url}`; with no names it renders "CI failing" and `note`. |
 | `lenses[].status` | `ran`, `skipped`, `failed`, `stale` (ran with a lens whose upstream drifted, not synced) or `unverified` (ran as written; the drift check couldn't compare). `stale` and `unverified` lenses show in the reviewer table with their note. |
 | `lenses[].note` | Free text. For an `unverified` lens it starts `reason: <r>` (the reason `check-drift.py` printed); a fix-round run that fell back to a full review adds `full review: <reason>`; step 5 adds `agent: <type>` last. Parts are separated by `; `. |
 | `findings[].id` | `F<n>`, assigned once and never reused. A finding keeps its id across runs. |
 | `severity` | From `references/finding-format.md`. |
-| `status` | `open` or `fixed`. Set `fixed` with `fixed_in` = the run date when a re-run no longer finds it. |
+| `status` | `open` or `fixed`. Set `fixed` with `fixed_in` = `this-run` when a re-run no longer finds it. |
+| `first_seen`, `fixed_in` | The run date that opened or fixed the finding. Write `this-run` for the current run; the stamp fills it with that run's date. The report labels "new", "still open" and "Fixed since last run" by comparing them with the latest run's date. |
 | `fix_kind` | Optional. `"property"` when the finding is about an algorithm's output over a space of inputs (set at verify): it is fixed when a seeded property test for it passes, not when the reported example does. The property itself is named in `fix`. Absent or `null` otherwise. |
 | `options` | Optional. Set at verify (step 7) only for a finding whose fix is a choice for a person, or would change a line the spec settles: two to four `{ "name", "what" }`, the recommended one first. Absent or `null` otherwise. |
 | `spec_line` | Optional. The quoted spec line the suggested fix would change, when that is why `options` is set. |
@@ -102,7 +105,7 @@ The PR section's footer ("reviewers:") names every lens with status `ran`, `stal
 
 ## Re-runs
 
-Match each new finding to an existing open finding by root cause and location. Matched: keep the existing id, decision and human fields, refresh `evidence` and `locations`. Unmatched new findings get new ids with `first_seen` set to this run. Existing open findings nothing matched become `fixed`.
+Match each new finding to an existing open finding by root cause and location. Matched: keep the existing id, decision and human fields, refresh `evidence` and `locations`. Unmatched new findings get new ids with `first_seen` set to `this-run`. Existing open findings nothing matched become `fixed`.
 
 **Fix rounds** (`mode: "fix-round"`): only a finding that got an explicit verdict changes. It becomes `fixed` (with `fixed_in`) when a lens asked about it says `fixed` and none says `still open`; any other answer, or none, keeps it open. Every other open finding carries over unchanged, and is never marked fixed for going unreported: the "nothing matched become `fixed`" rule above doesn't apply. New findings are matched for ids as above.
 

@@ -85,7 +85,7 @@ Return the coverage line, then one line per finding above: `<id>: fixed` or `<id
 
 - **Steps 6–7:** new findings are deduped against open ones, verified and (step 9) approved like any other.
 - **Step 8.2, state:** append the run with `mode: "fix-round"`. Only a finding that got an explicit verdict changes:
-  - it becomes `fixed` (with `fixed_in` = this run's date) when a lens asked about it says `fixed` and none says `still open`;
+  - it becomes `fixed` (with `fixed_in` = `this-run`, the placeholder the renderer stamps) when a lens asked about it says `fixed` and none says `still open`;
   - a `still open` verdict, conflicting verdicts, or a missing verdict keep it open.
   - Every other open finding carries over unchanged, whoever raised it: never mark one fixed for going unreported. The re-run rule that turns unmatched open findings `fixed` doesn't apply in a fix round.
 
@@ -245,8 +245,10 @@ Done when every blocker and major is `confirmed` or `refuted` with a reason, and
    - `preview_url`: from step 4, when found.
    - `screens`: image URLs only when they already exist (a PR comment, CI artifact or the project's screenshot command named in `docs/agents/shipping.md`); never start the app for them.
    Done when every changed area appears in `changes`.
-2. **Write state.** Update `.scratch/pr-review/<id>.json` per `references/state-format.md`: append this run, match findings against the previous state (new / still open / fixed), and write each finding's human fields (`title`, `why`, `fix`, `theme`) by the writing rules there. Done when every finding has plain-language human fields, one issue each.
-3. **Render.** `uv run --no-project python ${CLAUDE_SKILL_DIR}/scripts/render-report.py .scratch/pr-review/<id>.json` writes `<id>.md`, `<id>.html` and `<id>.pr.md`.
+2. **Write state.** Update `.scratch/pr-review/<id>.json` per `references/state-format.md`: append this run with `date` set to the placeholder `this-run` and no `head`, match findings against the previous state (new / still open / fixed), and set `first_seen` of findings new in this run and `fixed_in` of findings fixed in this run to `this-run`. Write each finding's human fields (`title`, `why`, `fix`, `theme`) by the writing rules there. Done when every finding has plain-language human fields, one issue each.
+3. **Render.** The run's first render stamps it: `uv run --no-project python ${CLAUDE_SKILL_DIR}/scripts/render-report.py --stamp <REVIEW_ROOT> .scratch/pr-review/<id>.json`. The script replaces every `this-run` with the current UTC time, sets the run's `head` from `REVIEW_ROOT`'s HEAD, saves the state, and writes `<id>.md`, `<id>.html` and `<id>.pr.md`. Every later render of the same run (after publishing, after decisions) passes no `--stamp`, so the date and head stay.
+   - **"no reviewer ran":** the run has no lens with status `ran`, `stale` or `unverified`, and nothing was written. The review failed: update no PR description, don't add `pr-reviewed`, and end with "review failed: no reviewer ran" (unattended, as the whole hand-off).
+   - Any other refusal ("run already stamped", "run not stamped", a `git rev-parse` failure): fix the state or the root the message names and render again. Never work around it by typing a date or head.
 4. **Publish the page** with the Artifact tool, `file_path` = the `.html`:
    - No `artifact_url` in state: publish with `icon: "checklist"` and a one-sentence `description` (verdict and counts), then save the returned URL as `artifact_url` and re-render.
    - `artifact_url` set, page not yet published in this conversation: `action: "read"` that URL first, then publish with `url` = `artifact_url`.
@@ -275,7 +277,7 @@ If `docs/agents/issue-tracker.md` names GitHub or GitLab, offer to publish the s
 
 ## 11. Finish
 
-1. **Label the PR.** Only when the target is a PR, not a bare branch. Run `gh api repos/{owner}/{repo}/issues/<n>/labels -f 'labels[]=pr-reviewed'` (REST: the porcelain PR edit fails on some repositories). If it fails because the label does not exist, create it with the "Create a label" row (`gh api repos/{owner}/{repo}/labels -f name=pr-reviewed -f description='Reviewed with /pr-review' -f color=0E8A16`) and retry once. If it still fails (no permission, no `gh` auth), say so in the summary and carry on. Label the PR whatever the outcome of the review, including when no finding was approved.
+1. **Label the PR.** Only when the target is a PR, not a bare branch, and the review didn't fail at step 8.3. Run `gh api repos/{owner}/{repo}/issues/<n>/labels -f 'labels[]=pr-reviewed'` (REST: the porcelain PR edit fails on some repositories). If it fails because the label does not exist, create it with the "Create a label" row (`gh api repos/{owner}/{repo}/labels -f name=pr-reviewed -f description='Reviewed with /pr-review' -f color=0E8A16`) and retry once. If it still fails (no permission, no `gh` auth), say so in the summary and carry on. Label the PR whatever the outcome of the review, including when no finding was approved.
 2. **Clean up.** Remove the worktree if you created one (`git worktree remove .scratch/pr-review/wt-<id>`).
 3. **Hand off.** End with whether the label was applied, the report path, the page link, the spec path, and the next command:
 
