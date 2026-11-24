@@ -102,12 +102,15 @@ Sizes each `spec:ready` spec against prior PRs in the same areas. The rule is on
    - Conflicting decisions go to you, in one round.
    - A design's place specs wait until its foundation and shell have merged.
 3. Once you approve the plan, it gives each session its prompt on a reused pool of builder routines (`ship-builder-<repo>-N`, since routines can't be deleted through the API) and starts them. The routines run in the cloud environment `docs/agents/shipping.md` names (its "Cloud environment" line); without one, the plan asks you to pick tonight's, never taking the default. Each builder runs `/ship:build-spec <specs> unattended`, so nothing is asked overnight.
+4. About two minutes after starting them, it checks each session is still running before reporting it as building. A session that already ended without reporting its specs is shown with the cause from its log, and offered one restart; specs of a session not restarted stay `spec:ready` with a `not-started` comment.
+5. The plan shows a **Load** line comparing tonight with the last recorded night, and warns when a night that size already stopped at the 5-hour limit.
 
 **`/ship:night-shift morning`** gathers the results into one page:
 - PRs ready to review, smallest first, each with its verdict, risks and the decisions to check
 - for a PR built from a design, its fidelity grid: reference beside app in every look, theme and viewport, with the views the review flagged shown full size
 - designs whose specs have all merged are closed
 - stuck specs, and what each needs from you
+- builder sessions stopped at the 5-hour limit, with their specs: open the session after the reset and send `Try again` (re-running the routine starts over). Each morning also records the night's size, cost and limit stops in `.scratch/night-shift/nights.jsonl`, for the evening's Load line
 - under each decision, how to answer it: tell the morning session `#<pr>: <choice>`, and it comments the answer on the PR and keeps the PR in the `/ship:land` line or sends it back for another night
 - what each spec, each session and the whole night would have cost at API prices, counted by each builder from its own transcript (`scripts/token-usage.mjs`, prices in `scripts/prices.json`)
 - the `/ship:land` command to run once you've reviewed: it approves the PRs you name and lands every PR carrying `ship`
@@ -190,6 +193,8 @@ What each cloud session runs. night-shift's builders pass `unattended`: nobody i
 4. It fixes them in at most two rounds.
 
 A review finding whose fix is a choice only a person can make, or would undo something the spec settles, is never fixed at night: it is named under Decisions and the spec ends stuck with that choice. Every choice the spec left open goes in the PR's Decisions section. The PR ends ready, or as a draft marked stuck with the reason. It never merges and never adds `ship`.
+
+Unattended, its last step unsubscribes the session from the PRs it opened or reviewed, so later PR events (CI finishing, a PR marked ready) don't wake a finished builder.
 
 In a session without the Agent tool (a subagent), it builds the tickets inline, stops after the checks, and hands the draft PR back: "review pending: run build-spec steps 4–6 from a session with the Agent tool". The caller runs those steps.
 
