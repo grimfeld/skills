@@ -335,7 +335,8 @@ dialog.sheet::backdrop { background: rgb(0 0 0 / 0.45); }
 <script>
 (() => {
   // The connector tools this page calls. Keep in step with the `mcp` capabilities in SKILL.md
-  // (build.test.mjs checks they match).
+  // (build.test.mjs checks they match). Each tool's arguments, reply shape and errors are in
+  // references/connectors.md: add a tool there when you add it here.
   const CONNECTORS = {
     github: { server: "github", tools: ["list_issues", "list_pull_requests", "pull_request_read", "get_file_contents", "issue_read", "issue_write"] },
     remote: { server: "Claude Code Remote", tools: ["list_repos", "list_environments", "create_session"] },
