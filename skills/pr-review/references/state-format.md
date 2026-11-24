@@ -10,7 +10,7 @@ Reviewers return findings in agent terms. Before saving a finding to state, rewr
   - Agent: "`promptText` re-derives each face's question/answer; already differs from WordFace for listen"
   - Person: "The practice report and the practice screen can show different questions"
 - **`why`**: one or two sentences: when it happens and what it costs. Code identifiers only where the reader needs them to find the spot.
-- **`fix`**: one sentence naming the move, plus the test or check that proves it.
+- **`fix`**: one sentence naming the move, plus the test or check that proves it. For a `fix_kind: "property"` finding, name the property that must hold over all inputs, and say to add a seeded property test that fails on it first.
 - **`theme`**: a short area name readers recognise, shared across findings so minors group well: `Accessibility`, `Security`, `Data and privacy`, `Performance`, `Duplication and type casts`, `Error handling`, `Tests`, `Docs and decisions`, `Layout on phones`, or another plain name. Nits always use `Polish`.
 - One finding, one issue. Split a reviewer finding that packs several issues into several findings.
 
@@ -42,6 +42,7 @@ The agent-facing detail (`evidence`, `verification`, `sources`, `confidence`) is
     {
       "date": "2026-11-09 15:34",
       "head": "e9828ed0",
+      "mode": "full",
       "ci": { "status": "passing", "failing": [], "note": "check, e2e ×4, CodeQL" },
       "spec": "issues #423, #424–#434",
       "lenses": [
@@ -70,6 +71,9 @@ The agent-facing detail (`evidence`, `verification`, `sources`, `confidence`) is
       "lane": "in",
       "verification": "confirmed: …",
       "evidence": "…",
+      "fix_kind": null,
+      "options": null,
+      "spec_line": null,
       "decision": { "state": "pending", "reason": "", "date": "" },
       "ticket": null
     }
@@ -80,17 +84,26 @@ The agent-facing detail (`evidence`, `verification`, `sources`, `confidence`) is
 | Field | Rule |
 |---|---|
 | `runs` | Newest last. Append one per run; never rewrite earlier runs. |
-| `ci.status` | `passing`, `failing`, `pending` or `none` (no PR). `failing` lists `{name, url}`. |
-| `lenses[].status` | `ran`, `skipped`, `failed` or `stale` (run with an un-synced lens). |
+| `runs[].mode` | `full` or `fix-round` (only the fix diff was re-checked, see SKILL.md "Fix round"). Absent means `full`. |
+| `ci.status` | `passing`, `failing`, `pending`, `no-checks` (a PR whose only checks are the `ship` status and the Ship workflow's jobs) or `none` (not a PR). `failing` lists `{name, url}`; with no names it renders "CI failing" and `note`. |
+| `lenses[].status` | `ran`, `skipped`, `failed`, `stale` (ran with a lens whose upstream drifted, not synced) or `unverified` (ran as written; the drift check couldn't compare). `stale` and `unverified` lenses show in the reviewer table with their note. |
+| `lenses[].note` | Free text. For an `unverified` lens it starts `reason: <r>` (the reason `check-drift.py` printed); a fix-round run that fell back to a full review adds `full review: <reason>`; step 5 adds `agent: <type>` last. Parts are separated by `; `. |
 | `findings[].id` | `F<n>`, assigned once and never reused. A finding keeps its id across runs. |
 | `severity` | From `references/finding-format.md`. |
 | `status` | `open` or `fixed`. Set `fixed` with `fixed_in` = the run date when a re-run no longer finds it. |
-| `decision.state` | `pending`, `approved`, `rejected` or `deferred`. Rejected findings are never resurfaced: on a re-run, a new finding matching a rejected one (same root cause, same place) is discarded. |
+| `fix_kind` | Optional. `"property"` when the finding is about an algorithm's output over a space of inputs (set at verify): it is fixed when a seeded property test for it passes, not when the reported example does. The property itself is named in `fix`. Absent or `null` otherwise. |
+| `options` | Optional. Set at verify (step 7) only for a finding whose fix is a choice for a person, or would change a line the spec settles: two to four `{ "name", "what" }`, the recommended one first. Absent or `null` otherwise. |
+| `spec_line` | Optional. The quoted spec line the suggested fix would change, when that is why `options` is set. |
+| `decision.state` | `pending`, `approved`, `rejected`, `deferred` or `needs-person` (unattended only: a blocker or major with `options`, left for a person; the report shows "needs a person: <option names>"). `needs-person` is not a decision: the next attended run asks it (step 9) and replaces it with the answer. Rejected findings are never resurfaced: on a re-run, a new finding matching a rejected one (same root cause, same place) is discarded. |
 | `origin` | Optional; `pre-existing` carried over from the finding format. The report tags it "already in base". |
 | `ticket` | The ticket number once tickets are written. |
+
+The PR section's footer ("reviewers:") names every lens with status `ran`, `stale` or `unverified`, marking the last two ("quality (stale)"), or "none".
 
 ## Re-runs
 
 Match each new finding to an existing open finding by root cause and location. Matched: keep the existing id, decision and human fields, refresh `evidence` and `locations`. Unmatched new findings get new ids with `first_seen` set to this run. Existing open findings nothing matched become `fixed`.
+
+**Fix rounds** (`mode: "fix-round"`): only a finding that got an explicit verdict changes. It becomes `fixed` (with `fixed_in`) when a lens asked about it says `fixed` and none says `still open`; any other answer, or none, keeps it open. Every other open finding carries over unchanged, and is never marked fixed for going unreported: the "nothing matched become `fixed`" rule above doesn't apply. New findings are matched for ids as above.
 
 **Legacy reports**: if `<id>.md` exists without `<id>.json`, seed state from it once: each row of its Rejected table becomes a finding with `decision.state: "rejected"` and its reason.
