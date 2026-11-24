@@ -43,10 +43,11 @@ Read first:
 Run `implement-spec` on the spec issue, as `${CLAUDE_PLUGIN_ROOT}/references/running-skills.md` says. The Skill tool can't call it. Its tickets are the spec's sub-issues.
 
 - **The design handoff first:** if the spec has a "Design" section, bring its handoff into the tree before anything else: `git fetch origin <sha>`, then `git checkout <sha> -- docs/design/<module>`. Commit it ("Design handoff: <module>") unless the base already has it unchanged. Build against that copy and its `reference.html`. Keep its `fidelity.json` true for the places you build, as the spec's Fidelity line says: `pr-review`'s `design-fidelity` lens captures the app from it.
-- **Decision records first:** if the spec has a "Decision records" section other than "None", commit its ADRs and glossary entries before the first ticket, as the spec's first commit. They ship in this PR, never in one of their own. Before committing:
-  - **Number them.** Where `CLAUDE.md` or `docs/agents/shipping.md` names the repo's own numbering tool, use it. Otherwise give each new ADR, and each new numbered doc section (a PLAN §), the number after the highest taken on the base branch and on the head branch of every other open PR whose head is `spec/*`: list open PRs, `git fetch origin <head>`, then `git ls-tree --name-only FETCH_HEAD docs/adr/` (or `git show FETCH_HEAD:<doc>` for sections). A spec written with a hard number gets the same treatment when that number is taken. Replace `NNNN` and every reference by slug or old number in the committed text. Record each number under Decisions: "ADR <slug> → 0007, after open PR #N's 0006".
+- **Decision records first:** if the spec has a "Decision records" section other than "None", commit its ADRs and glossary entries before the first ticket, as the spec's first commit, and push it at once, so a parallel builder's numbering tool sees its numbers taken. They ship in this PR, never in one of their own. Before committing:
+  - **Number them.** Where `CLAUDE.md`, `AGENTS.md` or `docs/agents/shipping.md` names the repo's own numbering tool, use it. Otherwise give each new ADR, and each new numbered doc section (a PLAN §), the number after the highest taken on the base branch and on the head branch of every other open PR whose head is `spec/*`: list open PRs, `git fetch origin <head>`, then `git ls-tree --name-only FETCH_HEAD docs/adr/` (or `git show FETCH_HEAD:<doc>` for sections). A spec written with a hard number gets the same treatment when that number is taken. Replace `NNNN` and every reference by slug or old number in the committed text. Record each number under Decisions: "ADR <slug> → 0007, after open PR #N's 0006".
   - **Reconcile replacement text.** Where a record replaces an existing glossary entry, ADR or ADR frontmatter line, compare the entry on the base with the entry when the spec issue was created: `git show $(git rev-list -1 --before=<created_at> <base>):<file>`. Unchanged: commit the spec's text. Changed: apply the spec's change to the current entry, keeping every meaning that landed since, and add a Decisions line naming the entry and the commit or ADR whose wording you kept. When the later change and the spec's change can't both hold, the record's meaning is a question the spec doesn't answer (below).
   - **Check references.** Every `amends`, `amended-by` and `supersedes` must name an ADR that exists on the base or one numbered above. Fix a wrong one, with a Decisions line.
+- **Migrations:** when a ticket adds one and `CLAUDE.md`, `AGENTS.md` or `docs/agents/shipping.md` names the repo's migration-numbering command, number it with that command and push that commit at once, so a parallel builder sees the number taken. Without one, give it the number after the highest taken on the base and on every other open `spec/*` PR head, found the way ADRs are above.
 - **The branch:** what `implement-spec` calls the integration branch is the spec's branch, `spec/<n>-<slug>`, made from the base above.
 - **The PR:** it's a **draft**, targeting the base branch. Its body opens with `Closes #<n>` and one paragraph on what it delivers. Below that is the decisions section:
 
@@ -127,7 +128,9 @@ Either way, comment on the spec issue with one line for the morning page:
 night-shift: <ready for review|stuck>: <PR link>. <one sentence>
 ```
 
-A stuck spec ends the chain for the specs built on top of it. Mark each of those stuck too, "depends on #N, which is stuck", and stop.
+A stuck spec stops only the specs whose Depends on names it, directly or through another spec in this chain. Mark each of those stuck, "depends on #N, which is stuck".
+
+A spec stacked on the stuck one without depending on it is built, reviewed and finished as usual, on that branch (on the stuck spec's base if it left no branch). Its PR body and `night-shift` comment say "stacked on stuck #N; lands after it, or retarget".
 
 ## 7. End
 

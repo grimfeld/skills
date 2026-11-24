@@ -71,7 +71,7 @@ The spec is a GitHub issue that's saved after every round:
 - `spec:ready` once every item is answered
 - `spec:draft` if you stop first, with its open questions listed, so `/ship:spec-me #<n>` resumes it later
 
-ADRs and glossary entries settled during the session go into the issue's Decision records, not a PR of their own, unnumbered: the build numbers them past the base and every open spec PR, and commits them in the spec's PR, so each spec ends in one PR.
+ADRs and glossary entries settled during the session go into the issue's Decision records, not a PR of their own, unnumbered: the build numbers them with the repo's own tool, or past the base and every open spec PR, and commits them in the spec's PR, so each spec ends in one PR.
 
 ### `/ship:design-me`
 
