@@ -33,7 +33,7 @@ Return exactly two things, nothing else (in a fix round, the prompt also asks fo
 | `category` | Short kebab-case slug from your lens (`injection`, `n-plus-one`, `deep-nesting`, `principle:boundary-discipline`). |
 | `title` | The claim in under 12 words. |
 | `evidence` | The quoted code and why it is a problem. A finding with no quoted code or concrete observation is not a finding. |
-| `suggested_fix` | The specific move, not "consider improving". |
+| `suggested_fix` | The specific move, not "consider improving". It must satisfy the repo's documented standards and the checks they name (lint rules, UI checks, architecture rules): check it against the rule's source, the standards doc or the check's script or config. When the obvious fix would break one, suggest one that doesn't, or write "no fix within the repo's rules: <the rule>". |
 | `source_skill` | Your lens's `source` from its front matter. |
 | `confidence` | `high` (you traced it), `medium` (likely, one assumption unverified), `low` (a heuristic match). |
 | `lane` | `in` for your lens's scope; `out` for something outside it you noticed anyway. |
