@@ -24,6 +24,8 @@ Files in this skill, reached by path from `${CLAUDE_SKILL_DIR}` (the directory h
 
 Run Python scripts with `uv run --no-project python <script>`.
 
+Never write or edit by hand the review section, the `.pr.md`, a run's `date` or a run's `head`. The renderer writes them, and the PR updater refuses a section that isn't the renderer's for the PR's current head.
+
 ## Unattended mode
 
 The argument `unattended` means no person is present, for example during a night build (`/ship:build-spec`). Never ask anything. Where a step below would ask, do this instead:
@@ -253,7 +255,7 @@ Done when every blocker and major is `confirmed` or `refuted` with a reason, and
    - No `artifact_url` in state: publish with `icon: "checklist"` and a one-sentence `description` (verdict and counts), then save the returned URL as `artifact_url` and re-render.
    - `artifact_url` set, page not yet published in this conversation: `action: "read"` that URL first, then publish with `url` = `artifact_url`.
    - Already published in this conversation: publish the same `file_path` again.
-5. **Update the PR description.** Only when the target is a PR: `uv run --no-project python ${CLAUDE_SKILL_DIR}/scripts/update-pr-body.py <n> .scratch/pr-review/<id>.pr.md`. It replaces the section between the `pr-review` markers and leaves the rest of the description alone. The description is where the reviewer decides whether to add the `ship` label, so it must match the page. When `gh` can't edit the PR, use the "Splice a section into a PR body" row of `${CLAUDE_PLUGIN_ROOT}/references/github.md`: one MCP read of the body, saved exactly (line endings included) to a file, `update-pr-body.py --body-file <that file> .scratch/pr-review/<id>.pr.md > <new file>`, and one MCP update with the new file's contents. If that fails too, say so in the summary and carry on.
+5. **Update the PR description.** Only when the target is a PR: `uv run --no-project python ${CLAUDE_SKILL_DIR}/scripts/update-pr-body.py <n> .scratch/pr-review/<id>.pr.md`. It replaces the section between the `pr-review` markers and leaves the rest of the description alone. It refuses (exit 1, description unchanged) a section with no renderer footer, or one whose footer head isn't the PR's current head: then the PR moved on since this run, so review the new head; never edit the section to get past it. The description is where the reviewer decides whether to add the `ship` label, so it must match the page. When `gh` can't edit the PR, use the "Splice a section into a PR body" row of `${CLAUDE_PLUGIN_ROOT}/references/github.md`: one MCP read of the body, saved exactly (line endings included) to a file, `update-pr-body.py --body-file <that file> --head <the head.sha from the same read> .scratch/pr-review/<id>.pr.md > <new file>`, and one MCP update with the new file's contents. If that fails too, say so in the summary and carry on.
 6. **Summarise** in the terminal: the verdict line, the "fix before merge" titles, counts of smaller improvements, skipped reviewers with their reasons, lens failures (including each `wrote inside the repo` path), any fallback reviewer agent, whether web-quality and design-fidelity had live evidence, the report path and the page link.
 
 ## 9. Approval
