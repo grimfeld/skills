@@ -2,14 +2,30 @@
 """Render a pr-review state file into the human report (<id>.md), the page (<id>.html)
 and the review section for the PR description (<id>.pr.md).
 
-usage: render-report.py .scratch/pr-review/<id>.json
+usage: render-report.py [--stamp <REVIEW_ROOT>] .scratch/pr-review/<id>.json
 
 Writes all three next to the JSON. Stdlib only. Schema: references/state-format.md.
+
+The script stamps each run, so nobody types a date or a head. pr-review writes a new run with
+`date` set to the placeholder `this-run` and no `head`, and marks `first_seen` of findings new in
+the run and `fixed_in` of findings fixed in it `this-run`. The run's first render passes
+`--stamp <REVIEW_ROOT>`: every `this-run` becomes the current UTC time (`YYYY-MM-DD HH:MM UTC`),
+the run's `head` becomes the 7-character short SHA of REVIEW_ROOT's HEAD, and the state file is
+saved before the three outputs are written. Later renders of the same run pass no `--stamp` and
+keep the stamp. There is no way to set "now": the clock is the only source.
+
+Refusals (non-zero exit, nothing written):
+- `--stamp` on a latest run whose `date` isn't `this-run`: "run already stamped".
+- no `--stamp` while the latest run's `date` is `this-run`: "run not stamped".
+- `git rev-parse` fails in the `--stamp` root.
 """
+import argparse
 import html
 import json
 import re
+import subprocess
 import sys
+from datetime import datetime, timezone
 from collections import OrderedDict
 from pathlib import Path
 
@@ -434,11 +450,49 @@ def render_html(view) -> str:
     return "\n".join(h) + "\n"
 
 
-def main() -> int:
-    if len(sys.argv) != 2:
-        sys.exit(__doc__)
-    path = Path(sys.argv[1])
-    view = build_view(json.loads(path.read_text()))
+PLACEHOLDER = "this-run"
+
+
+def git_head(root: str) -> str:
+    """The 7-character short SHA of root's HEAD; exits when git can't tell."""
+    r = subprocess.run(["git", "-C", root, "rev-parse", "--verify", "HEAD"], capture_output=True, text=True)
+    sha = r.stdout.strip()
+    if r.returncode != 0 or not re.fullmatch(r"[0-9a-f]{40,64}", sha):
+        sys.exit(f"git rev-parse failed in {root}: {r.stderr.strip() or 'no HEAD'}")
+    return sha[:7]
+
+
+def stamp(state: dict, now: str, head: str) -> None:
+    """Fill the latest run's placeholder date and its head, and every placeholder finding date."""
+    run = state["runs"][-1]
+    run["date"], run["head"] = now, head
+    for f in state.get("findings") or []:
+        for field in ("first_seen", "fixed_in"):
+            if f.get(field) == PLACEHOLDER:
+                f[field] = now
+
+
+def main(argv: list) -> int:
+    parser = argparse.ArgumentParser(usage="render-report.py [--stamp <REVIEW_ROOT>] <state.json>")
+    parser.add_argument("--stamp", metavar="REVIEW_ROOT")
+    parser.add_argument("state", type=Path)
+    a = parser.parse_args(argv)
+    path = a.state
+    state = json.loads(path.read_text())
+    runs = state.get("runs") or []
+    if not runs:
+        sys.exit("state has no runs")
+    unstamped = runs[-1].get("date") == PLACEHOLDER
+    if a.stamp is not None:
+        if not unstamped:
+            sys.exit("run already stamped")
+        head = git_head(a.stamp)
+        stamp(state, datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"), head)
+    elif unstamped:
+        sys.exit("run not stamped: pass --stamp <REVIEW_ROOT> on the run's first render")
+    view = build_view(state)
+    if a.stamp is not None:
+        path.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n")
     md, page, pr = path.with_suffix(".md"), path.with_suffix(".html"), path.with_suffix(".pr.md")
     md.write_text(render_md(view))
     page.write_text(render_html(view))
@@ -448,4 +502,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))
