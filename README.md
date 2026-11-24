@@ -113,7 +113,7 @@ Sizes each `spec:ready` spec against prior PRs in the same areas. The rule is on
 - what each spec, each session and the whole night would have cost at API prices, counted by each builder from its own transcript (`scripts/token-usage.mjs`, prices in `scripts/prices.json`); builders mark each spec's start, so a chained session's tokens land on the spec being worked on, and a spec nothing was counted toward reads "cost not reported"
 - the `/ship:land` command to run once you've reviewed: it approves the PRs you name and lands every PR carrying `ship`
 
-Each collected spec gets a comment linking that morning's page, marked `<!-- ship:morning-page -->`, so the page can be found from the spec.
+Each collected spec gets a comment linking the morning page, marked `<!-- ship:morning-page -->`, so the page can be found from the spec. A spec whose newest such comment already names that URL gets no new one, so republishing the page to the same URL posts nothing.
 
 ### `/ship:land`
 
