@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>@@TITLE@@</title>
+<style>
+/* The switcher's chrome. Variants never use these tokens: they follow the project's styles below. */
+:root {
+  --pm-page: #ffffff;
+  --pm-text: #16181d;
+  color-scheme: light;
+  --pm-bar-bg: #16181d;
+  --pm-bar-fg: #f5f6f8;
+  --pm-bar-muted: #a3a9b4;
+  --pm-bar-hover: #2b2f38;
+  --pm-bar-on: #f5f6f8;
+  --pm-bar-on-fg: #16181d;
+  --pm-focus: #5b9dff;
+  --pm-shadow: 0 6px 24px rgb(0 0 0 / 0.28);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --pm-page: #121418; --pm-text: #e8eaee; --pm-bar-bg: #f5f6f8; --pm-bar-fg: #16181d; --pm-bar-muted: #555c69;
+    --pm-bar-hover: #dfe2e7; --pm-bar-on: #16181d; --pm-bar-on-fg: #f5f6f8; --pm-focus: #1d5bd6;
+    --pm-shadow: 0 6px 24px rgb(0 0 0 / 0.6); color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --pm-page: #121418; --pm-text: #e8eaee; --pm-bar-bg: #f5f6f8; --pm-bar-fg: #16181d; --pm-bar-muted: #555c69;
+  --pm-bar-hover: #dfe2e7; --pm-bar-on: #16181d; --pm-bar-on-fg: #f5f6f8; --pm-focus: #1d5bd6;
+  --pm-shadow: 0 6px 24px rgb(0 0 0 / 0.6); color-scheme: dark;
+}
+body { margin: 0; background: var(--pm-page); color: var(--pm-text); }
+[hidden] { display: none !important; }
+</style>
+<style>
+/*@@STYLES@@*/
+</style>
+<style>
+/* Stage: one variant, or all of them side by side (stacked on a narrow screen). Each variant is a
+   size container, so its narrow-screen rules can be @container queries the phone toggle triggers. */
+#pm-stage > section { container-type: inline-size; }
+#pm-stage.pm-phone { padding: 16px 0; }
+#pm-stage.pm-phone > section { width: 375px; max-width: 100%; margin-inline: auto; overflow-x: auto; outline: 1px solid var(--pm-bar-muted); box-shadow: var(--pm-shadow); }
+#pm-stage.pm-all { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(360px, 1fr); gap: 16px; overflow-x: auto; padding: 16px; }
+#pm-stage.pm-all.pm-phone { grid-auto-columns: 375px; }
+#pm-stage.pm-all > section { margin: 0; outline: 1px solid var(--pm-bar-muted); }
+#pm-stage.pm-all > section::before {
+  content: attr(data-variant) " · " attr(data-name); display: block; padding: 6px 12px;
+  font: 600 13px/1.4 system-ui, sans-serif; background: var(--pm-bar-bg); color: var(--pm-bar-fg);
+}
+@media (max-width: 600px) {
+  #pm-stage.pm-all { grid-auto-flow: row; grid-auto-columns: auto; padding: 16px 0; }
+}
+
+/* The bar: a high-contrast pill, bottom centre, styled apart from whatever the project sets. */
+#pm-bar {
+  all: initial; position: fixed; z-index: 2147483647; left: 50%; bottom: 16px; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 2px; padding: 4px; max-width: calc(100vw - 32px); box-sizing: border-box;
+  background: var(--pm-bar-bg); color: var(--pm-bar-fg); border-radius: 999px; box-shadow: var(--pm-shadow);
+  font: 500 14px/1.3 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+#pm-bar button {
+  all: unset; box-sizing: border-box; flex: none; min-width: 40px; height: 40px; padding: 0 8px; border-radius: 999px;
+  display: inline-grid; place-items: center; cursor: pointer; white-space: nowrap; font: inherit; color: inherit;
+}
+#pm-bar button:hover { background: var(--pm-bar-hover); }
+#pm-bar button[aria-pressed="true"] { background: var(--pm-bar-on); color: var(--pm-bar-on-fg); }
+#pm-bar :focus-visible { outline: 2px solid var(--pm-focus); outline-offset: 1px; }
+#pm-label {
+  flex: 1 1 auto; min-width: 0; max-width: 40ch; padding: 0 8px; text-align: center;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-radius: 6px;
+}
+/* A truncated label shows in full in a bubble above the bar, on hover or focus. */
+#pm-label[data-cut]:hover::after, #pm-label[data-cut]:focus::after {
+  content: attr(data-full); position: absolute; left: 0; right: 0; bottom: calc(100% + 8px); padding: 8px 14px;
+  border-radius: 12px; background: var(--pm-bar-bg); color: var(--pm-bar-fg); box-shadow: var(--pm-shadow); white-space: normal;
+}
+#pm-sep { width: 1px; align-self: stretch; margin: 8px 4px; background: var(--pm-bar-muted); }
+</style>
+</head>
+<body>
+<main id="pm-stage">
+<!--@@VARIANTS@@-->
+</main>
+
+<nav id="pm-bar" aria-label="Prototype variants">
+  <button id="pm-prev" type="button" aria-label="Previous variant">←</button>
+  <span id="pm-label" tabindex="0" aria-live="polite"></span>
+  <button id="pm-next" type="button" aria-label="Next variant">→</button>
+  <span id="pm-sep" aria-hidden="true"></span>
+  <button id="pm-all" type="button" aria-pressed="false" title="Every variant side by side">All</button>
+  <button id="pm-phone" type="button" aria-pressed="false" title="Show at phone width (375px)">Phone</button>
+</nav>
+
+<script>
+/*@@SWITCHER@@*/
+
+// State lives in memory; only the variant goes into the URL, so a reload keeps it.
+const stage = document.getElementById("pm-stage");
+const bar = document.getElementById("pm-bar");
+const label = document.getElementById("pm-label");
+const allButton = document.getElementById("pm-all");
+const phoneButton = document.getElementById("pm-phone");
+const sections = [...stage.querySelectorAll(":scope > section[data-variant]")];
+const keys = sections.map((s) => s.dataset.variant);
+let current = parseVariant(location.search, keys);
+let lastSingle = current === "all" ? keys[0] : current;
+
+function show(key) {
+  current = key;
+  if (key !== "all") lastSingle = key;
+  history.replaceState(null, "", withVariant(location.search, key) + location.hash);
+  render();
+}
+
+function render() {
+  const all = current === "all";
+  for (const s of sections) s.hidden = !all && s.dataset.variant !== current;
+  stage.classList.toggle("pm-all", all);
+  allButton.setAttribute("aria-pressed", String(all));
+  const section = sections.find((s) => s.dataset.variant === current);
+  const text = all ? `All ${keys.length} variants` : `${current} (${section.dataset.name})`;
+  label.textContent = text;
+  label.dataset.full = text;
+  fitBar();
+}
+
+// Padding the bar's height (plus its gap) so it never covers content; flag a truncated label.
+function fitBar() {
+  document.body.style.paddingBottom = `${bar.offsetHeight + 32}px`;
+  label.toggleAttribute("data-cut", label.scrollWidth > label.clientWidth);
+}
+
+document.getElementById("pm-prev").addEventListener("click", () => show(step(keys, current, -1)));
+document.getElementById("pm-next").addEventListener("click", () => show(step(keys, current, 1)));
+allButton.addEventListener("click", () => show(current === "all" ? lastSingle : "all"));
+phoneButton.addEventListener("click", () => {
+  const phone = stage.classList.toggle("pm-phone");
+  phoneButton.setAttribute("aria-pressed", String(phone));
+});
+document.addEventListener("keydown", (event) => {
+  const delta = arrowDelta(event);
+  if (!delta) return;
+  event.preventDefault();
+  show(step(keys, current, delta));
+});
+new ResizeObserver(fitBar).observe(bar);
+
+render();
+</script>
+</body>
+</html>
