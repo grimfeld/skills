@@ -1,4 +1,4 @@
-# ship.yml version: 3
+# ship.yml version: 4
 # Installed by /ship:setup-ship. The rules it enforces are in docs/agents/shipping.md.
 #
 # A PR reaches __DEFAULT_BRANCH__ only once a person has reviewed it and added the `ship` label.

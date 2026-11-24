@@ -120,7 +120,8 @@ The design tree holds, and nothing else:
 
 Read the handoff's behaviour changes (the "differs from the app today" section) as decisions to confirm, each
 with its ADR and its user-guide change. The ADRs and glossary entries `domain-modeling` writes go into the
-Decision records of the spec they belong to, never into a commit or PR of their own.
+Decision records of the spec they belong to, never into a commit or PR of their own. Write them unnumbered, as
+`/ship:spec-me`'s Decision records rule says; the build numbers them.
 
 A design with nothing open asks nothing: show the spec plan, and take one yes.
 
