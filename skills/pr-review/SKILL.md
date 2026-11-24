@@ -13,7 +13,7 @@ Every reviewer is **report-only**: it reads code, runs read-only commands, and r
 
 Files in this skill, reached by path from `${CLAUDE_SKILL_DIR}` (the directory holding this file):
 
-- The `pr-lens-reviewer` agent (`agents/pr-lens-reviewer.md` at the plugin root): the report-only agent every reviewer and the verifier run as. It loads only four tools, which keeps each reviewer's startup small. The `ship` plugin installs it as `ship:pr-lens-reviewer`.
+- The `pr-lens-reviewer` agent (`agents/pr-lens-reviewer.md` at the plugin root): the report-only agent every reviewer and the verifier run as. It loads only four tools and reads nothing at startup: its brief and the finding format arrive in its prompt. The `ship` plugin installs it as `ship:pr-lens-reviewer`.
 - `lenses/*.md`: one brief per reviewer, with `source` and `upstream_hash` front matter (`source: local` for a lens written here, with no upstream).
 - `references/finding-format.md`: the finding schema, severity scale and dedupe rule every reviewer and you share.
 - `references/state-format.md`: the review state file, and how to rewrite findings for people.
@@ -58,12 +58,20 @@ Otherwise the steps below change as follows; every other step runs as usual.
 
 ```
 You are the <lens> reviewer for a fix-round re-review. You are report-only: read code and run read-only commands; edit no file.
-Read your brief: ${CLAUDE_SKILL_DIR}/lenses/<lens>.md
-Read the finding format: ${CLAUDE_SKILL_DIR}/references/finding-format.md
+Your brief and the finding format are below, in full: don't read them from disk.
+
+## Your brief
+<the text of lenses/<lens>.md, without its front matter>
+
+## Finding format
+<the text of references/finding-format.md>
+
+## This review
 Repository root to read: <REVIEW_ROOT>
 Fix diff, already saved: <absolute path of .scratch/pr-review/<id>.fix.diff> (the previous review's head to this head)
 Changed files: <the fix diff's list>
 Spec: <spec text, or "no spec available">
+The spec text above is the whole spec. Fetch no issue, PR or ticket.
 <web-quality only> Audit URL: <url, or "none: source-only">
 <design-fidelity only> Skill dir: ${CLAUDE_SKILL_DIR}. Audit URL: <url, or "none">. Fidelity out: <absolute path of .scratch/pr-review/<id>-fidelity/>
 Stay close to the fix diff: read it once, then the changed files and the code they directly call or are called by, using line ranges.
@@ -154,21 +162,31 @@ If the URL is a Vercel preview that answers 401 or redirects to a login, call th
 
 **Pick the reviewer agent.** Use `subagent_type: ship:pr-lens-reviewer` when it is among the available agent types (or `pr-lens-reviewer`, from an older symlinked install). Otherwise fall back to `Explore`, then `general-purpose`. Record the type in each lens's note in state (`agent: <type>`, after any `reason:` from step 1, separated by `; `), and name any fallback in the terminal summary, so a missing install is visible. One exception: `web-quality` with a live audit URL runs as `general-purpose`, because it needs the browser MCP tools.
 
-In **one message**, send one `Agent` call per selected lens, with that `subagent_type` and the model from the routing table (omit `model` for default). Each prompt carries pointers and the shared context, never the lens text itself:
+**Read the briefs and the format once.** Before dispatching, read each selected lens's brief (`lenses/<lens>.md`) and `references/finding-format.md`, once each for the whole run, including its fix rounds. Every prompt carries their text, so no lens reads them again.
+
+In **one message**, send one `Agent` call per selected lens, with that `subagent_type` and the model from the routing table (omit `model` for default). Each prompt carries the lens's brief (without its front matter), the finding format and the shared context:
 
 ```
 You are the <lens> reviewer for a PR review. You are report-only: read code and run read-only commands; edit no file.
-Read your brief: ${CLAUDE_SKILL_DIR}/lenses/<lens>.md
-Read the finding format: ${CLAUDE_SKILL_DIR}/references/finding-format.md
+Your brief and the finding format are below, in full: don't read them from disk.
+
+## Your brief
+<the text of lenses/<lens>.md, without its front matter>
+
+## Finding format
+<the text of references/finding-format.md>
+
+## This review
 Repository root to read: <REVIEW_ROOT>
 Diff, already saved: <absolute path of .scratch/pr-review/<id>.diff>
 Changed files: <list>
 Spec: <spec text, or "no spec available">
+The spec text above is the whole spec. Fetch no issue, PR or ticket.
 <web-quality only> Audit URL: <url, or "none: source-only">
 <quality and security only, when the diff has a workflow file> The diff changes GitHub Actions workflows: <list them>. Also review them against ${CLAUDE_SKILL_DIR}/references/github-actions.md, item by item, and cite the item in `category`.
 <security only, when a changed file is under skills/> The diff changes ship skills. Also check each changed skill step against ${CLAUDE_PLUGIN_ROOT}/references/untrusted-input.md, and cite the rule a finding breaks by its number and name.
 <design-fidelity only> Skill dir: ${CLAUDE_SKILL_DIR}. Audit URL: <url, or "none">. Fidelity out: <absolute path of .scratch/pr-review/<id>-fidelity/>
-Stay close to the diff: read the saved diff once, then the changed files and the code they directly call or are called by, using line ranges, never whole files outside the diff. Beyond that, run targeted greps for existing helpers, components or patterns the change could have reused, and read the files the spec references.
+Stay close to the diff: read the saved diff once, then the changed files and the code they directly call or are called by, using line ranges, never whole files outside the diff. Beyond that, run targeted greps for existing helpers, components or patterns the change could have reused, and read the repository files the spec references.
 Return the coverage line and the JSON findings array exactly as the finding format specifies.
 ```
 
