@@ -80,7 +80,7 @@ Shows what a spec's UI could look like before it's built: `/ship:prototype-me #<
 
 It runs mattpocock's `prototype` (its UI branch) to draft structurally different variants, styled like the project after a subagent reads its tokens, CSS and the page the feature lives on, and publishes them as one private claude.ai Artifact, with a screenshot of each in chat. The page has a switcher bar at the bottom: ←/→ (the arrows or the keys) cycle the variants and update `?variant=`, so a reload or a shared link keeps the variant; **All** (`?variant=all`) shows every variant side by side, stacked on a phone; **Phone** frames the variant at 375px. It needs the Artifact tool and stops without it.
 
-You pick in chat: name a variant, or a remix ("B's header with C's list"), which joins the same Artifact as a new variant for another round. Naming the winner writes a `## Prototype` entry into the spec (the question, the Artifact, every variant, your reasons verbatim, what was rejected), fills its UI states, and ends by pointing to `/ship:spec-me #<n>` to finish the grilling.
+You pick in chat: name a variant, or a remix ("B's header with C's list"), which joins the same Artifact as a new variant for another round. Naming the winner writes a `## Prototype` entry into the spec (the question, the Artifact, every variant, your reasons verbatim, what was rejected), fills its UI states, and ends by pointing to `/ship:spec-me #<n>` to finish the grilling. The night build then reads the Artifact and rebuilds the winner's layout in the project's real components.
 
 It commits nothing and pushes no branch: the variants, the page and the screenshots stay in the scratchpad (or `.scratch/prototype-me/`).
 
