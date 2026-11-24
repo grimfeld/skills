@@ -16,8 +16,9 @@
 //   exclusion --side day|night [--since <iso>] < specs.json
 //     Whether the other shift is building. Prints {blocked, reason, specs}.
 //     side day: blocked by a spec:building spec whose latest dispatch is a night
-//     one, or by a night dispatch comment since <since> (local midnight by default:
-//     today's evening run has dispatched). side night: blocked by a spec:building
+//     one, or by a night dispatch comment since <since> (06:00 local time today by
+//     default: today's evening run has dispatched; a run that slipped past midnight
+//     belongs to last night). side night: blocked by a spec:building
 //     spec whose latest dispatch is a day one. A dispatch comment with no `shift`
 //     counts as night. A spec:stuck spec never blocks.
 //
@@ -27,7 +28,9 @@
 //     and is replaced on the next add.
 //
 // specs.json is an array of issues: {number, title, labels: [<name>...], body,
-// comments: [{body, created_at}]}. Only `night-shift` comments are read from it.
+// comments: [{body, created_at, author_association}]}. Only `night-shift` comments
+// by someone with write access (OWNER, MEMBER, COLLABORATOR) count: anyone can
+// comment on a public repository, so anyone else's dispatch comment is ignored.
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { dirname } from "node:path";
@@ -35,6 +38,8 @@ import { fileURLToPath } from "node:url";
 
 export const DEFAULTS = Object.freeze({ lines: 200, behaviours: 1, builders: 2 });
 const PENDING_DISPATCH_MS = 60 * 60 * 1000;
+const MORNING_HOUR = 6;
+const TRUSTED_AUTHORS = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
 
 const clean = (line) => line.replace(/\*\*/g, "").replace(/^\s*[-*]\s*/, "").trim();
 
@@ -91,6 +96,7 @@ export function sizeSaysSmall(body) {
 export function dispatches(issue) {
   const out = [];
   for (const c of issue.comments ?? []) {
+    if (!TRUSTED_AUTHORS.has(c.author_association)) continue;
     const m = (c.body ?? "").match(/<!--\s*night-shift\s+(\{[\s\S]*?\})\s*-->/);
     if (!m) continue;
     let json;
@@ -127,8 +133,8 @@ export function classify(specs, thresholds = DEFAULTS, { declined = [], now = ne
     } else {
       row.sliced = true;
       row.estimate = est.low === est.high
-        ? `~${est.high} lines, ${est.behaviours} behaviour${est.behaviours === 1 ? "" : "s"}`
-        : `~${est.low}–${est.high} lines, ${est.behaviours} behaviour${est.behaviours === 1 ? "" : "s"}`;
+        ? `~${est.high}` : `~${est.low}–${est.high}`;
+      row.estimate += ` lines, ${est.behaviours} behaviour${est.behaviours === 1 ? "" : "s"}`;
       small = est.high <= thresholds.lines && est.behaviours <= thresholds.behaviours;
     }
     if (!small) out.tonight.push(row);
@@ -169,8 +175,14 @@ export function readDeclined(file, today) {
   }
 }
 
+export function specNumber(value) {
+  const m = String(value).trim().match(/^#?(\d+)$/);
+  if (!m || Number(m[1]) < 1) throw new Error(`not a spec number: ${value}`);
+  return Number(m[1]);
+}
+
 export function addDeclined(file, today, numbers) {
-  const specs = [...new Set([...readDeclined(file, today), ...numbers.map(Number)])].sort((a, b) => a - b);
+  const specs = [...new Set([...readDeclined(file, today), ...numbers.map(specNumber)])].sort((a, b) => a - b);
   mkdirSync(dirname(file), { recursive: true });
   writeFileSync(file, JSON.stringify({ date: today, specs }) + "\n");
   return specs;
@@ -181,8 +193,8 @@ export function localDate(d = new Date()) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
-export function localMidnight(d = new Date()) {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).toISOString();
+export function localMorning(d = new Date()) {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), MORNING_HOUR).toISOString();
 }
 
 function parseArgs(argv) {
@@ -211,7 +223,7 @@ function main(argv) {
       return print({ thresholds, ...classify(JSON.parse(stdin()), thresholds, { declined, now: opts.now }) });
     }
     case "exclusion":
-      return print(exclusion(JSON.parse(stdin()), opts.side, { since: opts.since ?? localMidnight() }));
+      return print(exclusion(JSON.parse(stdin()), opts.side, { since: opts.since ?? localMorning() }));
     case "declined": {
       const [action, ...numbers] = opts._;
       if (action === "list") return print({ date: today, specs: readDeclined(declinedFile, today) });

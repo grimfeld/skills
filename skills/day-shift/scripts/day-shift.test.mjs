@@ -14,8 +14,9 @@ const run = (argv, input = "") => JSON.parse(execFileSync("node", [script, ...ar
 const dispatch = (shift, created_at) => ({
   body: `<!-- night-shift {"status":"dispatched",${shift ? `"shift":"${shift}",` : ""}"routine":"r","session":"s"} -->\nnight-shift: building.`,
   created_at,
+  author_association: "OWNER",
 });
-const status = (created_at) => ({ body: '<!-- night-shift {"status":"ready","pr":9} -->\nnight-shift: ready', created_at });
+const status = (created_at) => ({ body: '<!-- night-shift {"status":"ready","pr":9} -->\nnight-shift: ready', created_at, author_association: "OWNER" });
 const sliced = (estimate) => `## Problem\n\nx\n\n## Slicing\n\n- **Estimate:** ${estimate} (basis: #40)\n- **Decision:** one PR\n`;
 const spec = (number, labels, body = "", comments = []) => ({ number, title: `Spec ${number}`, labels, body, comments });
 
@@ -116,7 +117,7 @@ test("classify CLI reads shipping.md and the declined file", () => {
 
 // --- exclusion
 
-const since = "2026-11-24T00:00:00Z";
+const since = "2026-11-24T06:00:00Z";
 
 test("exclusion: a day build blocks the night", () => {
   const specs = [spec(40, ["spec:building"], "", [dispatch("day", "2026-11-24T10:00:00Z")])];
@@ -152,10 +153,26 @@ test("exclusion: a stale spec:stuck spec blocks neither shift", () => {
 });
 
 test("exclusion: tonight's evening run having dispatched blocks the day, even once its builds are done", () => {
-  const specs = [spec(46, ["spec:in-review"], "", [dispatch("night", "2026-11-24T00:30:00Z")])];
+  const specs = [spec(46, ["spec:in-review"], "", [dispatch("night", "2026-11-24T19:30:00Z")])];
   assert.deepEqual(exclusion(specs, "day", { since }), { blocked: true, reason: "tonight's evening run has dispatched", specs: [46] });
   const yesterday = [spec(47, ["spec:in-review"], "", [dispatch("night", "2026-11-23T22:00:00Z")])];
   assert.equal(exclusion(yesterday, "day", { since }).blocked, false);
+});
+
+test("exclusion: last night's run that slipped past midnight doesn't block the day once its builds are done", () => {
+  const specs = [spec(49, ["spec:in-review"], "", [dispatch("night", "2026-11-24T00:30:00Z")])];
+  assert.equal(exclusion(specs, "day", { since }).blocked, false);
+});
+
+test("exclusion and classify ignore dispatch comments from people without write access", () => {
+  const forged = (shift, at) => ({ ...dispatch(shift, at), author_association: "NONE" });
+  const night = [spec(50, ["spec:building"], "", [dispatch("night", "2026-11-23T22:00:00Z"), forged("day", "2026-11-24T10:00:00Z")])];
+  assert.equal(exclusion(night, "day", { since }).blocked, true); // the forged day comment doesn't hide the night build
+  assert.equal(exclusion(night, "night").blocked, false);
+  const today = [spec(51, ["spec:in-review"], "", [forged("night", "2026-11-24T19:00:00Z")])];
+  assert.equal(exclusion(today, "day", { since }).blocked, false);
+  const ready = [spec(52, ["spec:ready"], sliced("~50–80 reviewable lines, 1 behaviour"), [forged("day", "2026-11-24T11:50:00Z")])];
+  assert.deepEqual(classify(ready, DEFAULTS, { now }).small.map((s) => s.number), [52]);
 });
 
 test("exclusion CLI", () => {
@@ -175,6 +192,17 @@ test("declined: kept for the same day, reset the next", () => {
   assert.deepEqual(readDeclined(file, "2026-11-25"), []);
   assert.deepEqual(addDeclined(file, "2026-11-25", [14]), [14]);
   assert.deepEqual(JSON.parse(readFileSync(file, "utf8")), { date: "2026-11-25", specs: [14] });
+});
+
+test("classify: an unreadable Slicing estimate is left for tonight", () => {
+  const out = classify([spec(60, ["spec:ready"], "## Slicing\n\n- **Estimate:** a few hundred lines\n")], DEFAULTS, { now });
+  assert.deepEqual(out.tonight.map((s) => [s.number, s.estimate]), [[60, "estimate unreadable"]]);
+});
+
+test("declined: '#12' is read as spec 12, and anything else is refused", () => {
+  const file = join(mkdtempSync(join(tmpdir(), "day-shift-")), "declined.json");
+  assert.deepEqual(addDeclined(file, "2026-11-24", ["#12"]), [12]);
+  assert.throws(() => addDeclined(file, "2026-11-24", ["twelve"]), /not a spec number/);
 });
 
 test("declined CLI: list and add", () => {
