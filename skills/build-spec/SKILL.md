@@ -92,8 +92,11 @@ Run `pr-review` with `<pr> unattended`, as `${CLAUDE_PLUGIN_ROOT}/references/run
 Round = fix every approved finding and every red CI check on the branch, push, wait for CI, and run `pr-review <pr> unattended` again.
 
 - A finding you think is wrong: record it in Decisions with your reason, and leave it.
-- After round 2, anything still blocking makes the spec stuck. Name each blocking item and what you tried.
-- Without `unattended`, ask instead of going stuck: for each item still blocking after round 2, one question as in step 2, naming the choices (for example a fix you describe, accepting it as is with a note, or leaving the spec stuck) and your recommendation. Record the answer under Decisions as in step 2 ("<item>: decided by the owner: <choice>") and apply it, with no third review round: the two-round cap still holds. An item settled this way counts as closed for step 6; one the owner leaves stuck keeps the spec stuck.
+- **A `needs-person` finding** (pr-review's hand-off lists them under "Needs a person"): fix nothing for it and make no commit for it. Add a Decisions line, "finding <id> needs a person: <option names>", or "finding <id> contradicts the spec's '<quoted line>': not fixed". Run the rounds for the remaining approved findings as usual; with none left, no round is needed.
+- **Before fixing any approved finding,** check its fix against the lines the spec settles: its acceptance criteria, Out of scope, Implementation decisions, Decision records, and any "stays unchanged" or ruled-out statement. A fix that would change one is treated as `needs-person`, as above, with that line quoted.
+- A `needs-person` finding still open is blocking, like an open major.
+- When the rounds end (after round 2, or straight away when no round was needed), anything still blocking, including a `needs-person` finding, makes the spec stuck. Name each blocking item and what you tried.
+- Without `unattended`, ask instead of going stuck: for each item still blocking when the rounds end (as above), one question as in step 2, naming the choices (for example a fix you describe, accepting it as is with a note, or leaving the spec stuck) and your recommendation. Record the answer under Decisions as in step 2 ("<item>: decided by the owner: <choice>") and apply it, with no third review round: the two-round cap still holds. An item settled this way counts as closed for step 6; one the owner leaves stuck keeps the spec stuck.
 
 **Reaching the chain:** after a fix round on a spec whose branch a later spec in this chain is built on, merge it into its child, then that child into the next, down the chain:
 - `git merge --no-ff --no-commit <parent's branch>` on the child's branch, then `git commit` with the build's message conventions and attribution, then push. Never rebase.
@@ -110,7 +113,7 @@ Skipped for a spec handed back at step 3 (no Agent tool): the caller runs it.
 
 **Stuck:**
 - Leave the PR as a draft, or open one with what exists, if anything was built.
-- Add a "Stuck" section to the PR body below Decisions: what blocks, what you tried, and what a person has to decide.
+- Add a "Stuck" section to the PR body below Decisions: what blocks, what you tried, and what a person has to decide. For a `needs-person` finding, name the finding, the spec line it contradicts if any, and the choice: keep the spec and accept or document the finding, or change the spec (or pick one of its options).
 - Relabel the issue `spec:stuck`.
 
 Either way, comment on the spec issue with one line for the morning page:

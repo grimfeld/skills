@@ -99,6 +99,31 @@ class WorthFixing(unittest.TestCase):
         self.assertLess(md.index("**Tests (1)**"), md.index("**Polish (3)**"))
 
 
+class NeedsPerson(unittest.TestCase):
+    def test_decision_tag_names_the_options(self):
+        f = finding("F1", "major", "Behaviour", title="Editing a word drops its kind")
+        f["options"] = [{"name": "Keep the spec", "what": "both words must form the pair"},
+                        {"name": "Change the spec", "what": "either word keeps the kind"}]
+        f["decision"] = {"state": "needs-person", "reason": "contradicts the spec's 'mother/godson counts as no kind'", "date": ""}
+        out = render(state([f]))
+        tag = "needs a person: Keep the spec / Change the spec"
+        for name in ("md", "html", "pr"):
+            self.assertIn(tag, out[name], name)
+        self.assertNotIn("needs-person", out["md"])
+
+    def test_without_options_no_dangling_colon(self):
+        f = finding("F1", "major")
+        f["decision"] = {"state": "needs-person", "reason": "", "date": ""}
+        pr = render(state([f]))["pr"]
+        self.assertIn("needs a person)", pr)
+        self.assertNotIn("needs a person:", pr)
+
+    def test_other_decisions_unchanged(self):
+        f = finding("F1", "major")
+        f["decision"] = {"state": "approved", "reason": "unattended: fix before merge", "date": ""}
+        self.assertIn("approved: unattended: fix before merge", render(state([f]))["pr"])
+
+
 class Footer(unittest.TestCase):
     def footer(self, lenses):
         pr = render(state(lenses=lenses))["pr"]

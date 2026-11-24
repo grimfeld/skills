@@ -12,7 +12,7 @@ Findings: <F1, F4>
 
 ## What
 
-<The root cause these findings share, and the end state after the fix.>
+<The root cause these findings share, and the end state after the fix. For a finding decided from its `options`, state the chosen option as the rule, with no alternative and no "recommended".>
 
 ## Where
 

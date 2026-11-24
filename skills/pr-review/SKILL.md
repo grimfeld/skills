@@ -32,10 +32,10 @@ The argument `unattended` means no person is present, for example during a night
 - **Large diff (step 2.3):** review the whole diff.
 - **Page (step 8.4):** publish it only if the Artifact tool is available. Otherwise the PR description is the review.
 - **Approval (step 9):**
-  - Every blocker and major is `approved`, with the reason "unattended: fix before merge".
+  - Every blocker and major still `pending` (or `needs-person`) is `approved`, with the reason "unattended: fix before merge", except one with `options`: that one is `needs-person`, and `decision.reason` is "contradicts the spec's '<spec_line>'" when it has a `spec_line`, otherwise "a choice for a person". A decision a person already made (approved, rejected or deferred) is kept.
   - Minors and nits stay `pending`, for the person who reviews the PR.
 - **Spec and tickets (step 10):** skip it. The caller fixes approved findings on the branch itself.
-- **Hand off (step 11.3):** end with the approved findings as a list of ids, titles, locations and fixes. Don't suggest a next command.
+- **Hand off (step 11.3):** end with the approved findings as a list of ids, titles, locations and fixes. Then, only when there are any, a separate "Needs a person" list: each `needs-person` finding's id, title, options and the spec line it contradicts, if any. Don't suggest a next command.
 
 GitHub: `${CLAUDE_PLUGIN_ROOT}/references/github.md` says what to use when `gh` isn't available, as in some cloud sessions.
 
@@ -139,7 +139,13 @@ Collect every `blocker` and `major` after dedupe. For each one, re-read the cite
 
 Refuted findings move to "Dropped by verification". `minor` and `nit` skip this step.
 
-Done when every blocker and major is `confirmed` or `refuted` with a reason.
+**Decisions.** For each confirmed finding, fill `options` (see `references/state-format.md`) only when:
+- the fix is a real choice between behaviours that only a person can make, or
+- its suggested fix would change something the spec **settles**: a line you can quote from its acceptance criteria, Out of scope, Implementation decisions, Decision records, or a "stays unchanged" / ruled-out statement anywhere in it. Put that quote in `spec_line`.
+
+Give two to four named moves, the recommended one first. A finding about behaviour the spec doesn't mention is an ordinary fix and gets no `options`.
+
+Done when every blocker and major is `confirmed` or `refuted` with a reason, and every confirmed one that is a decision carries its `options`.
 
 ## 8. Report
 
@@ -163,16 +169,17 @@ Done when every blocker and major is `confirmed` or `refuted` with a reason.
 Use the human `title` and `why` in every question.
 
 - **Fix-before-merge findings, one by one.** `AskUserQuestion`, up to 4 findings per call, options Approve / Reject / Defer. A rejection carries a reason (the user types it via Other, or you ask).
+- **Findings with `options`, each in its own question,** never in a batch, including one carried over as `needs-person` from an unattended run (that state waits for this question; it is not a decision): its `title` and `why` (and the `spec_line` it contradicts, if any), with its options as the choices, plus Reject and Defer. When options, Reject and Defer don't fit the question's four choices, offer Reject and Defer through Other and say so in the question. A chosen option records `approved` with the option's `name` and `what` as `decision.reason`.
 - **Smaller improvements, as a batch.** List them by theme with their ids, then one question: approve all, reject all, or pick by id.
 
-Record every decision in the state file, re-render, republish the page and update the PR description again. Done when every finding has a decision.
+Record every decision in the state file, re-render, republish the page and update the PR description again. Done when every finding is `approved`, `rejected` or `deferred`.
 
 ## 10. Spec and tickets
 
 With at least one approved finding, write into `.scratch/pr-review-<id>/`, the local-markdown tracker layout `/implement-spec` reads:
 
 - `spec.md` from `references/spec-template.md`.
-- `issues/NN-<slug>.md` from `references/ticket-template.md`, numbered from `01`; record each finding's ticket number in state. Group approved findings by root cause or area, one ticket per group. Order the tickets so a fix others depend on (a boundary type, a shared helper) comes first, and record that with `Blocked by:`. All nits go into one final `polish` ticket that blocks nothing. Every ticket names its check: a failing test to write first where an honest one exists, otherwise a concrete manual or CI check.
+- `issues/NN-<slug>.md` from `references/ticket-template.md`, numbered from `01`; record each finding's ticket number in state. Group approved findings by root cause or area, one ticket per group. Order the tickets so a fix others depend on (a boundary type, a shared helper) comes first, and record that with `Blocked by:`. All nits go into one final `polish` ticket that blocks nothing. Every ticket names its check: a failing test to write first where an honest one exists, otherwise a concrete manual or CI check. A ticket for a finding with `options` states the chosen option (its `decision.reason`) as the rule to build, naming no alternative and nothing "recommended".
 
 If `docs/agents/issue-tracker.md` names GitHub or GitLab, offer to publish the spec and tickets there; publish only on a yes.
 
