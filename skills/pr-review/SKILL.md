@@ -61,6 +61,7 @@ You are the <lens> reviewer for a fix-round re-review. You are report-only: read
 Your brief and the finding format are below, in full: don't read them from disk.
 
 ## Your brief
+Your lens's source, for `source_skill`: <the `source` value from the lens's front matter>
 <the text of lenses/<lens>.md, without its front matter>
 
 ## Finding format
@@ -68,6 +69,7 @@ Your brief and the finding format are below, in full: don't read them from disk.
 
 ## This review
 Repository root to read: <REVIEW_ROOT>
+Default branch, for the repo's standards and checks: <origin/<default>>
 Fix diff, already saved: <absolute path of .scratch/pr-review/<id>.fix.diff> (the previous review's head to this head)
 Changed files: <the fix diff's list>
 Spec: <spec text, or "no spec available">
@@ -144,7 +146,7 @@ A diff of only docs and config (Markdown, text, other YAML, editor config) runs 
 
 | Code lines | Lenses that stay |
 |---|---|
-| under 200 | `standards-and-spec`, `quality`, `security`, plus `web-quality` when front-end files changed |
+| under 200 | `standards-and-spec`, `quality`, `security`, plus `web-quality` when front-end files changed, and `design-fidelity` when pass 1 selected it |
 | 200–800 | those, plus the `sonnet` lenses pass 2 keeps |
 | over 800 | every lens pass 2 keeps |
 
@@ -183,6 +185,7 @@ You are the <lens> reviewer for a PR review. You are report-only: read code and 
 Your brief and the finding format are below, in full: don't read them from disk.
 
 ## Your brief
+Your lens's source, for `source_skill`: <the `source` value from the lens's front matter>
 <the text of lenses/<lens>.md, without its front matter>
 
 ## Finding format
@@ -190,6 +193,7 @@ Your brief and the finding format are below, in full: don't read them from disk.
 
 ## This review
 Repository root to read: <REVIEW_ROOT>
+Default branch, for the repo's standards and checks: <origin/<default>>
 Diff, already saved: <absolute path of .scratch/pr-review/<id>.diff>
 Changed files: <list>
 Spec: <spec text, or "no spec available">
@@ -204,11 +208,12 @@ To test a claim by running code, write files only under `/tmp/pr-review-<id>/<le
 Return the coverage line and the JSON findings array exactly as the finding format specifies.
 ```
 
-**Check the tree around the dispatch.** Just before the dispatch message, save `git -C <REVIEW_ROOT> status --porcelain --untracked-files=all`. After the last lens returns, run it again and compare:
-- a path untracked after but not listed before: delete it;
-- a tracked file not listed before and modified after: restore it with `git -C <REVIEW_ROOT> checkout -- <path>`.
+**Check the tree around the dispatch.** Just before the dispatch message, save `git -C <REVIEW_ROOT> status --porcelain -z --untracked-files=all`. After the last lens returns, run it again and compare. For each path that is new in the second list:
+- skip it, and report it, if it resolves outside `REVIEW_ROOT`;
+- first copy it to `/tmp/pr-review-<id>/removed/<path>`, so nothing is lost if it was a person's work rather than a lens's;
+- then, if it is untracked, delete it (`rm -rf -- <path>`); if it is a tracked file, restore it with `git -C <REVIEW_ROOT> checkout -- <path>`.
 
-Paths already listed before the dispatch are the builder's own work: leave them alone. `.scratch/` is ignored (step 2.7), so the saved diff and the fidelity output never show. For each path you clean up, add `wrote inside the repo: <path>` to the note of the lens that wrote it; when it can't be tied to one lens, add it to the note of every lens in that dispatch. Those notes are the report's "Lens failures" lines.
+Pass each path as its own argument after `--`, never inside a built command string. Paths already listed before the dispatch are the builder's own work: leave them alone. `.scratch/` is ignored (step 2.7), so the saved diff and the fidelity output never show. For each path you clean up, add `wrote inside the repo: <path> (copy in /tmp/pr-review-<id>/removed/)` to the note of the lens that wrote it; when it can't be tied to one lens, add it to the note of every lens in that dispatch. Those notes are the report's "Lens failures" lines.
 
 **Wait while lenses run.** Between dispatch and the last lens returning, read no file and run no review command: no diff, no changed file, no standards doc or ADR. That is the lenses' work, and your context is the most expensive place to do it again.
 

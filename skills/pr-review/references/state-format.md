@@ -87,7 +87,7 @@ The agent-facing detail (`evidence`, `verification`, `sources`, `confidence`) is
 | `runs[].mode` | `full` or `fix-round` (only the fix diff was re-checked, see SKILL.md "Fix round"). Absent means `full`. |
 | `ci.status` | `passing`, `failing`, `pending`, `no-checks` (a PR whose only checks are the `ship` status and the Ship workflow's jobs) or `none` (not a PR). `failing` lists `{name, url}`; with no names it renders "CI failing" and `note`. |
 | `lenses[].status` | `ran`, `skipped`, `failed`, `stale` (ran with a lens whose upstream drifted, not synced) or `unverified` (ran as written; the drift check couldn't compare). `stale` and `unverified` lenses show in the reviewer table with their note. |
-| `lenses[].note` | Free text. For an `unverified` lens it starts `reason: <r>` (the reason `check-drift.py` printed); a fix-round run that fell back to a full review adds `full review: <reason>`; step 5 adds `agent: <type>` last. Parts are separated by `; `. |
+| `lenses[].note` | Free text. For an `unverified` lens it starts `reason: <r>` (the reason `check-drift.py` printed); a fix-round run that fell back to a full review adds `full review: <reason>`; step 5 adds `agent: <type>`. A skipped lens's note is its skip reason, `by type:`, `by size: <n> code lines` or `by content:`. After the dispatch, step 5's tree check appends `wrote inside the repo: <path> …` (step 7's verifier: `wrote inside the repo (verifier): <path> …`) after `agent:`. Parts are separated by `; `. |
 | `findings[].id` | `F<n>`, assigned once and never reused. A finding keeps its id across runs. |
 | `severity` | From `references/finding-format.md`. |
 | `status` | `open` or `fixed`. Set `fixed` with `fixed_in` = the run date when a re-run no longer finds it. |
