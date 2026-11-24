@@ -71,9 +71,11 @@ Bookkeeping files (a conflict only in these is mechanical):
 
 ## Checks
 
-Required on `main`: no CI checks (the repository has no CI yet), and `ship`.
+Required on `main`: `check`, and `ship`.
 
-Run locally before marking a PR ready: `claude plugin validate .`
+After changing that list here and merging it, re-run `/ship:setup-ship`: it syncs the ruleset to it.
+
+Run locally before marking a PR ready: `node --test skills/*/scripts/*.test.mjs`, `find skills -path '*/scripts/test_*.py' -execdir python3 -m unittest {} +`, `printf '%s\0' skills/*/scripts/*.mjs | xargs -0 -n1 node --check`, `python3 -m py_compile skills/*/scripts/*.py`, `printf '%s\0' skills/*/scripts/*.sh | xargs -0 -n1 bash -n`, `actionlint .github/workflows/*.yml`, `! grep -rn '__[A-Z_]*__' .github/workflows docs/agents`, `claude plugin validate .`
 
 ## After merge
 
@@ -82,6 +84,13 @@ Nothing deploys on merge. Plugin users pick up `main` through the `grimfeld` mar
 ## Screens
 
 Command that produces screenshots of the screens a change touches, for the review section: none
+
+## Night builds
+
+`/ship:night-shift` creates its builder routines in this cloud environment. While none is chosen, it asks for one
+each night. Re-run `/ship:setup-ship` to change it.
+
+- **Cloud environment:** `env_01Muin97QuFfZsc1eidb2f4F` (Default)
 
 ## Spec labels
 
