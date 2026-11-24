@@ -126,7 +126,7 @@ Two passes. Each lens runs as its own agent; never merge lenses into one agent.
 | `web-quality` | front-end files changed (`.tsx .jsx .vue .svelte .astro .css .scss .html`, or under `pages/ app/ components/ public/ styles/`) | `sonnet` |
 | `design-fidelity` | front-end files changed and the spec has a "Design" section | default |
 
-A **workflow file** is anything under `.github/workflows/`, an `action.yml` or `action.yaml`, or a YAML file with top-level `on:` and `jobs:` keys (so a template such as `skills/setup-ship/templates/ship.yml` counts): check other YAML in the diff for those two keys. It counts as code for `quality` and `security` only, never for `performance`, `simplification`, `principles` or `web-quality`.
+A **workflow file** is anything under `.github/workflows/`, an `action.yml` or `action.yaml`, or a YAML file with top-level `on:` and `jobs:` keys (so a template such as `${CLAUDE_PLUGIN_ROOT}/skills/setup-ship/templates/ship.yml` counts): check other YAML in the diff for those two keys. It counts as code for `quality` and `security` only, never for `performance`, `simplification`, `principles` or `web-quality`.
 
 A diff of only docs and config (Markdown, text, other YAML, editor config) runs `standards-and-spec` alone, plus `security` when a file is under `skills/`. When a file's class is ambiguous, run the lens.
 
