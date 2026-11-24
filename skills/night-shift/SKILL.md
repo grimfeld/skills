@@ -20,7 +20,7 @@ Before each step, read `docs/agents/shipping.md` and `docs/agents/issue-tracker.
 
 0. **The checkout:** after the fetch, report to the user, before planning, if the working tree is behind `origin/<default>` (`git rev-list --count HEAD..origin/<default>`: "local `<branch>` is N commits behind `origin/<default>`") or has uncommitted changes (`git status --porcelain`: list them). The night reads the rules from `origin/<default>` either way, so this is for the user to know, not a reason to stop. Never pull, stash, reset or check out anything: the working tree is theirs.
 1. **Designs first:** for each open issue labelled `design:ready`, run `design-me` with `#<n>`, as `${CLAUDE_PLUGIN_ROOT}/references/running-skills.md` says (the Skill tool can't call it). It grills the user on the design's open decisions and writes its specs as `spec:ready`. A design the user leaves with questions open keeps `design:ready` and builds nothing tonight.
-2. **List them:** open issues labelled `spec:ready`. Those also labelled `bug` are **bugs**: each is one PR with no tickets, built by `/ship:fix-me #<n> unattended`, never sliced.
+2. **List them:** open issues labelled `spec:ready`. Those also labelled `bug` are **bugs**: each is one PR with no tickets, built by `/ship:fix-me #<n> unattended`, never sliced. A `bug` issue whose body carries `<!-- fix-me: converted to a spec -->` is a spec, not a bug.
 3. **Check for leftovers:** list the `spec:building` and `spec:stuck` issues from earlier nights and show them. A `spec:building` issue whose builder's session has ended is a crashed build: say so. Never rebuild these without the user's say-so.
 4. **Slice:** if any spec (not a bug) lacks a "Slicing" section, run `slice` with `all`, the same way; it skips bugs. Slicing asks the user about splits and tickets, so it belongs here, while they're present.
 
@@ -83,7 +83,7 @@ Builds run on a fixed **pool** of routines, reused every night: `ship-builder-<r
 
    Then create it with `RemoteTrigger` `create`, using a `run_once_at` an hour ahead (the API requires one schedule) and `enabled: false`.
 3. **Give each session its prompt and start it.**
-   - Update the routine's `job_config.ccr.events` with tonight's prompt, built from `templates/builder-prompt.md` in `${CLAUDE_SKILL_DIR}`, with a fresh event `uuid`. `{{SPECS}}` is the session's specs and `{{BUGS}}` its bugs, each with its command (`#<n>: /ship:fix-me #<n> unattended [base=spec/<m>-…]`). Drop the template's specs paragraph in a bugs-only session, and its bugs paragraph when there are none.
+   - Update the routine's `job_config.ccr.events` with tonight's prompt, built from `templates/builder-prompt.md` in `${CLAUDE_SKILL_DIR}`, with a fresh event `uuid`. `{{SPECS}}` is the session's specs (`#12 #15`), `{{BUGS}}` its bugs, each with its command (`#<n>: /ship:fix-me #<n> unattended [base=spec/<m>-…]`), and `{{BUG_NUMBERS}}` the bugs' numbers alone (`#20 #21`), for the token count. Check each `base=` branch against `^[A-Za-z0-9._][A-Za-z0-9._/-]*$` before writing it in. Drop the template's specs paragraph in a bugs-only session, and its bugs paragraph when there are none.
    - Start it with `RemoteTrigger` `run`. One routine runs one session.
 4. **Check each session started:** `list_runs` should show a new run. Then comment on each spec and bug:
 

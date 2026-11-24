@@ -4,7 +4,7 @@ Build these specs, in this order, each on top of the one before: {{SPECS}}.
 
 Run `/ship:build-spec {{SPECS}} unattended` and follow it to the end.
 
-Then fix these bugs, one after another, each in its own PR: {{BUGS}}. For each, run `node /tmp/ship/skills/night-shift/scripts/token-usage.mjs mark <n>` (clone `/tmp/ship` as in step 1 below if needed), then the command given for it (`/ship:fix-me #<n> unattended`, with `base=<branch>` for a bug stacked on a spec of this session), and follow it to the end. If `fix-me` isn't available, read `/tmp/ship/skills/fix-me/SKILL.md` and follow it the same way as `build-spec` below.
+Fix these bugs, after the specs if there are any, one after another, each in its own PR: {{BUGS}}. For each, run `node /tmp/ship/skills/night-shift/scripts/token-usage.mjs mark <n>` (clone `/tmp/ship` as in step 1 below if needed), then the command given for it (`/ship:fix-me #<n> unattended`, with `base=<branch>` for a bug stacked on a spec of this session), and follow it to the end. If `fix-me` isn't available, read `/tmp/ship/skills/fix-me/SKILL.md` and follow it the same way as `build-spec` below.
 
 If that skill isn't available, the plugin isn't installed in this session. In that case:
 1. `git clone --depth 1 https://github.com/grimfeld/skills /tmp/ship`
@@ -17,10 +17,10 @@ If that skill isn't available, the plugin isn't installed in this session. In th
 
 The count splits this session by spec at each `token-usage.mjs mark <n>` call. `build-spec` marks each spec as it starts. When a later turn works on a spec you had already left (a fix to an earlier spec of this list, say), first run `node /tmp/ship/skills/night-shift/scripts/token-usage.mjs mark <n>` for it (clone `/tmp/ship` as step 1 below says, if needed).
 
-The morning page shows what tonight cost. Only you can count it, because your transcript leaves with this session. Count it after `build-spec`'s End step. Count it again at the end of every later turn that did work, for example when a CI result or a notification woke you and you acted on it:
+The morning page shows what tonight cost. Only you can count it, because your transcript leaves with this session. Count it after the last `build-spec` or `fix-me` End step of this session. Count it again at the end of every later turn that did work, for example when a CI result or a notification woke you and you acted on it:
 
 1. If `/tmp/ship` doesn't exist, run `git clone --depth 1 https://github.com/grimfeld/skills /tmp/ship`.
-2. Run `node /tmp/ship/skills/night-shift/scripts/token-usage.mjs count --specs "{{SPECS}} {{BUGS}}"`.
+2. Run `node /tmp/ship/skills/night-shift/scripts/token-usage.mjs count --specs "{{SPECS}} {{BUG_NUMBERS}}"`.
    - It prints tokens by spec and by model. A subagent counts toward the spec it was started for. `shared` holds work outside every spec.
    - Don't add up or estimate tokens yourself.
    - If the script fails, write `"tokens": null` and give its error in one line under the comment.
