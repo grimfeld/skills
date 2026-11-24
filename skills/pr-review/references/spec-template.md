@@ -29,7 +29,9 @@ For each finding, in id order:
 
 ## Testing
 
-<For each ticket: the failing test to write first, at the highest seam that exercises the behaviour, or the concrete manual / CI check when an honest test is impractical. Name prior-art tests in the repo to model on.>
+<For each ticket: the failing test to write first, at the highest seam that exercises the behaviour, or the concrete manual / CI check when an honest test is impractical. For a `fix_kind: "property"` finding, a seeded property test of the stated property. Name prior-art tests in the repo to model on.>
+
+<Every command named here is copied from the repo's own scripts, CI workflow, `docs/agents/shipping.md` or test README, and checked to resolve before it is written: a filter lists its matched project, a test path exists, a script name is in the manifest.>
 
 ## Out of scope
 
