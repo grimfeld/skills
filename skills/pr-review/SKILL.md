@@ -19,6 +19,7 @@ Files in this skill, reached by path from `${CLAUDE_SKILL_DIR}` (the directory h
 - `references/state-format.md`: the review state file, and how to rewrite findings for people.
 - `references/spec-template.md`, `references/ticket-template.md`.
 - `references/fidelity-manifest.md`: what `scripts/design-capture.mjs` reads, for the `design-fidelity` lens.
+- `references/github-actions.md`: the GitHub Actions checklist `quality` and `security` get when the diff has a workflow file (step 3).
 - `scripts/check-drift.py`, `scripts/find-preview-url.sh`, `scripts/render-report.py`, `scripts/update-pr-body.py` (tests for both: `uv run --no-project python -m unittest discover -s ${CLAUDE_SKILL_DIR}/scripts`), `scripts/design-capture.mjs`.
 
 Run Python scripts with `uv run --no-project python <script>`.
@@ -117,15 +118,17 @@ Two passes. Each lens runs as its own agent; never merge lenses into one agent.
 | Lens | Runs when | Model |
 |---|---|---|
 | `standards-and-spec` | always | default |
-| `quality` | any code file changed | default |
-| `security` | any code file, dependency manifest or lockfile changed, or any file under `skills/` (a ship skill's text is the code an agent runs) | default |
+| `quality` | any code file or workflow file changed | default |
+| `security` | any code file, workflow file, dependency manifest or lockfile changed, or any file under `skills/` (a ship skill's text is the code an agent runs) | default |
 | `performance` | server, data, query, worker or algorithmic code changed | `sonnet` |
 | `simplification` | any code file changed | `sonnet` |
 | `principles` | any code file changed | `sonnet` |
 | `web-quality` | front-end files changed (`.tsx .jsx .vue .svelte .astro .css .scss .html`, or under `pages/ app/ components/ public/ styles/`) | `sonnet` |
 | `design-fidelity` | front-end files changed and the spec has a "Design" section | default |
 
-A diff of only docs and config (Markdown, text, CI YAML, editor config) runs `standards-and-spec` alone, plus `security` when a file is under `skills/`. When a file's class is ambiguous, run the lens.
+A **workflow file** is anything under `.github/workflows/`, an `action.yml` or `action.yaml`, or a YAML file with top-level `on:` and `jobs:` keys (so a template such as `skills/setup-ship/templates/ship.yml` counts): check other YAML in the diff for those two keys. It counts as code for `quality` and `security` only, never for `performance`, `simplification`, `principles` or `web-quality`.
+
+A diff of only docs and config (Markdown, text, other YAML, editor config) runs `standards-and-spec` alone, plus `security` when a file is under `skills/`. When a file's class is ambiguous, run the lens.
 
 **Pass 2: by content.** When fewer than ~40 code files changed, read the code hunks of the saved diff yourself. Skip any of `performance`, `simplification`, `principles` and `web-quality` that the hunks give clearly nothing to review: for example `performance` when no data access, query, loop over a collection or worker code changed, or `simplification` and `principles` when the code change is only renames, string or config values. `design-fidelity` follows pass 1 only. Decide `web-quality` after step 4, and never skip it by content when a live URL was found. When in doubt, run the lens. `standards-and-spec`, `quality` and `security` follow pass 1 only; never skip them by judgment.
 
@@ -162,6 +165,7 @@ Diff, already saved: <absolute path of .scratch/pr-review/<id>.diff>
 Changed files: <list>
 Spec: <spec text, or "no spec available">
 <web-quality only> Audit URL: <url, or "none: source-only">
+<quality and security only, when the diff has a workflow file> The diff changes GitHub Actions workflows: <list them>. Also review them against ${CLAUDE_SKILL_DIR}/references/github-actions.md, item by item, and cite the item in `category`.
 <security only, when a changed file is under skills/> The diff changes ship skills. Also check each changed skill step against ${CLAUDE_PLUGIN_ROOT}/references/untrusted-input.md, and cite the rule a finding breaks by its number and name.
 <design-fidelity only> Skill dir: ${CLAUDE_SKILL_DIR}. Audit URL: <url, or "none">. Fidelity out: <absolute path of .scratch/pr-review/<id>-fidelity/>
 Stay close to the diff: read the saved diff once, then the changed files and the code they directly call or are called by, using line ranges, never whole files outside the diff. Beyond that, run targeted greps for existing helpers, components or patterns the change could have reused, and read the files the spec references.
