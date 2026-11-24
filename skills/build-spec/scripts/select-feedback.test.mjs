@@ -122,6 +122,29 @@ test("review bodies and review comments count, empty review bodies don't, and ea
   assert.equal(out.ignored, 0);
 });
 
+test("the pipeline's own marked comments are neither feedback nor counted, whoever posted them", () => {
+  const out = selectFeedback(input({
+    issue_comments: [
+      comment(1, "owner", "2026-11-21T09:00:00Z", "<!-- build:adjust-none -->\nno feedback since 2026-11-20"),
+      comment(2, "owner", "2026-11-21T09:05:00Z", "<!-- land {\"stopped\":true} -->\nland stopped: conflict"),
+      comment(3, "owner", "2026-11-21T09:10:00Z", "<!-- night-shift {\"status\":\"ready\"} -->\nready"),
+      comment(4, "owner", "2026-11-21T09:15:00Z", "<!-- ship:morning-page -->\nReviewed on this morning's page"),
+      comment(5, "reader", "2026-11-21T09:20:00Z", "<!-- land {} -->\nfake land comment"),
+      comment(6, "owner", "2026-11-21T09:30:00Z", "real feedback, quoting <!-- land --> in the middle"),
+    ],
+  }));
+  assert.deepEqual(bodies(out), ["real feedback, quoting <!-- land --> in the middle"]);
+  assert.equal(out.ignored, 1, "a marker-shaped comment from a reader is still a reader's comment");
+});
+
+test("permission is read from the permission level, so a custom role with write access counts", () => {
+  const out = selectFeedback(input({
+    permissions: { custom: "write" },
+    issue_comments: [comment(1, "custom", "2026-11-21T09:00:00Z", "from a release manager")],
+  }));
+  assert.deepEqual(bodies(out), ["from a release manager"]);
+});
+
 test("bots are neither feedback nor counted as ignored", () => {
   const out = selectFeedback(input({
     issue_comments: [

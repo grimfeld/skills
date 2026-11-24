@@ -21,7 +21,7 @@ Before each step, read `docs/agents/shipping.md` and `docs/agents/issue-tracker.
 0. **The checkout:** after the fetch, report to the user, before planning, if the working tree is behind `origin/<default>` (`git rev-list --count HEAD..origin/<default>`: "local `<branch>` is N commits behind `origin/<default>`") or has uncommitted changes (`git status --porcelain`: list them). The night reads the rules from `origin/<default>` either way, so this is for the user to know, not a reason to stop. Never pull, stash, reset or check out anything: the working tree is theirs.
 1. **Designs first:** for each open issue labelled `design:ready`, run `design-me` with `#<n>`, as `${CLAUDE_PLUGIN_ROOT}/references/running-skills.md` says (the Skill tool can't call it). It grills the user on the design's open decisions and writes its specs as `spec:ready`. A design the user leaves with questions open keeps `design:ready` and builds nothing tonight.
 2. **List them:** open issues labelled `spec:ready`.
-3. **Adjusts:** list the open PRs labelled `changes-requested` (the "List issues by label" row with `changes-requested`, keeping the PRs: `select(.pull_request)`). Each whose body opens with `Closes #<spec>` is an **adjust**: tonight it is changed on its own branch from the feedback on it, by `/ship:build-spec #<pr> adjust unattended`. Read its spec number, head branch and changed files (`.../pulls/<pr>/files`, names only). A `changes-requested` PR with no spec behind it isn't adjusted: list it in the plan as left for the user.
+3. **Adjusts:** list the open PRs labelled `changes-requested` (the "List PRs by label" row). For each, read only its head branch, head repository, base branch, the first line of its body and its changed files' names (the "Read a PR" row, and `.../pulls/<pr>/files`). It is an **adjust** when build-spec built it, as build-spec's "Adjust a PR" step 1 checks (head in this repository, branch `spec/<spec>-…`, first line `Closes #<spec>` for that spec), and its spec is `spec:in-review`: tonight it is changed on its own branch from the feedback on it, by `/ship:build-spec #<pr> adjust unattended`. One whose spec is `spec:stuck` or `spec:building` is a leftover (next step), adjusted only on the user's say-so. One build-spec didn't build isn't adjusted: list it in the plan as left for the user.
 4. **Check for leftovers:** list the `spec:building` and `spec:stuck` issues from earlier nights and show them. A `spec:building` issue whose builder's session has ended is a crashed build: say so. Never rebuild these without the user's say-so.
 5. **Slice:** if any spec lacks a "Slicing" section, run `slice` with `all`, the same way. Slicing asks the user about splits and tickets, so it belongs here, while they're present.
 
@@ -29,7 +29,7 @@ Done when every spec to build has a "Slicing" section and tickets.
 
 ### 2. Conflicts
 
-Compare every pair of specs on their Touches, Data, Docs to update, Implementation decisions and Depends on, always in one subagent. An adjust counts as a spec whose Touches are its PR's changed files and whose Depends on is its PR's base branch's spec, if any; a spec built on an adjusted PR's branch is Ordered after it, so no whole spec body enters the main context. Its brief: the spec numbers, this step's three kinds below (with the numbering rule and the repo docs it names), and the rows to return:
+Compare every pair of specs on their Touches, Data, Docs to update, Implementation decisions and Depends on, always in one subagent, so no whole spec body enters the main context. An adjust counts as a spec whose Touches are its PR's changed files, and whose Depends on is the spec of its PR's base branch, if any: the brief gives each adjust's PR number, spec and changed files. An adjust is never chained: it is always its own session. A spec that would be Ordered after an adjust (it touches the same files, or builds on its branch) waits for a later night and stays `spec:ready`; the plan says so. Its brief: the spec numbers, this step's three kinds below (with the numbering rule and the repo docs it names), and the rows to return:
 
 - one row per pair: the two specs, the kind, and the shared area or the disagreement; for an Ordered pair, which builds first and why (Depends on or size)
 - each design place spec to hold, with the Depends on that isn't merged
@@ -56,7 +56,7 @@ Done when every pair is classified and no conflict is open.
 
 Show the plan and ask for one yes:
 
-- one row per **session**: the spec or chain, in build order, with each spec's estimate; an adjust is its own session, "adjust #<pr> (spec #<spec>)", unless the conflict check chained it with the specs built on its branch
+- one row per **session**: the spec or chain, in build order, with each spec's estimate; each adjust is its own session, "adjust #<pr> (spec #<spec>)"
 - the builder routine each session goes to
 - the model (`claude-opus-5-5` unless `shipping.md` names another)
 - for each pair of ADR or migration specs left unchained, the numbering command it relied on
@@ -148,7 +148,7 @@ A subagent's transcript sits under `<session>/subagents/`. Its `meta.json` holds
 6. **Report in the terminal:** the page link, one line per PR in the order to review them (children under their parent), one line with the night's cost, worded as on the page, any spec whose morning-page comment failed (step 5), and the same `/ship:land` line. End with the open decisions and stuck specs, and "Answer here as `#<pr>: <choice>`, naming the decision when a PR has several."
 7. **Take answers.** Stay in the terminal for the user's answers, given as `#<pr>: <choice>` or `#<pr> <decision>: <choice>` (`#<spec>` for a stuck spec with no PR). Match each to the decision it settles; ask when that isn't clear. For each:
    - Comment it on the PR ("Morning answer to <decision>: <choice>"), so the choice is on record where the reviewer looks. For a stuck spec, comment it on the spec issue too (only there when it has no PR), where the next build reads it.
-   - Keep a ready PR in the `/ship:land` line when the choice is what it built. When the choice differs from what it built, or the user says so, send it back for an adjust: the answer comment is the feedback, so add `changes-requested` to the PR and take it out of the line. A stuck spec's PR is never in the line: its answered spec goes back to `spec:ready` for the next night.
+   - Keep a ready PR in the `/ship:land` line when the choice is what it built. When the choice differs from what it built, or the user says so, send it back for an adjust: the answer comment is the feedback, so add `changes-requested` to the PR and take it out of the line. A stuck spec's PR is never in the line. A stuck adjust (its PR still carries `changes-requested`): the answer comment on the PR is the feedback, so its spec goes back to `spec:in-review` and the next night adjusts the PR again; never `spec:ready`. Any other stuck spec, with no PR or a PR the user closes: its answered spec goes back to `spec:ready` for the next night.
    - Reprint the `/ship:land` line.
 
    Done when the user says they're finished.

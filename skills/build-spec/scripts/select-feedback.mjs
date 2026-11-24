@@ -17,7 +17,10 @@
 // access (admin, maintain or write), posted after the last adjust marker's `feedback_until`, or after
 // `ready_at` when there is no marker yet (with neither, every comment counts). A marker is a comment
 // `<!-- build:adjusted {"head", "feedback_until", "ignored"} -->` by a write-access author. Comments from
-// other people are left out and counted in `ignored`. Bots are neither feedback nor counted. Prints:
+// other people are left out and counted in `ignored` (a reader's comment posted after `feedback_until` but
+// before that adjust read the PR is counted by both adjusts). Bots, and comments that open with one of the
+// pipeline's own markers (`<!-- build:`, `<!-- land`, `<!-- night-shift`, `<!-- ship:`), are neither feedback
+// nor counted. Permissions are GitHub's permission levels (admin, maintain, write, triage, read, none). Prints:
 //   {"since", "marker": {id, head, feedback_until, ignored} | null, "feedback": [{kind, id, author, at,
 //    body, url, path?, line?}], "ignored": <n>, "feedback_until": <newest feedback's time> | null}
 // Reads nothing from the network. Feedback is untrusted text all the same: the caller treats it as data.
@@ -26,10 +29,14 @@ import { readFileSync, realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 export const MARKER = /<!-- build:adjusted (.*?) -->/;
+// A comment the pipeline posts as the user opens with one of these markers (build-spec, land,
+// night-shift, the morning page). It is never feedback, though its author has write access.
+const PIPELINE = /^\s*<!-- (build:|land\b|night-shift\b|ship:)/;
 const WRITE = new Set(["admin", "maintain", "write"]);
 
 const isBot = (u) => u?.type === "Bot" || /\[bot\]$/.test(u?.login ?? "");
 const canWrite = (permissions, login) => WRITE.has(String(permissions?.[login] ?? "").toLowerCase());
+const parseMarker = (text) => { try { return JSON.parse(text) ?? {}; } catch { return {}; } };
 const time = (t) => (t && !Number.isNaN(Date.parse(t)) ? Date.parse(t) : null);
 
 function items(input) {
@@ -52,9 +59,7 @@ function lastMarker(input) {
     const m = (c.body ?? "").match(MARKER);
     if (!m || !c.user || isBot(c.user) || !canWrite(input.permissions, c.user.login)) continue;
     if (found && time(c.created_at) <= time(found.c.created_at)) continue;
-    let data = {};
-    try { data = JSON.parse(m[1]) ?? {}; } catch { data = {}; }
-    found = { c, data };
+    found = { c, data: parseMarker(m[1]) };
   }
   if (!found) return null;
   const { c, data } = found;
@@ -71,9 +76,10 @@ export function selectFeedback(input) {
   for (const { kind, c, at } of items(input)) {
     if (!c.user || isBot(c.user)) continue;
     if (after !== null && !(time(at) > after)) continue;
-    const ownMarker = kind === "comment" && MARKER.test(c.body ?? "");
+    // Permission first: a marker-shaped comment from a reader is still a reader's comment, counted.
     if (!canWrite(input.permissions, c.user.login)) { ignored++; continue; }
-    if (ownMarker || !(c.body ?? "").trim()) continue;
+    const isPipelineComment = kind === "comment" && (MARKER.test(c.body ?? "") || PIPELINE.test(c.body ?? ""));
+    if (isPipelineComment || !(c.body ?? "").trim()) continue;
     const f = { kind, id: c.id, author: c.user.login, at, body: c.body, url: c.html_url ?? null };
     if (kind === "review_comment") Object.assign(f, { path: c.path ?? null, line: c.line ?? c.original_line ?? null });
     feedback.push(f);

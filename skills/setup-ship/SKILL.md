@@ -118,7 +118,7 @@ The user's part is the to-dos the "Versions" list gives for each version passed.
     - `spec:stuck`
     - `design:ready`: "A Claude Design artifact, marked done"
     - `design:specced`: "Turned into specs by /ship:design-me"
-    - `changes-requested`: "Feedback on the PR to adjust: /ship:build-spec <pr> adjust"
+    - `changes-requested`: "Feedback on the PR to adjust: /ship:build-spec #<pr> adjust"
     - `retro`: "Filed by /ship:retro-issues from a session retro"
 
     Create them with `gh label create --force`, which keeps a label's other PRs and issues.
