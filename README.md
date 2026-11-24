@@ -27,10 +27,10 @@ The flow:
 2. **Prepare**: resolves the diff (in a temporary worktree for PRs that aren't checked out), the spec, CI status and any previous report.
 3. **Route**: skips lenses with nothing to review, first by file type (no front-end files: no web audit; docs-only: standards and spec only), then by reading the hunks of smaller diffs (no data or loop changes: no performance review).
 4. **Find a preview URL** for the web audit: GitHub deployments, the Vercel bot comment, the Vercel MCP, then a local dev server already running. Never starts or deploys anything.
-5. **Review** in parallel, one lightweight `pr-lens-reviewer` agent per lens. Every reviewer is report-only and returns findings in one shared format.
+5. **Review** in parallel, one lightweight `pr-lens-reviewer` agent per lens. Every reviewer is report-only and returns findings in one shared format. In a session without the Agent tool (a subagent), it reviews nothing and says "not run: no Agent tool in this session": the context that wrote the code doesn't review it.
 6. **Dedupe** across lenses. A finding several lenses agree on ranks higher.
 7. **Verify** every blocker and major against the code; false positives are dropped.
-8. **Report**: findings are rewritten in plain language and kept in `.scratch/pr-review/<id>.json`; a script renders them into a readable report (`<id>.md`) that opens with the verdict and groups smaller findings by theme, plus a private Artifact page with the same content. Re-runs mark findings fixed, still open or new, and never resurface rejected ones.
+8. **Report**: findings are rewritten in plain language and kept in `.scratch/pr-review/<id>.json`; a script renders them into a readable report (`<id>.md`) that opens with the verdict and groups smaller findings by theme, plus a private Artifact page with the same content. Re-runs mark findings fixed, still open or new, and never resurface rejected ones. With `fix-round`, only the lenses that raised open approved findings, plus `quality`, re-check those findings and the fix diff, and a finding is marked fixed only when a lens confirms it.
 9. **Approve** blockers and majors one by one, minors and nits as a batch.
 10. **Spec and tickets** for the approved findings, in `.scratch/pr-review-<id>/`, ready for `/implement-spec`.
 
@@ -39,6 +39,7 @@ The flow:
 /pr-review                     # current branch vs. its merge-base with main
 /pr-review base=develop        # current branch vs. another base
 /pr-review 123 paths=src/api   # narrow the review
+/pr-review 123 fix-round       # after fixes: re-check the approved findings and the fix diff only
 ```
 
 #### Requirements
@@ -99,7 +100,7 @@ Sizes each `spec:ready` spec against prior PRs in the same areas. The rule is on
    - Specs that overlap but don't disagree are chained without asking: built in order in one session, each PR on top of the previous one.
    - Conflicting decisions go to you, in one round.
    - A design's place specs wait until its foundation and shell have merged.
-3. Once you approve the plan, it gives each session its prompt on a reused pool of builder routines (`ship-builder-<repo>-N`, since routines can't be deleted through the API) and starts them.
+3. Once you approve the plan, it gives each session its prompt on a reused pool of builder routines (`ship-builder-<repo>-N`, since routines can't be deleted through the API) and starts them. The routines run in the cloud environment `docs/agents/shipping.md` names (its "Cloud environment" line); without one, the plan asks you to pick tonight's, never taking the default. Each builder runs `/ship:build-spec <specs> unattended`, so nothing is asked overnight.
 
 **`/ship:night-shift morning`** gathers the results into one page:
 - PRs ready to review, smallest first, each with its verdict, risks and the decisions to check
@@ -180,30 +181,34 @@ The first open asks you to allow both for the page.
 
 ### `/ship:build-spec`
 
-What each cloud session runs, with nobody to ask.
-1. It builds the spec (`implement-spec`, tickets as commits on `spec/<n>-…`, draft PR).
+What each cloud session runs. night-shift's builders pass `unattended`: nobody is asked anything, and a question only a person can settle marks the spec stuck. Run it yourself, without `unattended`, and it asks you that question instead (with its recommendation), records your answer under Decisions as "decided by the owner", and carries on.
+1. It builds the spec (`implement-spec`, tickets as commits on `spec/<n>-…`, draft PR). Implementers keep their ticket branches local; the builder merges each into the spec branch inline and pushes only that branch. A ticket that blocks others leaves handoff notes for the next implementer.
 2. It runs the project's checks.
 3. It runs `pr-review <pr> unattended`, which approves the blockers and majors and leaves the rest for you.
 4. It fixes them in at most two rounds.
 
-Every choice the spec left open goes in the PR's Decisions section. The PR ends ready, or as a draft marked stuck with the reason. It never merges and never adds `ship`.
+A review finding whose fix is a choice only a person can make, or would undo something the spec settles, is never fixed at night: it is named under Decisions and the spec ends stuck with that choice. Every choice the spec left open goes in the PR's Decisions section. The PR ends ready, or as a draft marked stuck with the reason. It never merges and never adds `ship`.
+
+In a session without the Agent tool (a subagent), it builds the tickets inline, stops after the checks, and hands the draft PR back: "review pending: run build-spec steps 4–6 from a session with the Agent tool". The caller runs those steps.
 
 `pr-review unattended` never asks: it skips lens syncs, reviews any size, and publishes the page only where the Artifact tool exists. `references/github.md` maps each `gh` call to the GitHub MCP tool to use in cloud sessions without `gh`.
 
 ### `/ship:setup-ship`
 
-Run once per project. Afterwards, a person approves a reviewed PR with the **`ship`** label, and `/ship:land` lands it.
+Run once per project. It works in an empty folder too: it creates the local repo, the GitHub repo and a first empty commit on your yes, before the setup PR. Afterwards, a person approves a reviewed PR with the **`ship`** label, and `/ship:land` lands it.
 
 - **Required `ship` status:** a commit status, required by the default branch's ruleset, that stays pending until the label is on, so nothing unreviewed merges. It is the only job of `ship.yml`, apart from Dependabot's label: the workflow merges nothing.
 - **Landing:** `/ship:land`, an agent that merges every `ship` PR itself, parents before their stacked children. Nothing merges on its own: no auto-merge, no scheduled run.
 - **Dependabot:** patch updates and GitHub Actions updates are labelled `ship` and land with the next `/ship:land`.
 - **Labels:** `ship`, `pr-reviewed`, `changes-requested`, and the `spec:*` and `design:*` labels the pipeline uses.
-- **`docs/agents/shipping.md`:** the rules, written down for people and for the other skills.
+- **`docs/agents/shipping.md`:** the rules, written down for people and for the other skills, including the cloud environment night-shift's builders run in (it lists your environments and asks).
 - **The project's `.claude/settings.json`:** enables the plugin.
 
-Run it again in a project set up by an older version and it offers an upgrade: it re-renders `ship.yml` and `shipping.md` with the values already installed, keeps your own edits to them, and shows the diff first. Upgrading from version 2 also turns auto-merge off and retires the `conflicts` label.
+Run it again in a project set up by an older version and it offers an upgrade: it re-renders `ship.yml` and `shipping.md` with the values already installed, keeps your own edits to them, and shows the diff first. Upgrading from version 2 also turns auto-merge off and retires the `conflicts` label. Upgrading from version 3 asks only for the cloud environment.
 
-GitHub settings are shown first and applied only after you approve them. You create the `SHIP_TOKEN` secret yourself: the skill never handles tokens. Deploys stay with the project's CD.
+After adding a CI job, add it to the "Required on" line of `docs/agents/shipping.md` and merge that, then re-run `/ship:setup-ship`: it shows the checks it would add or remove from the ruleset (`+ check`, `- check`, or "required checks in sync") and writes them on your yes, keeping `ship` and every other rule.
+
+GitHub settings are shown first and applied only after you approve them. You create the `SHIP_TOKEN` Dependabot secret yourself, in a separate terminal (`gh secret set SHIP_TOKEN --app dependabot --repo <owner>/<repo>`; with `!` in the session it saves an empty value), or on the repository's Dependabot secrets page; the skill only checks it is listed and never handles tokens. Deploys stay with the project's CD.
 
 `pr-review` writes its review into the PR description: what changes by area, risks, preview, screens, and what to fix before merge. That is the page you read before adding `ship`.
 
@@ -269,6 +274,18 @@ claude plugin validate .                 # manifest and marketplace checks
 ```
 
 The two remaining warnings are deliberate: no `version` (see above) and no icon.
+
+The `check` workflow (`.github/workflows/check.yml`) runs on every pull request and on pushes to `main`. Run the same commands locally before marking a PR ready; `docs/agents/shipping.md` lists them:
+
+```sh
+node --test skills/*/scripts/*.test.mjs                                   # Node tests
+find skills -path '*/scripts/test_*.py' -execdir python3 -m unittest {} +  # Python tests beside skill scripts
+printf '%s\0' skills/*/scripts/*.mjs | xargs -0 -n1 node --check          # script syntax
+python3 -m py_compile skills/*/scripts/*.py
+printf '%s\0' skills/*/scripts/*.sh | xargs -0 -n1 bash -n
+actionlint .github/workflows/*.yml                                        # workflows, with shellcheck
+! grep -rn '__[A-Z_]*__' .github/workflows docs/agents                    # no placeholder left
+```
 
 ### Cloud sessions
 
