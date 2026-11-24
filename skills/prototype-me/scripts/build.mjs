@@ -3,22 +3,21 @@
 //
 //   build.mjs <variants-dir> <out> [--title <text>] [--page <file>]
 //
-// <variants-dir> holds one file per variant, `<KEY>.html` (KEY a capital letter, A to Z; 1 to 5 of
-// them), whose first line is `<!-- name: <short name> -->` and the rest the variant's markup, plus
+// <variants-dir> holds one file per variant, `<KEY>.html` (KEY a capital letter, A to Z, so 1 to
+// 26: remixes may go past the 5 first asked for), whose first line is `<!-- name: <short name> -->` and the rest the variant's markup, plus
 // an optional `styles.css`: the project's styles, shared by every variant. Placeholders:
 //   @@TITLE@@          <title>, from --title (default "Prototype")
 //   /*@@STYLES@@*/     styles.css, verbatim
 //   <!--@@VARIANTS@@-->  one <section data-variant="KEY" data-name="NAME"> per variant, in key order
 //   /*@@SWITCHER@@*/   switcher.mjs, `export` keywords dropped (the page runs it as a plain script)
 // Prints the path written. Exits 1, naming the problem, when the page lacks a placeholder, a
-// variant has no name line, or there are no variants or more than 5.
+// variant has no name line, or there are no variants.
 
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const MAX = 5;
 
 function fail(message) {
   console.error(`build: ${message}`);
@@ -38,7 +37,7 @@ if (!dir || !outArg) fail("usage: build.mjs <variants-dir> <out> [--title <text>
 const out = resolve(outArg);
 
 const files = readdirSync(dir).filter((f) => /^[A-Z]\.html$/.test(f)).sort();
-if (files.length === 0 || files.length > MAX) fail(`${dir} has ${files.length} variants (<KEY>.html); 1 to ${MAX} are allowed`);
+if (files.length === 0) fail(`${dir} has 0 variants (<KEY>.html, KEY a capital letter)`);
 
 const sections = files.map((file) => {
   const text = readFileSync(join(dir, file), "utf8");

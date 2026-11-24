@@ -89,10 +89,42 @@ It prints the path it wrote. If it fails, fix what it names and build again.
 
 Load the `artifact-design` skill, as the Artifact tool requires. Then publish the built file as one private Artifact,
 with `icon: "layout"` and a one-sentence `description` naming the spec and the question. Keep its URL: every later
-publish for this question goes to it.
+publish for this question goes to it. On a re-run, when the spec's `## Prototype` section already has an entry for
+this question, read the Artifact linked there with the Artifact tool and publish to that URL instead, with no icon.
 
 ## 7. Screenshots
 
 With Playwright, against the built file, at 1280×800, full page: `?variant=<key>` for each variant, then
 `?variant=all`. Save them under `<scratch>/shots/` and send them in chat with SendUserFile, one caption per variant:
 its key and name. Give the Artifact link with them.
+
+## 8. Pick
+
+The user picks in chat. A **remix** ("B's header with C's list") becomes a new variant: the next unused key in
+`<scratch>/variants/`. Build again, republish to the same URL, screenshot the new variant and `all`, and go another
+round. There is no round limit: it ends when the user names one variant as the winner.
+
+## 9. Write the spec
+
+The Artifact's **version** is what the publish result reports; if it reports none, the publish date.
+
+Add a `## Prototype` section after Solution (after `## Design` when the spec has one), with one entry per question:
+
+```
+### <the question>
+
+- **Question:** <the question, in a sentence>
+- **Artifact:** <link>, version <version of the winning round>
+- **Variants:** one line each: `<key> (<name>)`: <its structure, in a few words>
+- **Winner:** <key>. <the user's reasons, verbatim, including what it borrows from other variants>
+- **Not this:** <each rejected idea, and why>
+```
+
+The winner also fills the spec's UI states and adds a line to Implementation decisions. Leave the label as it is.
+
+A re-run on a question the section already has replaces its entry. Save the body through the "Edit an issue's body"
+row.
+
+## 10. Hand back
+
+Never set `spec:ready`. End by pointing to `/ship:spec-me #<n>`, which resumes the grilling at UI states.
