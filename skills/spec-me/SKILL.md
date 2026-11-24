@@ -33,6 +33,8 @@ Call the Skill tool with `grilling`. If the project keeps a glossary or ADRs, al
 
 The ADRs and glossary entries `domain-modeling` writes belong to the spec, not to a PR of their own. Copy the full text of each one into the issue's "Decision records" section at the next save. Never commit them or open a PR for them: the build commits them in the spec's one PR, next to the code they describe.
 
+Leave new numbers to the build. Write a new ADR as `docs/adr/NNNN-<slug>.md`, with `NNNN` literal, and refer to it everywhere else by its slug. Name a new numbered doc section (a PLAN §) "a new section" with its title and no number. The build numbers both after every number already taken.
+
 The design tree must reach every item of the buildable bar. Use the bar to compute the frontier: an item nobody has answered yet is an open branch.
 Facts come from the code, through subagents, not from the user. Decisions come from the user.
 

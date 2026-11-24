@@ -1,0 +1,55 @@
+# The repo's checks, as one job so the required check has one stable name: `check`.
+# The same commands are the local checks in docs/agents/shipping.md; keep the two in step.
+name: Check
+
+on:
+  # Every pull request, not only those to main: stacked PRs target their parent's branch.
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  ACTIONLINT_VERSION: 1.7.9
+  CLAUDE_CODE_VERSION: 2.1.330
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 22
+
+      - name: Node tests
+        run: node --test skills/*/scripts/*.test.mjs
+
+      - name: Python tests
+        run: find skills -path '*/scripts/test_*.py' -execdir python3 -m unittest {} +
+
+      - name: Script syntax
+        run: |
+          printf '%s\0' skills/*/scripts/*.mjs | xargs -0 -n1 node --check
+          python3 -m py_compile skills/*/scripts/*.py
+          printf '%s\0' skills/*/scripts/*.sh | xargs -0 -n1 bash -n
+
+      - name: Workflows (actionlint, with shellcheck on run blocks)
+        run: |
+          curl -sSfL "https://raw.githubusercontent.com/rhysd/actionlint/v${ACTIONLINT_VERSION}/scripts/download-actionlint.bash" \
+            | bash -s -- "$ACTIONLINT_VERSION" "$RUNNER_TEMP"
+          "$RUNNER_TEMP/actionlint" .github/workflows/*.yml
+
+      - name: No placeholders left
+        run: |
+          if grep -rn '__[A-Z_]*__' .github/workflows docs/agents; then
+            echo "::error::A placeholder is left in a workflow or agent doc."; exit 1
+          fi
+
+      - name: Plugin manifest
+        run: npx --yes "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" plugin validate .

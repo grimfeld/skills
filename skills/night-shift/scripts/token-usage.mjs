@@ -6,9 +6,10 @@
 //     its subagents' transcripts, and prints tokens by spec and by model as JSON:
 //     {"session", "specs": {"602": {<model>: {...}}}, "shared": {<model>: {...}}}.
 //     A message counts toward a spec when its git branch is spec/<n>-… or its
-//     working directory names spec-<n>. A subagent's other messages (an implementer
-//     on its own ticket branch and worktree) count toward the spec its parent was on
-//     when it started that subagent. Anything else is the session's shared bucket.
+//     working directory names spec-<n>. A subagent's other messages count toward
+//     the spec its parent was on when it started it. Where a builder's subagents
+//     work, and how they link to their parent: night-shift's SKILL.md, "Where the
+//     work happens". Anything else is the session's shared bucket.
 //     --session and --projects default to this session; tests pass them.
 //
 //   price [--prices <file>] < specs.json
