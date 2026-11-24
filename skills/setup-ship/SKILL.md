@@ -37,7 +37,12 @@ Read only. Collect:
 0. **Installed version.** Read the first line of `.github/workflows/ship.yml`. No file: a fresh install. A file without a `# ship.yml version:` line: version 1. Version 1 changed several times before it was numbered, so an install from an early commit merges against a base that's slightly off: expect more conflicts, and show them rather than guessing. Compare it with the template's version.
    - **Older:** this run is an **upgrade**. Tell the user which version is installed and which is current, and what the newer one changes and removes (the "Versions" list below). Go on only if they want it.
    - **Current:** say so. Go on only if the user wants to change a setting (merge method, checks, bookkeeping files); otherwise stop, changing nothing.
-1. **Repository.**
+1. **Repository.** First find which of these the folder is, in this order; each case implies the ones after it:
+   - **Not a git repo** (`git rev-parse --is-inside-work-tree` fails): no local repo, no GitHub repo, no commits.
+   - **No `origin` remote** (`git remote get-url origin` fails): no GitHub repo. A local repo with commits pushes its default branch as it is; one without commits needs a first commit.
+   - **A remote with no commits** (`gh repo view --json defaultBranchRef` gives an empty `name`, or `git ls-remote --heads origin` prints nothing): no first commit.
+
+   In any of the three, this is a fresh install with a **Repository** group to plan (step 3). Don't abort. Take the default branch name from the local repo's current branch (`git symbolic-ref --short HEAD`, which works before the first commit too) when there is one; only when step 1.1 found no git repo, from `git config init.defaultBranch`, else `main`. Skip what has nothing to read yet (rulesets, CI checks, CD, merged PRs, labels, bookkeeping files) and take the defaults: no required checks besides `ship`, nothing deploys, no bookkeeping files. A normal repo with a remote and commits runs as below, exactly as before.
    - `gh repo view --json nameWithOwner,visibility,isPrivate,defaultBranchRef,isInOrganization,mergeCommitAllowed,squashMergeAllowed,rebaseMergeAllowed`
    - `gh api repos/{owner}/{repo} -q .allow_auto_merge`: on an upgrade, whether there is auto-merge to turn off.
    - A private repository owned by a personal account on the free plan can create rulesets but doesn't enforce them: warn that the gate becomes advisory, and continue only if the user agrees.
@@ -71,6 +76,9 @@ Otherwise, ask the user the open choices in one `AskUserQuestion` round, giving 
 - **Local checks:** the commands from step 1.5.
 - **Bookkeeping files:** the candidates from step 1.7, as globs. A conflict only in these files is mechanical to resolve.
 
+When step 1.1 planned a Repository group, there is no history to read: don't ask the required checks or bookkeeping files (take step 1.1's defaults), and recommend `merge` as the merge method.
+- **The GitHub repo**, only when step 1.1 found none: its owner (preselect the signed-in user, `gh api user --jq .login`; offer their organisations), name (preselect the folder's name) and visibility (preselect private). Private on a personal account on the free plan: show step 1.1's warning that the gate becomes advisory.
+
 ## 3. Show the plan
 
 Print every change, grouped, and ask for one yes. On an **upgrade**, run step 4.0's renders and `git merge-file -p` now, printing only, and settle any conflict with the user here. The files part is the diff of `ship.yml` and `shipping.md` against what's installed, with the project's own edits listed separately, each with whether it's kept; the user can drop any of them. The repository settings part is:
@@ -79,6 +87,12 @@ Print every change, grouped, and ask for one yes. On an **upgrade**, run step 4.
 
 The user's part is the to-dos the "Versions" list gives for each version passed.
 
+- **Repository**, only when step 1.1 found something missing, first in the plan and applied right after the yes (step 4), since the setup PR needs a base branch. List only the missing pieces:
+  - create the local repo: `git init -b <default branch>`;
+  - create the GitHub repo: `gh repo create <owner>/<name> --<visibility> --source . --remote origin`;
+  - make a first commit and push it to the default branch: `git commit --allow-empty -m "Initial commit"`, then `git push -u origin <default branch>`. The commit is empty: files already in the folder stay uncommitted, for the user to commit in a PR once the gate is on. A local repo that already has commits pushes its default branch as it is instead, with no new commit.
+
+  Nothing is created or pushed before the yes.
 - **Files**, in one PR from a new branch:
   - `.github/workflows/ship.yml` from the template.
   - `docs/agents/shipping.md` from the template.
@@ -109,13 +123,15 @@ The user's part is the to-dos the "Versions" list gives for each version passed.
     - `non_fast_forward` and `deletion`, if missing
 
     Use `gh api -X PUT repos/{owner}/{repo}/rulesets/<id> --input <file>`, with the full rule list (read, change, write).
-- **What only the user can do.** Never ask for a token's value or handle one.
+- **What only the user can do.** Never ask for a token's value or handle one. In every to-do you show, this list's and the "Versions" list's, the setup PR body included, replace `<owner>/<repo>` with the real repository.
   - Create a fine-grained token for this repository with Pull requests read/write.
-  - Add it as the Dependabot secret `SHIP_TOKEN` (`gh secret set SHIP_TOKEN --app dependabot`).
+  - Add it as the Dependabot secret `SHIP_TOKEN`: run `gh secret set SHIP_TOKEN --app dependabot --repo <owner>/<repo>` in a separate terminal, not with `!` in the Claude session (it can't prompt there and saves an empty value), or paste the token at `https://github.com/<owner>/<repo>/settings/secrets/dependabot`.
   - Why it's needed: a label added with GitHub's default token doesn't start other workflows, so without it the `ship` label `dependabot` adds never turns the `ship` status green.
   - Cloud sessions don't install plugins from `.claude/settings.json`. Point the user to the `grimfeld/skills` README's cloud setup script for their cloud environment.
 
 ## 4. Write the files
+
+**Repository group first.** If step 3 planned one, apply it now, after the yes and before anything else: create the local repo, the GitHub repo, and the first commit or push, as listed. Check the default branch exists on the remote (`git ls-remote --heads origin <default branch>`) before going on.
 
 Work in a branch, through a worktree if the project's docs say so.
 
@@ -167,6 +183,8 @@ Re-read each setting to confirm it took:
    - what's still on the user's list (the `SHIP_TOKEN` Dependabot secret, the cloud setup script, and the to-dos of each version passed)
    - the CD finding from step 1.4
    - that `/ship:land` lands the approved PRs
+   - after a Repository group: that the files already in the folder are uncommitted, for the user to commit in a PR now that the gate is on
+3. **`SHIP_TOKEN`.** When the user says the secret is set, check it exists: `gh secret list --app dependabot --repo <owner>/<repo>` lists `SHIP_TOKEN`. Say whether it does. The list shows names only: never read, print or ask for its value.
 
 ## Versions
 
@@ -183,4 +201,4 @@ Each entry also gives what rendering that version needs beyond the current rules
   - Upgrade step: in `auto-merge` mode, version 1 turned on GitHub auto-merge for every labelled PR, stacked ones included, and version 2 doesn't. List the open PRs with auto-merge on (`gh pr list --state open --limit 1000 --json number,autoMergeRequest`) and turn it off on each (`gh pr merge <n> --disable-auto`), so none lands outside a landing run.
 - **3:** `ship.yml` lands nothing. `/ship:land` is an agent that merges every `ship` PR itself: it merges the default branch in, waits for CI and merges, parents before their stacked children. `ship.yml` keeps `gate` and `dependabot`, which labels and no longer merges. Removed: the `queue`, `land` and `automerge` jobs, command mode, auto-merge, the stacked-PR cascade, the `conflicts` label and `/ship:resolve-conflicts`.
   - Upgrade steps: turn auto-merge off on every open PR that has it (`gh pr list --state open --limit 1000 --json number,autoMergeRequest`, then `gh pr merge <n> --disable-auto`); turn off the repository's auto-merge (`gh api -X PATCH repos/{owner}/{repo} -F allow_auto_merge=false`); put `ship` back on each open PR labelled `conflicts` that the user confirmed in the plan, then delete the `conflicts` label (`gh label delete conflicts --yes`). Update the `ship` and `changes-requested` labels' descriptions (`gh label create <name> --force`, with the descriptions above). In `command` mode, list the open PRs whose head branch starts with the installed `LAND_BRANCH_PREFIX` (landing batches): nothing merges them any more, and the PRs they batch land one by one, so close each one the user agrees to in the plan (`gh pr close <n> --comment ...`). Keep the ruleset's required `ship` status.
-  - User to-do: `SHIP_TOKEN` now needs only Pull requests read/write, as the Dependabot secret. Delete the Actions secret (`gh secret delete SHIP_TOKEN`), save a new token with only Pull requests read/write as the Dependabot secret (`gh secret set SHIP_TOKEN --app dependabot`), and revoke the old one, which could also write contents and workflows. Remove any hourly `/ship:resolve-conflicts` routine.
+  - User to-do: `SHIP_TOKEN` now needs only Pull requests read/write, as the Dependabot secret. Delete the Actions secret (`gh secret delete SHIP_TOKEN --repo <owner>/<repo>`), save a new token with only Pull requests read/write as the Dependabot secret (`gh secret set SHIP_TOKEN --app dependabot --repo <owner>/<repo>`), and revoke the old one, which could also write contents and workflows. Run both in a separate terminal, not with `!` in the Claude session (`gh secret set` can't prompt there and saves an empty value), or use `https://github.com/<owner>/<repo>/settings/secrets/dependabot`. Remove any hourly `/ship:resolve-conflicts` routine.
