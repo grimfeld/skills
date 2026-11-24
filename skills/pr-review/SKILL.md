@@ -28,6 +28,7 @@ Run Python scripts with `uv run --no-project python <script>`.
 The argument `unattended` means no person is present, for example during a night build (`/ship:build-spec`). Never ask anything. Where a step below would ask, do this instead:
 
 - **Drift (step 1):** skip every drifted lens's sync, and record it `stale`. Unverifiable lenses are `unverified`, as when attended.
+- **No Agent tool (step 5):** hand back as when attended: "not run: no Agent tool in this session".
 - **Large diff (step 2.3):** review the whole diff.
 - **Page (step 8.4):** publish it only if the Artifact tool is available. Otherwise the PR description is the review.
 - **Approval (step 9):**
@@ -102,6 +103,8 @@ Only when `web-quality` or `design-fidelity` runs. `design-fidelity` uses the UR
 If the URL is a Vercel preview that answers 401 or redirects to a login, call the Vercel MCP `get_access_to_vercel_url` to get a shareable link. Never start a server or create a deployment. With no reachable URL, the lens runs source-only, and the report says so.
 
 ## 5. Dispatch
+
+**Check for the Agent tool first.** If `Agent` isn't among your tools (ToolSearch `select:Agent` finds nothing), as in a subagent, don't review inline: a review written by the context that wrote the code loses its independence. Dispatch nothing, write nothing to the PR, don't add `pr-reviewed`, and end with "not run: no Agent tool in this session". This holds in both modes.
 
 **Pick the reviewer agent.** Use `subagent_type: ship:pr-lens-reviewer` when it is among the available agent types (or `pr-lens-reviewer`, from an older symlinked install). Otherwise fall back to `Explore`, then `general-purpose`. Record the type in each lens's note in state (`agent: <type>`, after any `reason:` from step 1, separated by `; `), and name any fallback in the terminal summary, so a missing install is visible. One exception: `web-quality` with a live audit URL runs as `general-purpose`, because it needs the browser MCP tools.
 
