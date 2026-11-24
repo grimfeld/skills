@@ -108,6 +108,7 @@ Sizes each `spec:ready` spec against prior PRs in the same areas. The rule is on
 - for a PR built from a design, its fidelity grid: reference beside app in every look, theme and viewport, with the views the review flagged shown full size
 - designs whose specs have all merged are closed
 - stuck specs, and what each needs from you
+- specs still building, when builders are still running: their own section, no cost yet, never in the `/ship:land` line; run the morning again later and it updates the same page
 - under each decision, how to answer it: tell the morning session `#<pr>: <choice>`, and it comments the answer on the PR and keeps the PR in the `/ship:land` line or sends it back for another night
 - what each spec, each session and the whole night would have cost at API prices, counted by each builder from its own transcript (`scripts/token-usage.mjs`, prices in `scripts/prices.json`); builders mark each spec's start, so a chained session's tokens land on the spec being worked on, and a spec nothing was counted toward reads "cost not reported"
 - the `/ship:land` command to run once you've reviewed: it approves the PRs you name and lands every PR carrying `ship`
