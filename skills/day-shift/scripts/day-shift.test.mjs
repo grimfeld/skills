@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { parseThresholds, classify, exclusion, readDeclined, addDeclined, DEFAULTS } from "./day-shift.mjs";
+import { parseThresholds, classify, exclusion, readDeclined, addDeclined, localMorning, DEFAULTS } from "./day-shift.mjs";
 
 const script = join(dirname(fileURLToPath(import.meta.url)), "day-shift.mjs");
 const run = (argv, input = "") => JSON.parse(execFileSync("node", [script, ...argv], { input, encoding: "utf8" }));
@@ -173,6 +173,12 @@ test("exclusion and classify ignore dispatch comments from people without write 
   assert.equal(exclusion(today, "day", { since }).blocked, false);
   const ready = [spec(52, ["spec:ready"], sliced("~50–80 reviewable lines, 1 behaviour"), [forged("day", "2026-11-24T11:50:00Z")])];
   assert.deepEqual(classify(ready, DEFAULTS, { now }).small.map((s) => s.number), [52]);
+});
+
+test("exclusion: the default cutoff is 06:00 local time today, at any hour", () => {
+  const six = new Date(2026, 10, 24, 6).toISOString();
+  assert.equal(localMorning(new Date(2026, 10, 24, 0, 30)), six);
+  assert.equal(localMorning(new Date(2026, 10, 24, 14)), six);
 });
 
 test("exclusion CLI", () => {
