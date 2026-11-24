@@ -1,0 +1,9 @@
+{
+  "DEFAULT_BRANCH": "main",
+  "MERGE_METHOD": "merge",
+  "REQUIRED_CHECKS": "no CI checks (the repository has no CI yet)",
+  "LOCAL_CHECKS": ["claude plugin validate ."],
+  "CD_SUMMARY": "Nothing deploys on merge. Plugin users pick up `main` through the `grimfeld` marketplace on their next plugin update.",
+  "SCREENS": "none",
+  "BOOKKEEPING_FILES": ["README.md"]
+}
