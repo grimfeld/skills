@@ -249,15 +249,18 @@ land: GitHub refused the merge:
 **After the merge: close the spec.** Only when the merged PR's head branch (already checked against the safe pattern in step 3) matches `^spec/([0-9]+)-`. Take `<n>` from the branch name, never from the PR or issue text, and read only numbers and states:
 
 ```
-gh api repos/{owner}/{repo}/issues/<n> --jq '{number, state}'
+gh api repos/{owner}/{repo}/issues/<n> --jq '{number, state, pr: (.pull_request != null), labels: [.labels[].name | select(startswith("spec:"))]}'
 gh api --paginate repos/{owner}/{repo}/issues/<n>/sub_issues --jq '.[] | {number, state}'
 ```
 
-Close each of spec #n and its sub-issues that is still open, as completed, and comment on it (the "Close an issue" and "Comment" rows of `${CLAUDE_PLUGIN_ROOT}/references/github.md`):
+Go on only when #n is an issue, not a PR (`pr` is false), and carries a `spec:` label; otherwise close nothing and note "#<n> isn't a spec" in the report line. Close each of spec #n and its sub-issues that is still open, as completed, and comment on it, projecting every write's output so no title or body reaches you:
 
 ```
-Closed by `/ship:land`: shipped in #<pr>.
+gh api -X PATCH repos/{owner}/{repo}/issues/<i> -f state=closed -f state_reason=completed --jq '{number, state}'
+gh api repos/{owner}/{repo}/issues/<i>/comments -f body='Closed by `/ship:land`: shipped in #<pr>.' --jq '{id}'
 ```
+
+Without `gh`, close nothing: the MCP tools return whole issues. GitHub's Closes keywords still close them; report `(couldn't close: no gh)`.
 
 GitHub's own keyword close can lag a few seconds; an issue already closed is left alone, with no comment. A failure to read or close an issue doesn't stop the PR or the run (the PR is already merged): name the issue in the report line and go on.
 

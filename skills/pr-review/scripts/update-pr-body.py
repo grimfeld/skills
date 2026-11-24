@@ -4,12 +4,13 @@
 usage: see USAGE below.
 
 The section sits between <!-- <name>:start --> and <!-- <name>:end -->; <name> defaults to
-`pr-review` (the review section). build-spec's Decisions section uses `--markers build:decisions`.
+`pr-review` (the review section). build-spec's Decisions section uses `--markers build:decisions`,
+its Environment notes `--markers build:notes`; slice writes a spec's Slicing section with `--markers slice`.
 Everything else in the description (the author's text, the other sections) is kept byte for byte.
-Without markers in the description, the section goes directly after the template's marker line
-(a line starting with `<!-- Below this line`) if there is one, else at the end. With `--markers slice`
-an unmarked `## Slicing` section (its heading to the next `## ` line or the end) is removed in the
-same splice, so a re-slice leaves one Slicing section; other markers never touch it. A section file
+Without markers in the description, the section is appended at the end. With `--markers slice` only,
+it goes directly after the spec template's marker line (a line starting with `<!-- Below this line`)
+when there is one, and an unmarked `## Slicing` section outside code fences (its heading to the next
+`## ` line or the end) is removed in the same splice, so a re-slice leaves one Slicing section. A section file
 without the markers is wrapped in them.
 
 With a PR number, or `--issue <n>` for an issue, the body is fetched and patched with `gh api`
@@ -21,6 +22,7 @@ request or issue update tool). Stdlib only.
 """
 import argparse
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -36,11 +38,13 @@ def markers(name: str) -> tuple[str, str]:
 
 def remove_slicing(body: str) -> str:
     """Drop an unmarked `## Slicing` section: its heading line up to the next `## ` line or the end."""
-    out, skipping = [], False
+    out, skipping, in_fence = [], False, False
     for line in body.splitlines(keepends=True):
-        if line.rstrip("\r\n").rstrip() == "## Slicing":
+        if line.lstrip().startswith(("```", "~~~")):
+            in_fence = not in_fence
+        elif not in_fence and line.rstrip() == "## Slicing":
             skipping = True
-        elif skipping and line.startswith("## "):
+        elif not in_fence and skipping and line.startswith("## "):
             skipping = False
         if not skipping:
             out.append(line)
@@ -57,14 +61,16 @@ def splice(body: str, section: str, name: str = "pr-review") -> str:
     if i != -1 and j != -1:
         return body[:i] + section + body[j + len(end):]
     if name == "slice":
+        # Specs sliced before the markers existed have a bare `## Slicing`; the first marked splice
+        # replaces it, and a new section goes where the spec template asks for it.
         body = remove_slicing(body)
-    lines = body.splitlines(keepends=True)
-    for k, line in enumerate(lines):
-        if line.startswith("<!-- Below this line"):
-            head = "".join(lines[:k + 1])
-            if not head.endswith("\n"):
-                head += "\n"
-            return head + section + "\n" + "".join(lines[k + 1:])
+        lines = body.splitlines(keepends=True)
+        for k, line in enumerate(lines):
+            if line.startswith("<!-- Below this line"):
+                head = "".join(lines[:k + 1])
+                if not head.endswith("\n"):
+                    head += "\n"
+                return head + section + "\n" + "".join(lines[k + 1:])
     return (body.rstrip() + "\n\n" + section + "\n") if body.strip() else section + "\n"
 
 
@@ -75,6 +81,8 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--issue", metavar="<n>")
     parser.add_argument("args", nargs="+", metavar="[<pr-number>] <section.md>")
     a = parser.parse_args(argv)
+    if a.issue is not None and not re.fullmatch(r"[1-9][0-9]*", a.issue):
+        parser.error("--issue takes a positive integer")
 
     if a.body_file is not None:
         if len(a.args) != 1:

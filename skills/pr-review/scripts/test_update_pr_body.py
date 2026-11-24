@@ -18,7 +18,7 @@ BODY = (
 )
 
 
-class BodyFile(unittest.TestCase):
+class BodyFileHelpers:
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.dir.cleanup)
@@ -35,6 +35,8 @@ class BodyFile(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr.decode())
         return r.stdout.decode()
 
+
+class BodyFile(BodyFileHelpers, unittest.TestCase):
     def test_replaces_review_section_and_keeps_the_rest_byte_identical(self):
         body = self.write("body.md", BODY)
         section = self.write("s.md", "<!-- pr-review:start -->\n## Review\nnew review\n<!-- pr-review:end -->\n")
@@ -183,17 +185,28 @@ class Issue(unittest.TestCase):
         first = self.run_script("## What\nx\n", SLICE, "--issue", "9", "--markers", "slice")
         self.assertEqual(first.stdout, "updated\n")
         again = self.run_script(self.sent(), SLICE.replace("new", "newer"), "--issue", "9", "--markers", "slice")
+        self.assertEqual(again.stdout, "updated\n")
         self.assertEqual(self.sent().count("## Slicing"), 1)
         self.assertIn("newer slice", self.sent())
 
 
-class BodyFileSlice(unittest.TestCase):
-    def setUp(self):
-        self.dir = tempfile.TemporaryDirectory()
-        self.addCleanup(self.dir.cleanup)
+class BodyFileSlice(BodyFileHelpers, unittest.TestCase):
+    def test_fenced_slicing_heading_is_kept(self):
+        text = "## Problem\n```\n## Slicing\nquoted\n```\nafter\n"
+        out = self.run_script("--markers", "slice", "--body-file", self.write("b.md", text), self.write("s.md", SLICE))
+        self.assertEqual(out, text + "\n" + SLICE)
 
-    write = BodyFile.write
-    run_script = BodyFile.run_script
+    def test_template_line_is_ignored_for_other_markers(self):
+        text = "Intro\n<!-- Below this line, x -->\nTail\n"
+        section = "<!-- pr-review:start -->\nr\n<!-- pr-review:end -->"
+        out = self.run_script("--body-file", self.write("b.md", text), self.write("s.md", section))
+        self.assertEqual(out, text + "\n" + section + "\n")
+
+    def test_issue_number_must_be_a_positive_integer(self):
+        r = subprocess.run([sys.executable, str(SCRIPT), "--issue", "5/comments", self.write("s.md", SLICE)],
+                           capture_output=True, env=dict(os.environ, PATH=""))
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn(b"positive integer", r.stderr)
 
     def test_slice_body_file_removes_unmarked_slicing_and_calls_no_gh(self):
         body = self.write("body.md", "x\n## Slicing\nold\n## Tail\nt\n")
