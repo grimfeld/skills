@@ -15,6 +15,17 @@
 //     listed in "unmatched": [<n>, ...], with one stderr line each; count still
 //     exits 0 so the matched specs keep their numbers.
 //     --session and --projects default to this session; tests pass them.
+//     Marks: once the main transcript holds a `token-usage.mjs mark <n>` Bash
+//     call, its messages go by mark alone, in line order: from a mark up to the
+//     next, to that spec (to shared under a mark for a spec not in --specs, and
+//     before the first mark); branch and working directory no longer count there.
+//     A subagent goes to the spec of the mark its Agent call was made under,
+//     following nested subagents up; only when that gives none do its own branch
+//     and working directory decide. A session with no marks counts as above.
+//
+//   mark <n>
+//     Run by a builder as it starts (or comes back to) spec <n>. Prints
+//     {"mark":"<n>"} and nothing else: count reads the call from the transcript.
 //
 //   price [--prices <file>] < specs.json
 //     Run by the morning step. stdin is an array of
@@ -71,20 +82,38 @@ function specOf(where, specs) {
   return null;
 }
 
+// A builder's `token-usage.mjs mark <n>`, as a Bash call anywhere in its command line.
+const MARK = /token-usage\.mjs["']?\s+mark\s+["']?#?(\d+)\b/g;
+function markIn(block) {
+  if (block?.type !== "tool_use" || block.name !== "Bash" || typeof block.input?.command !== "string") return null;
+  return [...block.input.command.matchAll(MARK)].at(-1)?.[1] ?? null;
+}
+
 // One pass over every transcript. Keeps, per assistant message, only what the
 // count needs, and where each Agent call (by tool_use id) was made from.
-function readTranscripts(files) {
+// In the main transcript it also follows the marks, in line order: each message
+// and Agent call carries the latest mark at or before it (`mark`, or undefined).
+function readTranscripts(main, files) {
   const messages = new Map();
   const spawnedFrom = new Map();
+  let marked = false;
   for (const file of files) {
+    let mark;
     for (const line of readFileSync(file, "utf8").split("\n")) {
       if (!line.trim()) continue;
       let e;
       try { e = JSON.parse(line); } catch { continue; }
       const m = e.message;
       if (e.type !== "assistant" || !m) continue;
-      const where = { gitBranch: e.gitBranch, cwd: e.cwd, file };
-      for (const block of Array.isArray(m.content) ? m.content : []) {
+      const blocks = Array.isArray(m.content) ? m.content : [];
+      if (file === main) {
+        for (const block of blocks) {
+          const n = markIn(block);
+          if (n) { mark = n; marked = true; }
+        }
+      }
+      const where = { gitBranch: e.gitBranch, cwd: e.cwd, file, mark };
+      for (const block of blocks) {
         if (block?.type === "tool_use" && block.id) spawnedFrom.set(block.id, where);
       }
       if (!m.usage || !m.model || m.model === "<synthetic>") continue;
@@ -93,12 +122,18 @@ function readTranscripts(files) {
       messages.set(m.id ?? e.uuid, { ...where, model: m.model, usage: m.usage });
     }
   }
-  return { messages, spawnedFrom };
+  return { messages, spawnedFrom, marked };
 }
+
+// With marks, a main-transcript message or Agent call belongs to its mark's
+// spec; before the first mark, or under a mark for a spec not counted, to none.
+const markSpec = (where, specs) => (where.mark && specs.has(where.mark) ? where.mark : null);
 
 // The spec a subagent's parent was on when it started it, following parents up
 // through nested subagents. Its meta.json names the Agent call's tool_use id.
-function parentSpecs(subagents, spawnedFrom, specs) {
+// In a marked session an Agent call in the main transcript gives its mark's
+// spec, and one made in a subagent follows that subagent up first.
+function parentSpecs(main, subagents, spawnedFrom, specs, marked) {
   const memo = new Map();
   const resolve = (file, seen = new Set()) => {
     if (memo.has(file)) return memo.get(file);
@@ -110,7 +145,9 @@ function parentSpecs(subagents, spawnedFrom, specs) {
       let toolUseId = null;
       try { toolUseId = JSON.parse(readFileSync(meta, "utf8")).toolUseId; } catch {}
       const parent = toolUseId && spawnedFrom.get(toolUseId);
-      if (parent) spec = specOf(parent, specs) ?? resolve(parent.file, seen);
+      if (parent && !marked) spec = specOf(parent, specs) ?? resolve(parent.file, seen);
+      else if (parent && parent.file === main) spec = markSpec(parent, specs);
+      else if (parent) spec = resolve(parent.file, seen) ?? specOf(parent, specs);
     }
     memo.set(file, spec);
     return spec;
@@ -136,13 +173,17 @@ function count(opts) {
   const session = opts.session ?? process.env.CLAUDE_CODE_SESSION_ID ?? null;
   const projects = opts.projects ?? join(homedir(), ".claude", "projects");
   const { main, subagents } = findTranscripts(projects, session);
-  const { messages, spawnedFrom } = readTranscripts([main, ...subagents]);
-  const fromParent = parentSpecs(subagents, spawnedFrom, specs);
+  const { messages, spawnedFrom, marked } = readTranscripts(main, [main, ...subagents]);
+  const fromParent = parentSpecs(main, subagents, spawnedFrom, specs, marked);
 
   const out = { session: session ?? basename(main, ".jsonl"), specs: {}, shared: {} };
   for (const n of specs) out.specs[n] = {};
   for (const msg of messages.values()) {
-    const n = specOf(msg, specs) ?? fromParent.get(msg.file) ?? null;
+    // Marks win: in a marked session the main transcript goes by mark alone, and
+    // a subagent by its Agent call before its own branch or worktree.
+    const n = !marked ? specOf(msg, specs) ?? fromParent.get(msg.file) ?? null
+      : msg.file === main ? markSpec(msg, specs)
+      : fromParent.get(msg.file) ?? specOf(msg, specs);
     addUsage(n ? out.specs[n] : out.shared, msg.model, msg.usage);
   }
   // A spec no message counted toward is not reported, never $0: null, listed and warned about.
@@ -216,11 +257,19 @@ function price(opts) {
   return { specs: { ...specs }, sessions: { ...sessions }, night };
 }
 
+// Only validates and echoes: count finds the call itself in the transcript.
+function mark(opts) {
+  const m = /^#?(\d+)$/.exec(opts._[1] ?? "");
+  if (!m || opts._.length !== 2) throw new Error("usage: token-usage.mjs mark <n>");
+  return { mark: m[1] };
+}
+
 const opts = args(process.argv.slice(2));
 const mode = opts._[0];
 try {
-  const result = mode === "count" ? count(opts) : mode === "price" ? price(opts) : null;
-  if (!result) throw new Error("usage: token-usage.mjs count --specs <n,...> | price < specs.json");
+  const modes = { count, price, mark };
+  const result = Object.hasOwn(modes, mode) ? modes[mode](opts) : null;
+  if (!result) throw new Error("usage: token-usage.mjs count --specs <n,...> | mark <n> | price < specs.json");
   console.log(JSON.stringify(result, null, 2));
 } catch (err) {
   console.error(`token-usage: ${err.message}`);

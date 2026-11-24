@@ -104,7 +104,7 @@ In one builder session, the work for a spec happens in these places:
 - **Lens reviewers:** `pr-review`'s subagents, read-only, in the spec branch's tree or in `pr-review`'s `.scratch/pr-review/wt-<id>` worktree.
 - **Fix rounds:** the builder itself, on the spec branch.
 
-A subagent's transcript sits under `<session>/subagents/`. Its `meta.json` holds the `toolUseId` of the Agent call that started it, so its work counts toward the spec its parent was on, whatever branch or worktree it ran in. `scripts/token-usage.mjs` relies on this.
+A subagent's transcript sits under `<session>/subagents/`. Its `meta.json` holds the `toolUseId` of the Agent call that started it, so its work counts toward the spec its parent was on, whatever branch or worktree it ran in. `scripts/token-usage.mjs` relies on this, and on the builder's marks: `build-spec` runs `token-usage.mjs mark <n>` as each spec starts, and the builder marks again when a later turn goes back to a spec. Once a session holds a mark, its messages, and the subagents it starts, count toward the spec of the latest mark, whatever branch is checked out.
 
 ## Morning
 

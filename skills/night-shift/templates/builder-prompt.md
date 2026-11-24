@@ -15,11 +15,14 @@ If that skill isn't available, the plugin isn't installed in this session. In th
 
 The morning page shows what tonight cost. Only you can count it, because your transcript leaves with this session. Count it after `build-spec`'s End step. Count it again at the end of every later turn that did work, for example when a CI result or a notification woke you and you acted on it:
 
+The count splits this session by spec at each `token-usage.mjs mark <n>` call. `build-spec` marks each spec as it starts. When a later turn works on a spec you had already left (a fix to an earlier spec of this list, say), first run `node /tmp/ship/skills/night-shift/scripts/token-usage.mjs mark <n>` for it (clone `/tmp/ship` as in step 1 if needed).
+
 1. If `/tmp/ship` doesn't exist, run `git clone --depth 1 https://github.com/grimfeld/skills /tmp/ship`.
 2. Run `node /tmp/ship/skills/night-shift/scripts/token-usage.mjs count --specs "{{SPECS}}"`.
    - It prints tokens by spec and by model. A subagent counts toward the spec it was started for. `shared` holds work outside every spec.
    - Don't add up or estimate tokens yourself.
    - If the script fails, write `"tokens": null` and give its error in one line under the comment.
+   - For a spec the output lists under `unmatched`, write `"tokens": null`.
 3. For each spec, take its latest `night-shift` comment (the one with the status) and add `"tokens": <that spec's object from the output>` to its JSON.
    - On the first spec of this list only, also add `"session_shared": <the output's shared object>`.
    - Edit the comment in place, as `/tmp/ship/references/github.md` says ("Edit a comment").

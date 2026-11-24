@@ -95,3 +95,53 @@ test("price marks unpriced models and specs that never reported", () => {
   assert.deepEqual(out.night.not_reported, [603, 605]);
   assert.deepEqual(out.night.unpriced.sort(), ["claude-mystery-9", "constructor"]);
 });
+
+test("mark validates and echoes the spec number", () => {
+  assert.deepEqual(run(["mark", "602"]), { mark: "602" });
+  assert.deepEqual(run(["mark", "#602"]), { mark: "602" });
+  for (const bad of [[], ["abc"], ["60x"]]) {
+    const r = spawnSync("node", [script, "mark", ...bad], { encoding: "utf8" });
+    assert.equal(r.status, 1, bad.join(" "));
+    assert.match(r.stderr, /usage: token-usage\.mjs mark <n>/);
+  }
+});
+
+const bash = (command, id = `tu-${command.length}-${Math.random()}`) => [{ type: "tool_use", id, name: "Bash", input: { command } }];
+const tu = "node /tmp/ship/skills/night-shift/scripts/token-usage.mjs";
+
+function markedFixture() {
+  const projects = mkdtempSync(join(tmpdir(), "token-usage-marks-"));
+  const dir = join(projects, "-home-user-repo");
+  const subs = join(dir, "s2", "subagents");
+  mkdirSync(subs, { recursive: true });
+  const b = "spec/602-first"; // the branch never leaves #602
+  writeFileSync(join(dir, "s2.jsonl"), [
+    JSON.stringify({ type: "user", message: { content: `Run ${tu} mark 603 first` } }), // the prompt quoting it: not a mark
+    msg("a1", b, "/repo", { content: [{ type: "text", text: `I will run ${tu} mark 603` }] }), // before any mark: shared
+    msg("a2", b, "/repo", { content: bash(`cd /repo && ${tu} mark 602`) }),
+    msg("a3", b, "/repo"),
+    msg("a4", b, "/repo", { content: bash(`${tu} mark "#603" 2>&1`) }),
+    msg("a5", b, "/repo", { content: spawn("tu-a") }), // starts a subagent while on #603
+    msg("a6", b, "/repo", { content: bash(`${tu} mark 602`) }), // back to #602
+    msg("a7", b, "/repo"),
+    msg("a8", b, "/repo", { content: bash(`${tu} mark 999`) }), // a spec not in --specs: shared
+    msg("a9", b, "/repo"),
+  ].join("\n"));
+  // On #602's branch and a ticket worktree, but started after mark 603: #603.
+  writeFileSync(join(subs, "agent-a.jsonl"), [
+    msg("s1", b, "/repo/.claude/worktrees/spec-602-first", { content: spawn("tu-n") }),
+    msg("s2", "ticket/7", "/repo/.claude/worktrees/agent-xyz"),
+  ].join("\n"));
+  writeFileSync(join(subs, "agent-a.meta.json"), JSON.stringify({ toolUseId: "tu-a" }));
+  writeFileSync(join(subs, "agent-n.jsonl"), msg("n1", "spec/602-first", "/repo"));
+  writeFileSync(join(subs, "agent-n.meta.json"), JSON.stringify({ toolUseId: "tu-n" }));
+  return projects;
+}
+
+test("count splits a session by its marks, and subagents follow the mark of their Agent call", () => {
+  const out = run(["count", "--specs", "602,603", "--session", "s2", "--projects", markedFixture()]);
+  assert.deepEqual(out.specs["602"], { "claude-opus-5-5": times(4) }); // a2, a3, a6, a7
+  assert.deepEqual(out.specs["603"], { "claude-opus-5-5": times(5) }); // a4, a5, s1, s2, n1
+  assert.deepEqual(out.shared, { "claude-opus-5-5": times(3) }); // a1, a8, a9
+  assert.deepEqual(out.unmatched, []);
+});
