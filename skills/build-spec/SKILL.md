@@ -95,7 +95,7 @@ Run `pr-review` with `<pr> unattended`, as `${CLAUDE_PLUGIN_ROOT}/references/run
 
 ### 5. Fix rounds, at most two
 
-Round = fix every approved finding and every red CI check on the branch, push, wait for CI, and run `pr-review <pr> fix-round unattended`: it re-checks the approved findings and the fix diff, not the whole PR. No full review runs after the last round: the first full review plus the fix-round reviews cover the final head.
+Round = fix every approved finding and every red CI check on the branch, push, wait for CI, and run `pr-review <pr> fix-round unattended`: it re-checks the approved findings and the fix diff, not the whole PR. No full review runs after the last round (except step 6's confirming review, when a commit slipped past it): the first full review plus the fix-round reviews cover the final head.
 
 Every commit after the first review belongs to a counted round, and that round's re-review covers it:
 - **Minors and nits** (left `pending` by `pr-review unattended`): fix one only inside a counted round, in that round's commits, before its push and re-review. With no blocker or major to fix there is no round, and they stay listed in the review for the person. Never fix one after the last review.
@@ -118,7 +118,10 @@ Every commit after the first review belongs to a counted round, and that round's
 
 Skipped for a spec handed back at step 3 (no Agent tool): the caller runs it.
 
-**Ready** (CI green apart from `ship`, and no blocker or major left open):
+**The head check, first.** Read the PR once (the "Read a PR" row) and take both values from that one read: its head SHA (`.head.sha`) and the head named in its body's review section footer (the `<sub>pr-review · head …` line, which prints a 7-character short SHA). The check passes when that short SHA is a prefix of the head SHA.
+- **It fails** (a commit landed after the last review): run `pr-review <pr> unattended` once more, on the current head, and fix nothing. This confirming review isn't a round: it doesn't count toward the two, or toward `rounds` below. Read the PR once more. The spec can be Ready only if that review left no blocker or major open and its footer head is a prefix of the PR's head; otherwise it is stuck, and the Stuck section names the unreviewed commits (`git log --oneline <footer head>..<PR head>`).
+
+**Ready** (the head check passed, or the confirming review came back clean on the head; CI green apart from `ship`, and no blocker or major left open):
 - Mark the PR ready.
 - Relabel the spec issue `spec:building` → `spec:in-review`.
 
@@ -135,6 +138,8 @@ Then comment on the spec issue with one line for the morning page:
 <!-- night-shift {"status":"ready|stuck","pr":<n or null>,"reason":"<stuck reason or empty>","decisions":<count>,"rounds":<0-2>} -->
 night-shift: <ready for review|stuck>: <PR link>. <one sentence>
 ```
+
+`rounds` counts fix rounds only, never the confirming review.
 
 A stuck spec stops only the specs whose Depends on names it, directly or through another spec in this chain. Mark each of those stuck, "depends on #N, which is stuck".
 

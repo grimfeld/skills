@@ -187,7 +187,8 @@ What each cloud session runs. night-shift's builders pass `unattended`: nobody i
 1. It builds the spec (`implement-spec`, tickets as commits on `spec/<n>-…`, draft PR). Implementers keep their ticket branches local; the builder merges each into the spec branch inline and pushes only that branch. A ticket that blocks others leaves handoff notes for the next implementer.
 2. It runs the project's checks.
 3. It runs `pr-review <pr> unattended`, which approves the blockers and majors and leaves the rest for you.
-4. It fixes them in at most two rounds.
+4. It fixes them in at most two rounds. Minors and nits are fixed only inside a round, and nothing is pushed after the last round's review.
+5. It marks the PR ready only when the head in the review section is the PR's head. If a commit slipped in after the last review, one more review that fixes nothing (not a round) must come back clean on that head; otherwise the spec ends stuck, naming the unreviewed commits.
 
 A review finding whose fix is a choice only a person can make, or would undo something the spec settles, is never fixed at night: it is named under Decisions and the spec ends stuck with that choice. Every choice the spec left open goes in the PR's Decisions section. The PR ends ready, or as a draft marked stuck with the reason. It never merges and never adds `ship`.
 
