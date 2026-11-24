@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const script = join(dirname(fileURLToPath(import.meta.url)), "token-usage.mjs");
@@ -56,6 +56,20 @@ test("count attributes messages by branch, worktree and parent spec, once each",
   assert.deepEqual(out.specs["603"], { "claude-opus-5-5": one });
   // m3, m4, m5, r2, and m6 whose cache writes have no 5m/1h split (all counted 5m).
   assert.deepEqual(out.shared, { "claude-opus-5-5": { in: 50, out: 500, cache_read: 5000, cache_write_5m: 130, cache_write_1h: 120 } });
+  assert.deepEqual(out.unmatched, []);
+});
+
+test("count prints null and lists a spec no message matched, warns on stderr, and still exits 0", () => {
+  const r = spawnSync("node", [script, "count", "--specs", "602,603,604,605", "--session", "s1", "--projects", fixture()], { encoding: "utf8" });
+  assert.equal(r.status, 0);
+  const out = JSON.parse(r.stdout);
+  assert.equal(out.specs["604"], null);
+  assert.equal(out.specs["605"], null);
+  assert.deepEqual(out.unmatched, ["604", "605"]);
+  assert.deepEqual(out.specs["603"], { "claude-opus-5-5": one });
+  assert.match(r.stderr, /#604/);
+  assert.match(r.stderr, /#605/);
+  assert.equal(r.stderr.trim().split("\n").length, 2);
 });
 
 test("count fails clearly without specs", () => {
@@ -67,15 +81,17 @@ test("price marks unpriced models and specs that never reported", () => {
     { spec: 602, session: "a", tokens: { "claude-opus-5-5": one, "claude-mystery-9": one }, session_shared: { "claude-opus-5-5": one } },
     { spec: 603, session: "a", tokens: null },
     { spec: 604, session: "__proto__", tokens: { constructor: one } },
+    { spec: 605, session: "a", tokens: {} },
   ];
   const out = run(["price"], JSON.stringify(rows));
   // Opus: 10×4 + 100×20 + 1000×0.2 + 20×5 + 30×8 = 2580 per million.
   assert.deepEqual(out.specs["602"], { usd: 0.0026, out: 200, fresh_in: 120, cache_read: 2000, unpriced: ["claude-mystery-9"] });
   assert.equal(out.specs["603"], null);
   assert.deepEqual(out.specs["604"].unpriced, ["constructor"]);
-  assert.deepEqual(out.sessions.a.not_reported, [603]);
+  assert.equal(out.specs["605"], null); // {} reads as not reported, like null
+  assert.deepEqual(out.sessions.a.not_reported, [603, 605]);
   assert.equal(out.sessions.a.total.usd, 0.0052);
   assert.deepEqual(out.sessions.__proto__.specs, [604]);
-  assert.deepEqual(out.night.not_reported, [603]);
+  assert.deepEqual(out.night.not_reported, [603, 605]);
   assert.deepEqual(out.night.unpriced.sort(), ["claude-mystery-9", "constructor"]);
 });

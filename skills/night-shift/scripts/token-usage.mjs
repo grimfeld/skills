@@ -4,12 +4,16 @@
 //   count --specs 602,603 [--session <id>] [--projects <dir>]
 //     Run by a builder in its cloud session. Reads this session's transcript and
 //     its subagents' transcripts, and prints tokens by spec and by model as JSON:
-//     {"session", "specs": {"602": {<model>: {...}}}, "shared": {<model>: {...}}}.
+//     {"session", "specs": {"602": {<model>: {...}} | null}, "shared": {<model>: {...}},
+//      "unmatched": ["<n>", ...]}.
 //     A message counts toward a spec when its git branch is spec/<n>-… or its
 //     working directory names spec-<n>. A subagent's other messages count toward
 //     the spec its parent was on when it started it. Where a builder's subagents
 //     work, and how they link to their parent: night-shift's SKILL.md, "Where the
 //     work happens". Anything else is the session's shared bucket.
+//     A spec no message counted toward is null (not reported, never $0) and is
+//     listed in "unmatched": [<n>, ...], with one stderr line each; count still
+//     exits 0 so the matched specs keep their numbers.
 //     --session and --projects default to this session; tests pass them.
 //
 //   price [--prices <file>] < specs.json
@@ -17,7 +21,8 @@
 //     {"spec": <n>, "session": "<id>", "tokens": {...} | null, "session_shared": {...}?}
 //     and the output is, per spec, per session and for the night: usd, out,
 //     fresh_in, cache_read and the models it couldn't price. Sessions and the
-//     night also list their specs that never reported.
+//     night also list their specs that never reported: tokens null, or {} (an
+//     object with no models).
 
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { join, dirname, basename } from "node:path";
@@ -140,6 +145,12 @@ function count(opts) {
     const n = specOf(msg, specs) ?? fromParent.get(msg.file) ?? null;
     addUsage(n ? out.specs[n] : out.shared, msg.model, msg.usage);
   }
+  // A spec no message counted toward is not reported, never $0: null, listed and warned about.
+  out.unmatched = [...specs].filter((n) => !Object.keys(out.specs[n]).length);
+  for (const n of out.unmatched) {
+    out.specs[n] = null;
+    console.error(`token-usage: no message matched spec #${n}; its tokens are null (not reported)`);
+  }
   return out;
 }
 
@@ -186,7 +197,8 @@ function price(opts) {
     const s = (sessions[key] ??= { specs: [], not_reported: [], shared: emptyColumns(), total: emptyColumns() });
     s.specs.push(r.spec);
     if (r.session_shared) s.shared = plus(s.shared, columns(r.session_shared, prices));
-    if (!r.tokens) {
+    // A tokens object with no models ({}) is as unreported as null.
+    if (!r.tokens || !Object.keys(r.tokens).length) {
       specs[r.spec] = null;
       s.not_reported.push(r.spec);
       continue;
