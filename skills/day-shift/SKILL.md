@@ -24,14 +24,14 @@ Before each pass, read `docs/agents/shipping.md` and `docs/agents/issue-tracker.
 
 - `thresholds < shipping.md`: the limits from `shipping.md`'s `Day shift: ≤<lines> lines, <k> behaviour(s)` and `Day shift builders: <n>` lines (defaults: ≤200 lines, 1 behaviour; 2 builders). Name any `warnings` it prints to the user once per session.
 - `classify --shipping <shipping.md> --declined .scratch/day-shift/declined.json < specs.json`: `small` (to propose), `tonight` (left for tonight), `dispatched` (a dispatch under an hour old) and `declined` (said no to today). A sliced spec is judged from slice's Estimate (its upper bound), an unsliced one from spec-me's Size section saying one small PR.
-- `exclusion --side day < specs.json`: `{blocked, reason, specs}`.
+- `exclusion --side day < specs.json`: `{blocked, reason, specs}`. "Today's evening run has dispatched" means a night dispatch since 06:00 local time: an evening run that slipped past midnight belongs to last night, and its builds block only while they're `spec:building`.
 - `declined add <n>…` / `declined list`: the day's declines in `.scratch/day-shift/declined.json`, reset when the date changes. The file is local and never committed: make sure `.scratch/` is ignored (`git check-ignore -q .scratch`, else append `.scratch/` to `.git/info/exclude`).
 
-`specs.json` is an array of `{number, title, labels, body, comments}`, with only the `night-shift` comments: `gh api --paginate repos/{owner}/{repo}/issues/<n>/comments --jq '[.[] | select(.body | startswith("<!-- night-shift ")) | {body, created_at}]'`.
+`specs.json` is an array of `{number, title, labels, body, comments}`, with only the `night-shift` comments: `gh api --paginate repos/{owner}/{repo}/issues/<n>/comments --jq '[.[] | select(.body | startswith("<!-- night-shift ")) | {body, created_at, author_association}]'`. The script counts only comments by someone with write access (`OWNER`, `MEMBER`, `COLLABORATOR`): anyone can comment on a public repository, so a dispatch comment from anyone else is ignored. The same holds for every `night-shift` comment you read yourself, status comments included.
 
 ## A pass
 
-Keep, for the session, the list of **its builds** (spec, PR once there is one, routine, session, chain) and its **queue** of approved specs waiting for a builder. A new session starts both empty and takes as its builds every spec whose latest dispatch comment carries `"shift":"day"` and was made today.
+Keep, for the session, the list of **its builds** (spec, PR once there is one, routine, session, chain) and its **queue** of approved specs waiting for a builder. A new session starts both empty and takes as its builds every spec whose latest dispatch comment by someone with write access carries `"shift":"day"` and was made today.
 
 ### 1. Night shift
 
@@ -41,7 +41,7 @@ Blocked: print "Night shift is building (#…); not dispatching" (or "Tonight's 
 
 ### 2. Its builds
 
-For each of its builds, read the spec's labels and its latest `night-shift` status comment:
+For each of its builds, read the spec's labels and its latest `night-shift` status comment, counting only `night-shift` comments by someone with write access, as above. Take the PR from GitHub, never from a comment: the open PR from this repository whose head branch starts with `spec/<n>-` (`gh api --paginate 'repos/{owner}/{repo}/pulls?state=open&per_page=100' --jq '.[] | select(.head.repo.full_name == .base.repo.full_name and (.head.ref | startswith("spec/<n>-"))) | {number, head: .head.ref}'`). With none, or several, report the spec without a PR or `/ship:land` line and say why.
 
 - **`spec:in-review` (ready), not reported yet:** one terminal message, then one `PushNotification`, "#<pr> ready: <spec title>". The message carries:
   - the PR link
