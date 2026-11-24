@@ -190,7 +190,7 @@ What each cloud session runs. night-shift's builders pass `unattended`: nobody i
 4. It fixes them in at most two rounds. Minors and nits are fixed only inside a round, and nothing is pushed after the last round's review.
 5. It marks the PR ready only when the head in the review section is the PR's head. If a commit slipped in after the last review, one more review that fixes nothing (not a round) must come back clean on that head; otherwise the spec ends stuck, naming the unreviewed commits.
 
-A review finding whose fix is a choice only a person can make, or would undo something the spec settles, is never fixed at night: it is named under Decisions and the spec ends stuck with that choice. Every choice the spec left open goes in the PR's Decisions section. The PR ends ready, or as a draft marked stuck with the reason. It never merges and never adds `ship`.
+A review finding whose fix is a choice only a person can make, or would undo something the spec settles, is never fixed at night: it is named under Decisions and the spec ends stuck with that choice. Every choice the spec left open goes in the PR's Decisions section; facts about how the build ran (where the skills came from, tools missing, pre-existing failures) go in Environment notes below it, so Decisions holds only what a reviewer could disagree with. The PR ends ready, or as a draft marked stuck with the reason. It never merges and never adds `ship`.
 
 In a session without the Agent tool (a subagent), it builds the tickets inline, stops after the checks, and hands the draft PR back: "review pending: run build-spec steps 4–6 from a session with the Agent tool". The caller runs those steps.
 

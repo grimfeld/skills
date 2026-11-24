@@ -59,16 +59,23 @@ Run `implement-spec` on the spec issue, as `${CLAUDE_PLUGIN_ROOT}/references/run
   - **Check references.** Every `amends`, `amended-by` and `supersedes` must name an ADR that exists on the base or one numbered above. Fix a wrong one, with a Decisions line.
 - **Migrations:** when a ticket adds one and `CLAUDE.md`, `AGENTS.md` or `docs/agents/shipping.md` names the repo's migration-numbering command, number it with that command and push that commit at once, so a parallel builder sees the number taken. Without one, give it the number after the highest taken on the base and on every other open `spec/*` PR head, found the way ADRs are above.
 - **The branch:** what `implement-spec` calls the integration branch is the spec's branch, `spec/<n>-<slug>`, made from the base above.
-- **The PR:** it's a **draft**, targeting the base branch. Its body opens with `Closes #<n>` and one paragraph on what it delivers. Below that is the decisions section:
+- **The PR:** it's a **draft**, targeting the base branch. Its body opens with the Closes lines (below) and one paragraph on what it delivers. Below that is the decisions section, and directly below it the environment notes section:
 
 ```
 <!-- build:decisions:start -->
 ## Decisions made during the build
 - <Choice the spec left open>: <what you chose> — <why, in one line>.
 <!-- build:decisions:end -->
+
+<!-- build:notes:start -->
+## Environment notes
+- <A fact about how the build ran>.
+<!-- build:notes:end -->
 ```
 
-Append to that section every time you choose something the spec didn't say, and keep it up to date. It's what the reviewer reads to check your judgement. Write the section to a file and put it in the PR body with `uv run --no-project python ${CLAUDE_PLUGIN_ROOT}/skills/pr-review/scripts/update-pr-body.py --markers build:decisions <pr> <decisions.md>`. When `gh` can't edit the PR, use the "Splice a section into a PR body" row of `${CLAUDE_PLUGIN_ROOT}/references/github.md` (`--body-file`): one MCP read and one MCP update per change.
+A line goes under **Decisions** when a reviewer could disagree with it: a choice the spec left open, or a review finding left unfixed with the reason. It goes under **Environment notes** when it is a fact about how the build ran: where the skills came from ("ran from a clone of grimfeld/skills"), a tool missing or refused ("no `gh`: GitHub MCP used"), a check run, skipped or passing with a warning `main` also has, a pre-existing failure, which review lenses ran. Leave out the notes section when there is nothing to note.
+
+Append to Decisions every time you choose something the spec didn't say, and keep both sections up to date. Decisions is what the reviewer reads to check your judgement. Write each section to a file and put it in the PR body with `uv run --no-project python ${CLAUDE_PLUGIN_ROOT}/skills/pr-review/scripts/update-pr-body.py --markers build:decisions <pr> <decisions.md>` (`--markers build:notes` for the notes). When `gh` can't edit the PR, use the "Splice a section into a PR body" row of `${CLAUDE_PLUGIN_ROOT}/references/github.md` (`--body-file`): one MCP read and one MCP update per change.
 
 **A question the spec doesn't answer:** if the answer changes what a user sees or does, or changes data in a way that can't be undone, only a person can settle it. Otherwise, decide and record it.
 
@@ -102,7 +109,7 @@ Done when every ticket is closed, or one can't be built, which makes the spec st
 
 Run exactly the local checks `docs/agents/shipping.md` lists, at the scope it states (for example "the e2e specs the change touches"), then the project's own pre-push checks. Never run a whole e2e suite or a CI shard unless that file names it. A check that can run past 9 minutes runs in the background (see Waiting).
 - Fix failures that are your change's fault.
-- If a failure is also present on the base branch, it isn't your change's fault. Record it under Decisions ("pre-existing failure: …") and go on.
+- If a failure is also present on the base branch, it isn't your change's fault. Record it under Environment notes ("pre-existing failure: …") and go on.
 
 Push, then wait for CI on the PR as Waiting (above) says. A check still pending after 30 minutes is not green: record it under Decisions, as Waiting says, and go on. The `ship` status stays pending until a person reviews the PR. That's expected, so never try to make it pass.
 
@@ -147,7 +154,7 @@ Skipped for a spec handed back at step 3 (no Agent tool): the caller runs it.
 
 **Stuck:**
 - Leave the PR as a draft, or open one with what exists, if anything was built.
-- Add a "Stuck" section to the PR body below Decisions: what blocks, what you tried, and what a person has to decide. For a `needs-person` finding, name the finding, the spec line it contradicts if any, and the choice: keep the spec and accept or document the finding, or change the spec (or pick one of its options).
+- Add a "Stuck" section to the PR body below Decisions and Environment notes: what blocks, what you tried, and what a person has to decide. For a `needs-person` finding, name the finding, the spec line it contradicts if any, and the choice: keep the spec and accept or document the finding, or change the spec (or pick one of its options).
 - Relabel the issue `spec:stuck`.
 
 Either way, copy the spec's **Before ship** and **After merge** items to the top of the PR body, above the opening paragraph (below the `Closes` line), as unchecked boxes under `## Before ship` and `## After merge` headings. They are deferred to a person, so they don't count as unmet criteria for Ready. Leave out a section that reads "None", or that the spec doesn't have.
@@ -159,7 +166,7 @@ Then comment on the spec issue with one line for the morning page:
 night-shift: <ready for review|stuck>: <PR link>. <one sentence>
 ```
 
-`rounds` counts fix rounds only, never the confirming review.
+`decisions` counts the items in the Decisions section only, never Environment notes. `rounds` counts fix rounds only, never the confirming review.
 
 A stuck spec stops only the specs whose Depends on names it, directly or through another spec in this chain. Mark each of those stuck, "depends on #N, which is stuck".
 

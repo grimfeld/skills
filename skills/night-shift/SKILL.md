@@ -109,7 +109,7 @@ A subagent's transcript sits under `<session>/subagents/`. Its `meta.json` holds
 ## Morning
 
 1. **Collect** every spec with a `night-shift` comment from the last 24 hours.
-   - Read the spec's latest `night-shift` JSON comment, its PR, the PR's checks, and the PR's review and Decisions sections.
+   - Read the spec's latest `night-shift` JSON comment, its PR, the PR's checks, and the PR's review and Decisions sections. The decisions to check come from the Decisions section (`build:decisions` markers) only, never from Environment notes (`build:notes`). A PR without the notes section has no notes.
    - A spec still `spec:building` after its session ended crashed. Read the run log (`RemoteTrigger` `list_runs`, then `get_run_log`) for the cause, then label it `spec:stuck` and comment the cause.
    - **Designs:** close each `design:specced` issue whose sub-issue specs have all closed, with a comment listing their PRs. Name in the report the held place specs that the merges since last night have unblocked.
 2. **Cost:** what each spec would have cost at API prices. The builders counted their own tokens into their `night-shift` comments, by model (see `templates/builder-prompt.md`).
@@ -121,7 +121,7 @@ A subagent's transcript sits under `<session>/subagents/`. Its `meta.json` holds
    - If a capture fails, say so on the PR's card and go on.
    - Remove the worktree.
 4. **Write the morning page** and publish it as an Artifact, following the Artifact tool's own design guidance. Keep it plain: a list to work through, not a dashboard. On later mornings, republish to the same URL; the URL is saved in `.scratch/night-shift/morning-url`.
-   - **Ready:** the PRs to review, smallest first. Each card has the PR link, the verdict line, the risks, and the decisions to check. Show the `ship` status as "awaiting your `ship` label", apart from the CI checks: it waits on the user by design. A stacked PR (its base is another PR's branch) sits under its parent's card, whatever its size, marked "lands after #<parent>", so the order is visible before approving.
+   - **Ready:** the PRs to review, smallest first. Each card has the PR link, the verdict line, the risks, and the decisions to check. Environment notes aren't shown, except a "notes: <count>" link to the PR body when a note is a pre-existing failure or a skipped check. Show the `ship` status as "awaiting your `ship` label", apart from the CI checks: it waits on the user by design. A stacked PR (its base is another PR's branch) sits under its parent's card, whatever its size, marked "lands after #<parent>", so the order is visible before approving.
    - **Design PRs** add their fidelity grid: per place, reference beside app for each look × theme × viewport. Flagged views are shown full size with their finding; the rest are thumbnails. Upload the PNGs as the page's assets (the `assets` capability) and reference each by the URL the upload returns.
    - **Stuck:** what each one needs from the user. A PR stacked on a stuck spec it doesn't depend on sits under that card, with its note "stacked on stuck #N; lands after it, or retarget".
    - **Answer lines:** each Stuck card, and each decision to check on a Ready card, ends with one line: "Answer: tell Claude in the morning session (`#<pr>: <choice>`)", with the PR link beside it for reading. A stuck spec with no PR uses its spec number and links the spec issue. A card with several decisions has one line per decision, each naming its decision (`#<pr> <decision>: <choice>`); a card with none has no answer line.
