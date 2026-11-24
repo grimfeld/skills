@@ -137,7 +137,7 @@ test("the pipeline's own marked comments are neither feedback nor counted, whoev
   assert.equal(out.ignored, 1, "a marker-shaped comment from a reader is still a reader's comment");
 });
 
-test("permission is read from the permission level, so a custom role with write access counts", () => {
+test("a `write` permission level counts, whatever role gave it", () => {
   const out = selectFeedback(input({
     permissions: { custom: "write" },
     issue_comments: [comment(1, "custom", "2026-11-21T09:00:00Z", "from a release manager")],
