@@ -73,6 +73,8 @@ __BOOKKEEPING_FILES__
 
 Required on `__DEFAULT_BRANCH__`: __REQUIRED_CHECKS__, and `ship`.
 
+After changing that list here and merging it, re-run `/ship:setup-ship`: it syncs the ruleset to it.
+
 Run locally before marking a PR ready: __LOCAL_CHECKS__
 
 ## After merge
