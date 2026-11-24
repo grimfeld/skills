@@ -71,6 +71,7 @@ The agent-facing detail (`evidence`, `verification`, `sources`, `confidence`) is
       "lane": "in",
       "verification": "confirmed: …",
       "evidence": "…",
+      "references": ["https://docs.github.com/en/actions/…"],
       "fix_kind": null,
       "options": null,
       "spec_line": null,
@@ -86,6 +87,7 @@ The agent-facing detail (`evidence`, `verification`, `sources`, `confidence`) is
 | `runs` | Newest last. Append one per run; never rewrite earlier runs. |
 | `runs[].date` | Written by `render-report.py --stamp`, never typed: the run's first render turns the placeholder `this-run` into the current UTC time, `YYYY-MM-DD HH:MM UTC`. A run not yet stamped has `this-run`. Earlier runs in old state files keep whatever string they were written with. |
 | `runs[].head` | Written by the same stamp: the 7-character short SHA of `REVIEW_ROOT`'s HEAD, the code the lenses read. Absent until the stamp. |
+| `runs[].self_review` | Optional. Set only on a run that reviewed a change to pr-review itself (SKILL.md "Reviewing a change to pr-review"): the reviewing copy's commit, or `unknown`. The section, report and page then show one line saying the installed copy reviewed it. Absent otherwise; older state files render as before. |
 | `runs[].mode` | `full` or `fix-round` (only the fix diff was re-checked, see SKILL.md "Fix round"). Absent means `full`. |
 | `ci.status` | `passing`, `failing`, `pending`, `no-checks` (a PR whose only checks are the `ship` status and the Ship workflow's jobs) or `none` (not a PR). `failing` lists `{name, url}`; with no names it renders "CI failing" and `note`. |
 | `lenses[].status` | `ran`, `skipped`, `failed`, `stale` (ran with a lens whose upstream drifted, not synced) or `unverified` (ran as written; the drift check couldn't compare). `stale` and `unverified` lenses show in the reviewer table with their note. |
@@ -98,6 +100,7 @@ The agent-facing detail (`evidence`, `verification`, `sources`, `confidence`) is
 | `options` | Optional. Set at verify (step 7) only for a finding whose fix is a choice for a person, or would change a line the spec settles: two to four `{ "name", "what" }`, the recommended one first. Absent or `null` otherwise. |
 | `spec_line` | Optional. The quoted spec line the suggested fix would change, when that is why `options` is set. |
 | `decision.state` | `pending`, `approved`, `rejected`, `deferred` or `needs-person` (unattended only: a blocker or major with `options`, left for a person; the report shows "needs a person: <option names>"). `needs-person` is not a decision: the next attended run asks it (step 9) and replaces it with the answer. Rejected findings are never resurfaced: on a re-run, a new finding matching a rejected one (same root cause, same place) is discarded. |
+| `references` | Optional; the finding's source URLs from the finding format, kept verbatim. The report's and page's Evidence block shows them as a "Sources" row of links (http and https only). Absent in older state files. |
 | `origin` | Optional; `pre-existing` carried over from the finding format. The report tags it "already in base". |
 | `ticket` | The ticket number once tickets are written. |
 

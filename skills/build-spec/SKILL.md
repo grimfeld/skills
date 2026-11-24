@@ -91,7 +91,7 @@ Push, then wait for CI on the PR with the "Wait for a PR's checks" row of `${CLA
 
 ### 4. Review
 
-Run `pr-review` with `<pr> unattended`, as `${CLAUDE_PLUGIN_ROOT}/references/running-skills.md` says. The Skill tool can't call it. It writes the review section into the PR description and returns the approved findings: the blockers and majors. If it ends with "review failed: no reviewer ran", run it once more; a second failure makes the spec stuck, "review failed: no reviewer ran".
+Run `pr-review` with `<pr> unattended`, as `${CLAUDE_PLUGIN_ROOT}/references/running-skills.md` says. When the spec changes pr-review itself, that is still the copy `running-skills.md` finds (installed, or the clone), never the spec branch's: pr-review's "Reviewing a change to pr-review" rule. The Skill tool can't call it. It writes the review section into the PR description and returns the approved findings: the blockers and majors. If it ends with "review failed: no reviewer ran", run it once more; a second failure makes the spec stuck, "review failed: no reviewer ran".
 
 ### 5. Fix rounds, at most two
 
