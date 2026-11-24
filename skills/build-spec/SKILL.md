@@ -139,3 +139,5 @@ A spec stacked on the stuck one without depending on it is built, reviewed and f
 ## 7. End
 
 Clean up the worktrees you made. Your last message lists, per spec: ready, stuck or review pending, the PR link, and the decision count. For each spec handed back at step 3 (no Agent tool), give the PR number and the line "review pending: run build-spec steps 4–6 from a session with the Agent tool".
+
+**Unattended: stop the PR notifications.** Once your last message's content is settled, load `unsubscribe_pr_activity` with ToolSearch (`select:unsubscribe_pr_activity`, or the name the search finds for it) and call it once for each PR this session opened or reviewed, ready or stuck. An error from that call (not subscribed, tool missing) is fine: don't retry it. A PR event that still arrives after this step needs nothing: end that turn with no tool call. Without `unattended`, leave subscriptions as they are: the person who ran you may want the session to react to the PR.
