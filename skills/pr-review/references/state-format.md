@@ -42,6 +42,7 @@ The agent-facing detail (`evidence`, `verification`, `sources`, `confidence`) is
     {
       "date": "2026-11-09 15:34",
       "head": "e9828ed0",
+      "mode": "full",
       "ci": { "status": "passing", "failing": [], "note": "check, e2e ×4, CodeQL" },
       "spec": "issues #423, #424–#434",
       "lenses": [
@@ -82,9 +83,10 @@ The agent-facing detail (`evidence`, `verification`, `sources`, `confidence`) is
 | Field | Rule |
 |---|---|
 | `runs` | Newest last. Append one per run; never rewrite earlier runs. |
+| `runs[].mode` | `full` or `fix-round` (only the fix diff was re-checked, see SKILL.md "Fix round"). Absent means `full`. |
 | `ci.status` | `passing`, `failing`, `pending`, `no-checks` (a PR whose only checks are the `ship` status and the Ship workflow's jobs) or `none` (not a PR). `failing` lists `{name, url}`; with no names it renders "CI failing" and `note`. |
 | `lenses[].status` | `ran`, `skipped`, `failed`, `stale` (ran with a lens whose upstream drifted, not synced) or `unverified` (ran as written; the drift check couldn't compare). `stale` and `unverified` lenses show in the reviewer table with their note. |
-| `lenses[].note` | Free text. For an `unverified` lens it starts `reason: <r>` (the reason `check-drift.py` printed); step 5 adds `agent: <type>` after it, separated by `; `. |
+| `lenses[].note` | Free text. For an `unverified` lens it starts `reason: <r>` (the reason `check-drift.py` printed); a fix-round run that fell back to a full review adds `full review: <reason>`; step 5 adds `agent: <type>` last. Parts are separated by `; `. |
 | `findings[].id` | `F<n>`, assigned once and never reused. A finding keeps its id across runs. |
 | `severity` | From `references/finding-format.md`. |
 | `status` | `open` or `fixed`. Set `fixed` with `fixed_in` = the run date when a re-run no longer finds it. |
@@ -99,5 +101,7 @@ The PR section's footer ("reviewers:") names every lens with status `ran`, `stal
 ## Re-runs
 
 Match each new finding to an existing open finding by root cause and location. Matched: keep the existing id, decision and human fields, refresh `evidence` and `locations`. Unmatched new findings get new ids with `first_seen` set to this run. Existing open findings nothing matched become `fixed`.
+
+**Fix rounds** (`mode: "fix-round"`): only a finding that got an explicit verdict changes. It becomes `fixed` (with `fixed_in`) when a lens asked about it says `fixed` and none says `still open`; any other answer, or none, keeps it open. Every other open finding carries over unchanged, and is never marked fixed for going unreported: the "nothing matched become `fixed`" rule above doesn't apply. New findings are matched for ids as above.
 
 **Legacy reports**: if `<id>.md` exists without `<id>.json`, seed state from it once: each row of its Rejected table becomes a finding with `decision.state: "rejected"` and its reason.

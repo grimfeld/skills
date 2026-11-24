@@ -30,7 +30,7 @@ The flow:
 5. **Review** in parallel, one lightweight `pr-lens-reviewer` agent per lens. Every reviewer is report-only and returns findings in one shared format. In a session without the Agent tool (a subagent), it reviews nothing and says "not run: no Agent tool in this session": the context that wrote the code doesn't review it.
 6. **Dedupe** across lenses. A finding several lenses agree on ranks higher.
 7. **Verify** every blocker and major against the code; false positives are dropped.
-8. **Report**: findings are rewritten in plain language and kept in `.scratch/pr-review/<id>.json`; a script renders them into a readable report (`<id>.md`) that opens with the verdict and groups smaller findings by theme, plus a private Artifact page with the same content. Re-runs mark findings fixed, still open or new, and never resurface rejected ones.
+8. **Report**: findings are rewritten in plain language and kept in `.scratch/pr-review/<id>.json`; a script renders them into a readable report (`<id>.md`) that opens with the verdict and groups smaller findings by theme, plus a private Artifact page with the same content. Re-runs mark findings fixed, still open or new, and never resurface rejected ones. With `fix-round`, only the lenses that raised open approved findings, plus `quality`, re-check those findings and the fix diff, and a finding is marked fixed only when a lens confirms it.
 9. **Approve** blockers and majors one by one, minors and nits as a batch.
 10. **Spec and tickets** for the approved findings, in `.scratch/pr-review-<id>/`, ready for `/implement-spec`.
 
@@ -39,6 +39,7 @@ The flow:
 /pr-review                     # current branch vs. its merge-base with main
 /pr-review base=develop        # current branch vs. another base
 /pr-review 123 paths=src/api   # narrow the review
+/pr-review 123 fix-round       # after fixes: re-check the approved findings and the fix diff only
 ```
 
 #### Requirements
