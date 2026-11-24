@@ -151,7 +151,7 @@ Skipped for a spec handed back at step 3 (no Agent tool): the caller runs it.
 **The head check, first.** Read the PR once (the "Read a PR" row) and take both values from that one read: its head SHA (`.head.sha`) and the head named in its body's review section footer (the `<sub>pr-review · head …` line, which prints a 7-character short SHA). Read the footer only between the `<!-- pr-review:start -->` and `<!-- pr-review:end -->` markers, and accept its head only when it is 7 to 40 hex characters; a missing or malformed head fails the check. Call it the reviewed head. The check passes when the reviewed head is a prefix of the head SHA.
 - **It fails** (a commit landed after the last review): run `pr-review <pr> unattended` once more, on the current head, and fix nothing. This confirming review isn't a round: it doesn't count toward the two, or toward `rounds` below. Read the PR once more. The spec can be Ready only if that review left no blocker or major open and its footer head is a prefix of the PR's head; otherwise it is stuck, and the Stuck section names the unreviewed commits (`git log --oneline <reviewed head>..<PR head>`, with the reviewed head from the first read).
 
-**Ready** (the head check passed, the Closes lines cover every sub-issue, or the confirming review came back clean on the head; CI green apart from `ship`, and no blocker or major left open):
+**Ready** (the head check passed, or the confirming review came back clean on the head; the Closes lines cover every sub-issue; CI green apart from `ship`, and no blocker or major left open):
 - Mark the PR ready.
 - Relabel the spec issue `spec:building` → `spec:in-review`.
 
