@@ -19,7 +19,7 @@ You must never:
 - add the `ship` label
 - push to the default branch
 - force-push a branch you didn't create in this session
-- touch another spec's branch, except the one in your own chain you build on
+- touch another spec's branch, except the specs in your own chain (the one you build on, and the children step 5 merges into)
 
 Read first:
 1. The project's `CLAUDE.md` (and `AGENTS.md`), `docs/agents/shipping.md`, `docs/agents/issue-tracker.md`. The project's rules apply to you: worktrees, commit email, migrations, docs to update.
@@ -63,6 +63,14 @@ Append to that section every time you choose something the spec didn't say, and 
 
 **Without the Agent tool:** build `implement-spec`'s tickets one after another in your own context, on the spec branch, instead of in implementer subagents. Record "no Agent tool: tickets built inline" under Decisions. Overrides that describe implementer worktrees, merger subagents or handoff notes don't apply on this path.
 
+**Overrides to `implement-spec`.** Where these replace one of its steps, they win:
+- **The notes dir:** `/tmp/build-spec-<n>/`, made before the first subagent. It's the one folder outside the repo that `implement-spec`'s exploration subagent saves to, and it holds the handoff notes below. Give its absolute path in every brief.
+- **The implementer brief:** the implementer commits on its ticket branch in its own worktree and never pushes it. Its worktree shares your clone's object store, so you see the branch without a push.
+- **Handoff notes:** an implementer whose ticket blocks another writes `<notes dir>/<ticket>.md` before it reports done: the paths it touched and the seams the next ticket plugs into (functions, test helpers, where to extend), as pointers and decisions, never the diff. A ticket that blocks nothing writes none. Done when every ticket it unblocks has a notes file to point at.
+- **The merger step:** a finished ticket branch already holds the spec branch's tip (the implementer merged it before reporting). Merge it yourself, inline, in your clone, on the spec branch: `git merge --no-ff --no-commit <ticket branch>`, then `git commit` with the build's message conventions and attribution, then push the spec branch. Done when the spec branch on the remote holds the implementer's commit. Start a merger subagent only when that merge conflicts; it resolves in your clone the same way and pushes only the spec branch.
+- **The new-frontier step:** each newly unblocked ticket's brief points at its blockers' notes files.
+- **Nothing else is pushed:** after the build, `git ls-remote --heads origin` lists no ticket branch, only the branches that were there before and the spec branch.
+
 Done when every ticket is closed, or one can't be built, which makes the spec stuck.
 
 ### 3. Check
@@ -86,6 +94,11 @@ Round = fix every approved finding and every red CI check on the branch, push, w
 - A finding you think is wrong: record it in Decisions with your reason, and leave it.
 - After round 2, anything still blocking makes the spec stuck. Name each blocking item and what you tried.
 - Without `unattended`, ask instead of going stuck: for each item still blocking after round 2, one question as in step 2, naming the choices (for example a fix you describe, accepting it as is with a note, or leaving the spec stuck) and your recommendation. Record the answer under Decisions as in step 2 ("<item>: decided by the owner: <choice>") and apply it, with no third review round: the two-round cap still holds. An item settled this way counts as closed for step 6; one the owner leaves stuck keeps the spec stuck.
+
+**Reaching the chain:** after a fix round on a spec whose branch a later spec in this chain is built on, merge it into its child, then that child into the next, down the chain:
+- `git merge --no-ff --no-commit <parent's branch>` on the child's branch, then `git commit` with the build's message conventions and attribution, then push. Never rebase.
+- A conflict: resolve it keeping what both sides meant, then run the child's local checks (step 3) before the push.
+- A child already reviewed is reviewed again if the merge changed files in its diff: `pr-review <pr> unattended` in fix-round mode where `pr-review` has one (it falls back to a full review on a range holding a base merge), else a full review. Its findings start the child's next fix round.
 
 ### 6. Finish the spec
 

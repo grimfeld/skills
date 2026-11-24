@@ -181,7 +181,7 @@ The first open asks you to allow both for the page.
 ### `/ship:build-spec`
 
 What each cloud session runs. night-shift's builders pass `unattended`: nobody is asked anything, and a question only a person can settle marks the spec stuck. Run it yourself, without `unattended`, and it asks you that question instead (with its recommendation), records your answer under Decisions as "decided by the owner", and carries on.
-1. It builds the spec (`implement-spec`, tickets as commits on `spec/<n>-…`, draft PR).
+1. It builds the spec (`implement-spec`, tickets as commits on `spec/<n>-…`, draft PR). Implementers keep their ticket branches local; the builder merges each into the spec branch inline and pushes only that branch. A ticket that blocks others leaves handoff notes for the next implementer.
 2. It runs the project's checks.
 3. It runs `pr-review <pr> unattended`, which approves the blockers and majors and leaves the rest for you.
 4. It fixes them in at most two rounds.
