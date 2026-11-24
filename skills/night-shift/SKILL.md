@@ -58,6 +58,7 @@ Show the plan and ask for one yes:
 - the builder routine each session goes to
 - the model (`claude-opus-5-5` unless `shipping.md` names another)
 - for each pair of ADR or migration specs left unchained, the numbering command it relied on
+- the cloud environment the builders run in: the "Cloud environment" line of `shipping.md`'s "Night builds" section (`` `env_…` (<name>) ``). With no such line, or "none chosen", list the user's cloud environments (`list_environments` from the Claude Code remote tools) and ask which one tonight's builds run in, recommending the one named like the repository. Say that a `/ship:setup-ship` re-run records it in `shipping.md`. Never fall back to the default environment, and don't write the line yourself: `shipping.md` changes go through setup-ship's PR.
 
 Specs the user wants to hold back stay `spec:ready`.
 
@@ -65,10 +66,11 @@ Specs the user wants to hold back stay `spec:ready`.
 
 Builds run on a fixed **pool** of routines, reused every night: `ship-builder-<repo>-1`, `-2`, and so on. A routine can't be deleted through the API, so never create one per spec.
 
-1. **Find the pool** in a general-purpose subagent, since the full listing carries every routine's prompt. It runs `RemoteTrigger` `list` and returns only this repository's `ship-builder-<repo>-*` routines, one row each with `id`, `name`, `enabled` and the environment ID, under 2 KB.
+1. **Find the pool** in a general-purpose subagent, since the full listing carries every routine's prompt. It runs `RemoteTrigger` `list` and returns only this repository's `ship-builder-<repo>-*` routines, one row each with `id`, `name`, `enabled` and the environment ID (its `job_config.ccr.environment_id`), under 2 KB.
+   - A pool routine in another environment than the night plan's: `RemoteTrigger` `update` it to that environment before giving it a session, and say so.
 2. **Create missing routines,** if the pool is smaller than tonight's session count. Show the user each new routine's configuration first:
    - this repository as `sources`
-   - the default cloud environment
+   - the night plan's cloud environment (step 3)
    - the model
    - `allowed_tools`: `Bash`, `Read`, `Write`, `Edit`, `Glob`, `Grep`, `Skill`, `Agent`, `ToolSearch`, `WebFetch`
    - `enabled: false`, so it never fires on its own
@@ -92,6 +94,16 @@ night-shift: building tonight in <session link>.
 Tell the user:
 - what's building, and where
 - that `/ship:night-shift morning` gathers the results
+
+## Where the work happens
+
+In one builder session, the work for a spec happens in these places:
+- **The builder:** the cloud session's repo clone, on the `spec/<n>-<slug>` branch (in a worktree if the project's rules say so).
+- **Implementers:** `implement-spec` subagents, each in a `.claude/worktrees/agent-…` worktree on its own ticket branch. The branch stays local: the builder merges it into the spec branch inline and pushes only the spec branch.
+- **Lens reviewers:** `pr-review`'s subagents, read-only, in the spec branch's tree or in `pr-review`'s `.scratch/pr-review/wt-<id>` worktree.
+- **Fix rounds:** the builder itself, on the spec branch.
+
+A subagent's transcript sits under `<session>/subagents/`. Its `meta.json` holds the `toolUseId` of the Agent call that started it, so its work counts toward the spec its parent was on, whatever branch or worktree it ran in. `scripts/token-usage.mjs` relies on this.
 
 ## Morning
 

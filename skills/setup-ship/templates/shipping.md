@@ -73,6 +73,8 @@ __BOOKKEEPING_FILES__
 
 Required on `__DEFAULT_BRANCH__`: __REQUIRED_CHECKS__, and `ship`.
 
+After changing that list here and merging it, re-run `/ship:setup-ship`: it syncs the ruleset to it.
+
 Run locally before marking a PR ready: __LOCAL_CHECKS__
 
 ## After merge
@@ -82,6 +84,13 @@ __CD_SUMMARY__
 ## Screens
 
 Command that produces screenshots of the screens a change touches, for the review section: __SCREENS__
+
+## Night builds
+
+`/ship:night-shift` creates its builder routines in this cloud environment. While none is chosen, it asks for one
+each night. Re-run `/ship:setup-ship` to change it.
+
+- **Cloud environment:** __CLOUD_ENVIRONMENT__
 
 ## Spec labels
 
