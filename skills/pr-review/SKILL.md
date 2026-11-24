@@ -69,7 +69,7 @@ Your lens's source, for `source_skill`: <the `source` value from the lens's fron
 
 ## This review
 Repository root to read: <REVIEW_ROOT>
-Default branch, for the repo's standards and checks: <origin/<default>>
+Default branch, for the repo's standards and checks: <the default branch from step 2.1>
 Fix diff, already saved: <absolute path of .scratch/pr-review/<id>.fix.diff> (the previous review's head to this head)
 Changed files: <the fix diff's list>
 Spec: <spec text, or "no spec available">
@@ -111,7 +111,7 @@ Done when the script prints no `DRIFT` lines, or every drifted lens is synced or
 
 Parse the arguments: a PR number or URL, an optional `base=`, an optional `paths=`, and `fix-round` (see "Fix round").
 
-1. **Target and id.** With a PR, read its number, title, body, base and head refs, head sha and URL with the "Read a PR" row of `${CLAUDE_PLUGIN_ROOT}/references/github.md` (`gh api repos/{owner}/{repo}/pulls/<n>`; without `gh`, the GitHub MCP `pull_request_read` `get`); id is `pr-<n>`. Without: the current branch; base is `base=` or the merge-base with `main` (fall back to `master`); id is the branch name slugified.
+1. **Target and id.** With a PR, read its number, title, body, base and head refs, head sha and URL with the "Read a PR" row of `${CLAUDE_PLUGIN_ROOT}/references/github.md` (`gh api repos/{owner}/{repo}/pulls/<n>`; without `gh`, the GitHub MCP `pull_request_read` `get`); id is `pr-<n>`. Without: the current branch; base is `base=` or the merge-base with `main` (fall back to `master`); id is the branch name slugified. Also name the **default branch**: `git symbolic-ref --short refs/remotes/origin/HEAD`, else `origin/main`, else `origin/master`, whichever exists, fetched. Lenses read the repo's standards and checks from it, never from the PR's copy; it is not the PR's base when that base is another branch.
 2. **Checkout.** Reviewers need the head's files on disk. If the working tree is already at the head commit, use it. Otherwise `git fetch origin pull/<n>/head` and `git worktree add .scratch/pr-review/wt-<id> <head sha>`; that worktree is `REVIEW_ROOT`. Never switch the user's current branch.
 3. **Diff.** `git diff --shortstat <base>...<head>` and `git diff --name-status`. Over ~3000 changed lines, show the stats and ask: continue, or narrow to paths. Apply `paths=` if given. Write the diff once to `.scratch/pr-review/<id>.diff` (`git -C <REVIEW_ROOT> diff <base>...<head> [-- <paths>] > …`); reviewers read that file instead of running their own diffs.
 4. **Spec.** Look in order: issues referenced in commit messages or the PR body (fetch each with the "Read an issue" row; without `gh`, `issue_read` `get`), a path the user passed, a file under `docs/`, `specs/` or `.scratch/` matching the branch or feature. Record the spec text, or "no spec available".
@@ -119,7 +119,7 @@ Parse the arguments: a PR number or URL, an optional `base=`, an optional `paths
 6. **Previous state.** Read `.scratch/pr-review/<id>.json` if it exists: its open findings, decisions and `artifact_url`. If only a legacy `<id>.md` exists, seed state from it as `references/state-format.md` describes.
 7. **Scratch is untracked.** If `git check-ignore -q .scratch` fails, append `.scratch/` to `.git/info/exclude`.
 
-Done when you hold: base, head, `REVIEW_ROOT`, the saved diff file, the changed-file list, spec text or "no spec available", CI status, and the previous state (or none).
+Done when you hold: the default branch, base, head, `REVIEW_ROOT`, the saved diff file, the changed-file list, spec text or "no spec available", CI status, and the previous state (or none).
 
 ## 3. Route the lenses
 
@@ -193,7 +193,7 @@ Your lens's source, for `source_skill`: <the `source` value from the lens's fron
 
 ## This review
 Repository root to read: <REVIEW_ROOT>
-Default branch, for the repo's standards and checks: <origin/<default>>
+Default branch, for the repo's standards and checks: <the default branch from step 2.1>
 Diff, already saved: <absolute path of .scratch/pr-review/<id>.diff>
 Changed files: <list>
 Spec: <spec text, or "no spec available">
@@ -208,12 +208,12 @@ To test a claim by running code, write files only under `/tmp/pr-review-<id>/<le
 Return the coverage line and the JSON findings array exactly as the finding format specifies.
 ```
 
-**Check the tree around the dispatch.** Just before the dispatch message, save `git -C <REVIEW_ROOT> status --porcelain -z --untracked-files=all`. After the last lens returns, run it again and compare. For each path that is new in the second list:
-- skip it, and report it, if it resolves outside `REVIEW_ROOT`;
-- first copy it to `/tmp/pr-review-<id>/removed/<path>`, so nothing is lost if it was a person's work rather than a lens's;
-- then, if it is untracked, delete it (`rm -rf -- <path>`); if it is a tracked file, restore it with `git -C <REVIEW_ROOT> checkout -- <path>`.
+**Check the tree around the dispatch.** Just before the dispatch message, make a private backup folder outside the lenses' probe folders, `BACKUP=$(mktemp -d /tmp/pr-review-<id>-removed.XXXXXX)`, and save `git -C <REVIEW_ROOT> status --porcelain -z --untracked-files=all`. After the last lens returns, run it again and compare. Its paths are relative to `REVIEW_ROOT` (in `-z` output, a rename's second field is its old path, not a new entry). For each path that is new in the second list, always as `<REVIEW_ROOT>/<path>`, never relative to your working directory:
+- skip it, and report it, if `realpath <REVIEW_ROOT>/<path>` is outside `REVIEW_ROOT`;
+- if it exists, first copy it, without following links, to `$BACKUP/<path>` (`cp -a --parents --no-dereference`), so nothing is lost if it was a person's work rather than a lens's;
+- then, if it is untracked, delete it (`rm -rf -- <REVIEW_ROOT>/<path>`); if it is tracked (modified or deleted), restore it with `git -C <REVIEW_ROOT> checkout -- <path>`.
 
-Pass each path as its own argument after `--`, never inside a built command string. Paths already listed before the dispatch are the builder's own work: leave them alone. `.scratch/` is ignored (step 2.7), so the saved diff and the fidelity output never show. For each path you clean up, add `wrote inside the repo: <path> (copy in /tmp/pr-review-<id>/removed/)` to the note of the lens that wrote it; when it can't be tied to one lens, add it to the note of every lens in that dispatch. Those notes are the report's "Lens failures" lines.
+Pass each path as its own argument after `--`, never inside a built command string. Paths already listed before the dispatch are the builder's own work: leave them alone. `.scratch/` is ignored (step 2.7), so the saved diff and the fidelity output never show. For each path you clean up, add `wrote inside the repo: <path> (copy in <BACKUP>)` to the note of the lens that wrote it; when it can't be tied to one lens, add it to the note of every lens in that dispatch. Those notes are the report's "Lens failures" lines.
 
 **Wait while lenses run.** Between dispatch and the last lens returning, read no file and run no review command: no diff, no changed file, no standards doc or ADR. That is the lenses' work, and your context is the most expensive place to do it again.
 
