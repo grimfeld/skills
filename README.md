@@ -48,7 +48,7 @@ The flow:
 - [`uv`](https://docs.astral.sh/uv/) to run the drift check.
 - Optional: the Vercel MCP server (preview discovery and protected-preview access), Chrome DevTools MCP or `npx lighthouse` (live web audit), `crapper` and `dryer` (principles metrics).
 - The source skills installed under `~/.claude/skills/` for the drift check: `code-review` from [mattpocock/skills](https://github.com/mattpocock/skills); `code-review-and-quality`, `security-and-hardening`, `performance-optimization` and `code-simplification` from [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills); `web-quality-audit` from [addyosmani/web-quality-skills](https://github.com/addyosmani/web-quality-skills). `design-fidelity` has no upstream; it needs Playwright in the project (`scripts/design-capture.mjs` resolves it from there). `ub-mode` is a local skill; drop or rewrite `lenses/principles.md` if you don't have it.
-- From [mattpocock/skills](https://github.com/mattpocock/skills): `grilling` and `domain-modeling` (spec-me), `to-tickets` (slice), `implement-spec` (pr-review's fix tickets, and the night build), `retro` (retro-issues, which reads it). They're user-invoked only, so the ship skills run them by reading their `SKILL.md` (see `references/running-skills.md`); install them alongside.
+- From [mattpocock/skills](https://github.com/mattpocock/skills): `grilling` and `domain-modeling` (spec-me), `to-tickets` (slice), `implement-spec` (pr-review's fix tickets, and the night build), `retro` (retro-issues, which reads it). They're user-invoked only, so the ship skills run them by reading their `SKILL.md` (see `references/running-skills.md`); install them alongside. Also `prototype` (prototype-me), which is model-invocable, so it is called with the Skill tool, and read from a clone only when it isn't installed.
 - For the live web audit and the lens sources' extra references, the upstream skills under `~/.claude/skills/`; without them the lenses still run on their own briefs.
 
 ### `/ship:spec-me`
@@ -73,6 +73,14 @@ The spec is a GitHub issue that's saved after every round:
 - `spec:draft` if you stop first, with its open questions listed, so `/ship:spec-me #<n>` resumes it later
 
 ADRs and glossary entries settled during the session go into the issue's Decision records, not a PR of their own, unnumbered: the build numbers them with the repo's own tool, or past the base and every open spec PR, and commits them in the spec's PR, so each spec ends in one PR.
+
+### `/ship:prototype-me`
+
+Shows what a spec's UI could look like before it's built: `/ship:prototype-me #<n>` on a `spec:draft` or `spec:ready` spec, or `/ship:prototype-me <idea>`, which first opens a `spec:draft` issue holding its Problem and Solution. Add a count for more than the default 3 variants, up to 5. A spec at `spec:building` or later is refused.
+
+It runs mattpocock's `prototype` (its UI branch) to draft structurally different variants, styled like the project after a subagent reads its tokens, CSS and the page the feature lives on, and publishes them as one private claude.ai Artifact, with a screenshot of each in chat. The page has a switcher bar at the bottom: ←/→ (the arrows or the keys) cycle the variants and update `?variant=`, so a reload or a shared link keeps the variant; **All** (`?variant=all`) shows every variant side by side, stacked on a phone; **Phone** frames the variant at 375px. It needs the Artifact tool and stops without it.
+
+It commits nothing and pushes no branch: the variants, the page and the screenshots stay in the scratchpad (or `.scratch/prototype-me/`).
 
 ### `/ship:design-me`
 
