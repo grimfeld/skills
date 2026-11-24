@@ -12,7 +12,7 @@ Findings: <F1, F4>
 
 ## What
 
-<The root cause these findings share, and the end state after the fix.>
+<The root cause these findings share, and the end state after the fix. For a finding decided from its `options`, state the chosen option as the rule, with no alternative and no "recommended".>
 
 ## Where
 
@@ -21,6 +21,8 @@ Findings: <F1, F4>
 ## Done when
 
 - <The failing test to write first, and what it asserts; or the concrete manual / CI check>
+- <For a `fix_kind: "property"` finding: a seeded property test for <the property>, written first and seen red, now green>
+- <Every command here copied from the repo's scripts, CI workflow, `docs/agents/shipping.md` or test README, and checked to resolve (the filter matches a project, the path exists, the script is in the manifest)>
 - <Each listed finding no longer reproduces>
 - The existing suite passes.
 ```
@@ -30,3 +32,4 @@ Findings: <F1, F4>
 - One ticket per root cause or area, not per finding.
 - A fix others build on (a type tightened at a boundary, a shared helper extracted) is its own ticket, and dependents list it under `Blocked by:`.
 - All approved nits go into a final `polish` ticket with `Blocked by: none` that nothing else lists.
+- A property test uses the repo's property-testing library if it has one, otherwise a seeded loop over generated inputs in its existing test runner. No new dependency.

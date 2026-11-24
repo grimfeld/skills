@@ -21,18 +21,19 @@ Read these before the first question, and don't ask the user anything they alrea
 
 - `CLAUDE.md`, `AGENTS.md`
 - the glossary (`CONTEXT.md`, `GLOSSARY.md`), and the ADRs in `docs/adr/` that touch the idea
-- `docs/agents/issue-tracker.md`: how to create, edit and label issues here. In a cloud session without `gh`, use the GitHub MCP tools it names.
-- `docs/agents/shipping.md`: the project's extra buildable items, if it lists any (for example "a Guide page", "a row in `SCREENS`")
+- `docs/agents/issue-tracker.md` (how to create, edit and label issues here) and `docs/agents/shipping.md` (the project's extra buildable items, if it lists any, for example "a Guide page", "a row in `SCREENS`"), read as `${CLAUDE_PLUGIN_ROOT}/references/project-docs.md` says: from the default branch, with its defaults for a missing file. Reach GitHub through the rows of `${CLAUDE_PLUGIN_ROOT}/references/github.md`.
 
 **Resuming** (`#<n>` passed): read the issue body and comments. Its "Open questions" section is where the grilling restarts. Treat everything else in it as settled unless the user reopens it.
 
-**New idea:** search open `spec:*` issues for one that already covers it (`gh issue list --label spec:draft`, then `spec:ready`). If one does, offer to resume it instead.
+**New idea:** search the open `spec:draft` and `spec:ready` issues for one that already covers it, the way `docs/agents/issue-tracker.md` says, else with the "Search issues" row of `${CLAUDE_PLUGIN_ROOT}/references/github.md`. If one does, offer to resume it instead.
 
 ## 2. Grill
 
 Call the Skill tool with `grilling`. If the project keeps a glossary or ADRs, also call it with `domain-modeling`, so terms and decisions are written down as they settle.
 
 The ADRs and glossary entries `domain-modeling` writes belong to the spec, not to a PR of their own. Copy the full text of each one into the issue's "Decision records" section at the next save. Never commit them or open a PR for them: the build commits them in the spec's one PR, next to the code they describe.
+
+Leave new numbers to the build. Write a new ADR as `docs/adr/NNNN-<slug>.md`, with `NNNN` literal, and refer to it everywhere else by its slug. Name a new numbered doc section (a PLAN §) "a new section" with its title and no number. The build numbers both after every number already taken.
 
 The design tree must reach every item of the buildable bar. Use the bar to compute the frontier: an item nobody has answered yet is an open branch.
 Facts come from the code, through subagents, not from the user. Decisions come from the user.

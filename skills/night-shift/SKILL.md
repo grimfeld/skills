@@ -1,6 +1,6 @@
 ---
 name: night-shift
-description: Evening, with the user — turn designs marked done into specs, slice tonight's spec:ready specs, find conflicts between them, grill the user only on real ones, then start one cloud builder per spec (or per dependent chain). Morning, with `morning` — gather what the night built into one page to review from.
+description: Evening, with the user — turn designs marked done into specs, slice tonight's spec:ready specs, find conflicts between them, grill the user only on real ones, then start one cloud builder per spec (or per dependent chain). Morning, with `morning` — gather what the night built into one page to review from, then take the user's answers to its decisions.
 disable-model-invocation: true
 argument-hint: "[morning]"
 ---
@@ -10,14 +10,15 @@ argument-hint: "[morning]"
 **Evening** (no argument): turn every `spec:ready` spec into a cloud build, so that by morning each spec is a PR that has been reviewed by `pr-review` and is waiting for the user.
 You run locally, with the user present. The builds themselves run in Claude Code cloud sessions, one per spec or per chain of dependent specs, each running `/ship:build-spec`.
 
-**Morning** (`morning`): gather the results into one page.
+**Morning** (`morning`): gather the results into one page, then take the user's answers to its decisions.
 
-Before each step, read `docs/agents/shipping.md`, `docs/agents/issue-tracker.md` and `${CLAUDE_PLUGIN_ROOT}/references/github.md`.
+Before each step, read `docs/agents/shipping.md` and `docs/agents/issue-tracker.md` as `${CLAUDE_PLUGIN_ROOT}/references/project-docs.md` says (fetched, from the default branch, with its defaults for a missing file), and `${CLAUDE_PLUGIN_ROOT}/references/github.md`.
 
 ## Evening
 
 ### 1. Tonight's specs
 
+0. **The checkout:** after the fetch, report to the user, before planning, if the working tree is behind `origin/<default>` (`git rev-list --count HEAD..origin/<default>`: "local `<branch>` is N commits behind `origin/<default>`") or has uncommitted changes (`git status --porcelain`: list them). The night reads the rules from `origin/<default>` either way, so this is for the user to know, not a reason to stop. Never pull, stash, reset or check out anything: the working tree is theirs.
 1. **Designs first:** for each open issue labelled `design:ready`, run `design-me` with `#<n>`, as `${CLAUDE_PLUGIN_ROOT}/references/running-skills.md` says (the Skill tool can't call it). It grills the user on the design's open decisions and writes its specs as `spec:ready`. A design the user leaves with questions open keeps `design:ready` and builds nothing tonight.
 2. **List them:** open issues labelled `spec:ready`.
 3. **Check for leftovers:** list the `spec:building` and `spec:stuck` issues from earlier nights and show them. A `spec:building` issue whose builder's session has ended is a crashed build: say so. Never rebuild these without the user's say-so.
@@ -27,19 +28,25 @@ Done when every spec to build has a "Slicing" section and tickets.
 
 ### 2. Conflicts
 
-Compare every pair of specs on their Touches, Data, Docs to update, Implementation decisions and Depends on. Use a subagent if there are more than four specs. Sort each pair into one of three kinds.
+Compare every pair of specs on their Touches, Data, Docs to update, Implementation decisions and Depends on, always in one subagent, so no whole spec body enters the main context. Its brief: the spec numbers, this step's three kinds below (with the numbering rule and the repo docs it names), and the rows to return:
+
+- one row per pair: the two specs, the kind, and the shared area or the disagreement; for an Ordered pair, which builds first and why (Depends on or size)
+- each design place spec to hold, with the Depends on that isn't merged
+- for a Conflicting pair, the two conflicting passages verbatim
+
+Work from the rows: grill a Conflicting pair from its two passages. The three kinds:
 
 - **Independent:** no shared area. They build in parallel.
 - **Ordered:** they share files or areas but don't disagree, for example two specs adding fields to the same form.
   - Chain them: B is built after A, in the same cloud session, on top of A's branch. B's PR targets A's branch.
   - Respect an existing Depends on.
   - When nothing forces an order, put the smaller spec first.
-  - Also chain specs that each add a migration or an ADR, so their numbers don't clash.
+  - Also chain specs that each add a migration, or each add an ADR, so their numbers don't clash, unless the repo's `docs/agents/shipping.md`, `CLAUDE.md` or `AGENTS.md` names a command that reserves the next number of that kind (lifeline: `adr:new` for ADRs, `migrations:next` or `integrate` for migrations). With one, such specs are Independent unless something else orders them.
   - **Design specs** (those with a "Design" section) chain at most a design's foundation and shell. A place spec whose Depends on isn't merged yet is held: it stays `spec:ready` and builds on a later night, once the user has merged what it depends on. Six places stacked on an unreviewed shell would all need rebasing after its review.
   - Ordering needs no question.
 - **Conflicting:** two specs settle the same thing differently. Examples: the same term defined two ways, one field given two meanings, the same screen redesigned twice. These go to the user.
   - Ask them all in one `grilling` round, each with your recommendation.
-  - Write the answers into the specs' bodies.
+  - Write the answers into the specs' bodies through a subagent, giving it each spec number, the passage and the answer.
   - If the answer changes a spec's scope, re-run `ship:slice #<n>` for it.
 
 Done when every pair is classified and no conflict is open.
@@ -51,6 +58,8 @@ Show the plan and ask for one yes:
 - one row per **session**: the spec or chain, in build order, with each spec's estimate
 - the builder routine each session goes to
 - the model (`claude-opus-5-5` unless `shipping.md` names another)
+- for each pair of ADR or migration specs left unchained, the numbering command it relied on
+- the cloud environment the builders run in: the "Cloud environment" line of `shipping.md`'s "Night builds" section (`` `env_…` (<name>) ``). With no such line, or "none chosen", list the user's cloud environments (`list_environments` from the Claude Code remote tools) and ask which one tonight's builds run in, recommending the one named like the repository. Say that a `/ship:setup-ship` re-run records it in `shipping.md`. Never fall back to the default environment, and don't write the line yourself: `shipping.md` changes go through setup-ship's PR.
 
 Specs the user wants to hold back stay `spec:ready`.
 
@@ -58,10 +67,11 @@ Specs the user wants to hold back stay `spec:ready`.
 
 Builds run on a fixed **pool** of routines, reused every night: `ship-builder-<repo>-1`, `-2`, and so on. A routine can't be deleted through the API, so never create one per spec.
 
-1. **Find the pool.** List the routines (`RemoteTrigger` `list`) and keep the ones with this repository's pool name.
+1. **Find the pool** in a general-purpose subagent, since the full listing carries every routine's prompt. It runs `RemoteTrigger` `list` and returns only this repository's `ship-builder-<repo>-*` routines, one row each with `id`, `name`, `enabled` and the environment ID (its `job_config.ccr.environment_id`), under 2 KB.
+   - A pool routine in another environment than the night plan's: `RemoteTrigger` `update` it to that environment before giving it a session, and say so.
 2. **Create missing routines,** if the pool is smaller than tonight's session count. Show the user each new routine's configuration first:
    - this repository as `sources`
-   - the default cloud environment
+   - the night plan's cloud environment (step 3)
    - the model
    - `allowed_tools`: `Bash`, `Read`, `Write`, `Edit`, `Glob`, `Grep`, `Skill`, `Agent`, `ToolSearch`, `WebFetch`
    - `enabled: false`, so it never fires on its own
@@ -86,6 +96,16 @@ Tell the user:
 - what's building, and where
 - that `/ship:night-shift morning` gathers the results
 
+## Where the work happens
+
+In one builder session, the work for a spec happens in these places:
+- **The builder:** the cloud session's repo clone, on the `spec/<n>-<slug>` branch (in a worktree if the project's rules say so).
+- **Implementers:** `implement-spec` subagents, each in a `.claude/worktrees/agent-…` worktree on its own ticket branch. The branch stays local: the builder merges it into the spec branch inline and pushes only the spec branch.
+- **Lens reviewers:** `pr-review`'s subagents, read-only, in the spec branch's tree or in `pr-review`'s `.scratch/pr-review/wt-<id>` worktree.
+- **Fix rounds:** the builder itself, on the spec branch.
+
+A subagent's transcript sits under `<session>/subagents/`. Its `meta.json` holds the `toolUseId` of the Agent call that started it, so its work counts toward the spec its parent was on, whatever branch or worktree it ran in. `scripts/token-usage.mjs` relies on this.
+
 ## Morning
 
 1. **Collect** every spec with a `night-shift` comment from the last 24 hours.
@@ -101,17 +121,18 @@ Tell the user:
    - If a capture fails, say so on the PR's card and go on.
    - Remove the worktree.
 4. **Write the morning page** and publish it as an Artifact, following the Artifact tool's own design guidance. Keep it plain: a list to work through, not a dashboard. On later mornings, republish to the same URL; the URL is saved in `.scratch/night-shift/morning-url`.
-   - **Ready:** the PRs to review, smallest first. Each card has the PR link, the verdict line, the risks, and the decisions to check. A stacked PR (its base is another PR's branch) sits under its parent's card, whatever its size, marked "lands after #<parent>", so the order is visible before approving.
+   - **Ready:** the PRs to review, smallest first. Each card has the PR link, the verdict line, the risks, and the decisions to check. Show the `ship` status as "awaiting your `ship` label", apart from the CI checks: it waits on the user by design. A stacked PR (its base is another PR's branch) sits under its parent's card, whatever its size, marked "lands after #<parent>", so the order is visible before approving.
    - **Design PRs** add their fidelity grid: per place, reference beside app for each look × theme × viewport. Flagged views are shown full size with their finding; the rest are thumbnails. Upload the PNGs as the page's assets (the `assets` capability) and reference each by the URL the upload returns.
-   - **Stuck:** what each one needs from the user.
+   - **Stuck:** what each one needs from the user. A PR stacked on a stuck spec it doesn't depend on sits under that card, with its note "stacked on stuck #N; lands after it, or retarget".
+   - **Answer lines:** each Stuck card, and each decision to check on a Ready card, ends with one line: "Answer: tell Claude in the morning session (`#<pr>: <choice>`)", with the PR link beside it for reading. A stuck spec with no PR uses its spec number and links the spec issue. A card with several decisions has one line per decision, each naming its decision (`#<pr> <decision>: <choice>`); a card with none has no answer line.
    - **Cost line:** every Ready and Stuck card ends with one line, "≈ $4.20 at API prices · 310k out · 1.2M in · 48M cache read".
      - A spec that is `null` gets "cost not reported" instead, never a partial figure.
      - A spec with `unpriced` models adds "+ <model> (no price)" after the dollar figure.
-   - **Totals:** what the night produced. Include the night's cost, and a small table with one row per session: its specs, the shared bucket and the session total.
+   - **Totals:** the night's cost and a small table with one row per session (its specs, the shared bucket and the session total), with no other rows. Under them go only the notes below.
      - A session or night with `not_reported` specs reads "at least ≈ $X (N not reported: #…)", never a plain total.
      - Name every model in the night's `unpriced`: its tokens are counted but not priced, and `scripts/prices.json` needs an entry for it.
      - Footnote: the figures are API-price estimates, not a bill, and builder turns after the last count are missing.
-   - **Next:** the command that ships what the user approves: `/ship:land <ready PRs, in review order>`, to cut down to the ones they approve. A PR left out isn't landed; to have it rebuilt, label it `changes-requested` and move its spec back to `spec:ready`.
+   - **Next:** the command that ships what the user approves: `/ship:land <ready PRs, in review order>`, to cut down to the ones they approve. A PR left out isn't landed; to have it rebuilt, send it back as `docs/agents/shipping.md`'s Spec labels section says.
 5. **Link the page from each spec.** Once the page is published, post one comment on each spec collected in step 1, so anything reading GitHub (the ship dashboard, a person on the spec) can find it:
 
    ```
@@ -119,7 +140,13 @@ Tell the user:
    Reviewed on this morning's page: <page URL>
    ```
 
-   Post a new comment every morning, even on a spec that already has one: the newest is the current link. Post with `gh issue comment`, or `add_issue_comment` where `${CLAUDE_PLUGIN_ROOT}/references/github.md` says to use the GitHub MCP tools. If a comment fails, name the spec in the report and go on.
-6. **Report in the terminal:** the page link, one line per PR in the order to review them (children under their parent), one line with the night's cost, worded as on the page, any spec whose morning-page comment failed (step 5), and the same `/ship:land` line.
+   Post a new comment every morning, even on a spec that already has one: the newest is the current link. Post with the "Comment" row of `${CLAUDE_PLUGIN_ROOT}/references/github.md` (its GitHub MCP column, `add_issue_comment`, where there is no `gh`). If a comment fails, name the spec in the report and go on.
+6. **Report in the terminal:** the page link, one line per PR in the order to review them (children under their parent), one line with the night's cost, worded as on the page, any spec whose morning-page comment failed (step 5), and the same `/ship:land` line. End with the open decisions and stuck specs, and "Answer here as `#<pr>: <choice>`, naming the decision when a PR has several."
+7. **Take answers.** Stay in the terminal for the user's answers, given as `#<pr>: <choice>` or `#<pr> <decision>: <choice>` (`#<spec>` for a stuck spec with no PR). Match each to the decision it settles; ask when that isn't clear. For each:
+   - Comment it on the PR ("Morning answer to <decision>: <choice>"), so the choice is on record where the reviewer looks. For a stuck spec, comment it on the spec issue too (only there when it has no PR), where the next build reads it.
+   - Keep a ready PR in the `/ship:land` line when the choice is what it built. Send it back, as `shipping.md`'s Spec labels section says, when the choice differs from what it built or the user says so. A stuck spec's PR is never in the line: its answered spec goes back to `spec:ready` for the next night.
+   - Reprint the `/ship:land` line.
+
+   Done when the user says they're finished.
 
 The user reviews each PR from its description and comments, then runs `/ship:land` with the PRs they approve. Adding `ship` by hand approves a PR; `/ship:land` lands every PR carrying it.
