@@ -37,6 +37,7 @@ Return exactly two things, nothing else (in a fix round, the prompt also asks fo
 | `source_skill` | Your lens's `source`, as the prompt names it (the `source` in the lens's front matter). |
 | `confidence` | `high` (you traced it), `medium` (likely, one assumption unverified), `low` (a heuristic match). |
 | `lane` | `in` for your lens's scope; `out` for something outside it you noticed anyway. |
+| `references` | Optional list of URLs, primary sources only: the vendor's own documentation or changelog, the standard, or the library's own repository. **Required** when the claim depends on the behaviour of something outside the repository: a hosted platform (GitHub, Vercel), an external API, a library or tool version, or a standard. A finding with such a claim and no `references` has `confidence: low`. |
 | `origin` | Optional. `pre-existing` when the defect is already in the base and this change neither introduces nor newly exposes it. Omit for anything the change introduces. |
 
 Lenses may add `evidence_type` (`measured` or `source`) where their brief says so.

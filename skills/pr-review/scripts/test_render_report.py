@@ -162,8 +162,15 @@ class Footer(unittest.TestCase):
         got = self.footer([{"lens": n, "status": "stale"} for n in ("quality", "security", "principles")])
         self.assertEqual(got, "quality (stale), security (stale), principles (stale)")
 
-    def test_none_ran(self):
-        self.assertEqual(self.footer([{"lens": "quality", "status": "skipped"}]), "none")
+    def test_none_ran_is_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "pr-1.json"
+            path.write_text(json.dumps(state(lenses=[{"lens": "quality", "status": "skipped"},
+                                                     {"lens": "security", "status": "failed"}])))
+            r = subprocess.run([sys.executable, str(SCRIPT), str(path)], capture_output=True, text=True)
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn("no reviewer ran", r.stderr)
+            self.assertEqual(sorted(p.name for p in Path(d).iterdir()), ["pr-1.json"])
 
 
 class CI(unittest.TestCase):
@@ -208,3 +215,181 @@ class CI(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def git_repo(d) -> str:
+    """A temporary repository with one commit; returns its full HEAD SHA."""
+    env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t",
+           "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1", "PATH": "/usr/bin:/bin:/usr/local/bin"}
+    for cmd in (["init", "-q"], ["commit", "-q", "--allow-empty", "-m", "c"]):
+        subprocess.run(["git", "-C", d, *cmd], check=True, capture_output=True, env=env)
+    return subprocess.run(["git", "-C", d, "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
+
+
+def run_script(path, *args):
+    return subprocess.run([sys.executable, str(SCRIPT), *args, str(path)], capture_output=True, text=True)
+
+
+def unstamped(st):
+    """Turn a fixture's latest run into a fresh, unstamped one."""
+    st["runs"][-1]["date"] = "this-run"
+    st["runs"][-1].pop("head", None)
+    return st
+
+
+STAMP_RE = r"\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC"
+
+
+class Stamp(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        self.repo = Path(self.dir.name, "repo")
+        self.repo.mkdir()
+        self.sha = git_repo(str(self.repo))
+        self.path = Path(self.dir.name, "pr-1.json")
+
+    def write(self, st):
+        self.path.write_text(json.dumps(st))
+
+    def outputs_exist(self):
+        return [self.path.with_suffix(e).exists() for e in (".md", ".html", ".pr.md")]
+
+    def window(self):
+        from datetime import datetime, timezone
+        return datetime.now(timezone.utc).replace(second=0, microsecond=0)
+
+    def test_stamp_fills_date_head_first_seen_and_fixed_in(self):
+        new, fixed, old = finding("F1", "major"), finding("F2", "minor"), finding("F3", "minor")
+        new["first_seen"] = "this-run"
+        fixed.update(status="fixed", fixed_in="this-run")
+        self.write(unstamped(state([new, fixed, old])))
+        before = self.window()
+        r = run_script(self.path, "--stamp", str(self.repo))
+        after = self.window()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        saved = json.loads(self.path.read_text())
+        run = saved["runs"][-1]
+        self.assertRegex(run["date"], f"^{STAMP_RE}$")
+        from datetime import datetime, timezone
+        stamped = datetime.strptime(run["date"], "%Y-%m-%d %H:%M UTC").replace(tzinfo=timezone.utc)
+        self.assertTrue(before <= stamped <= after, (before, stamped, after))
+        self.assertEqual(run["head"], self.sha[:7])
+        f1, f2, f3 = saved["findings"]
+        self.assertEqual(f1["first_seen"], run["date"])
+        self.assertEqual(f2["fixed_in"], run["date"])
+        self.assertEqual(f3["first_seen"], "2026-11-23 20:00")
+        self.assertIn(f"head `{self.sha[:7]}` · {run['date']}", self.path.with_suffix(".pr.md").read_text())
+
+    def test_stamping_twice_is_refused(self):
+        self.write(unstamped(state()))
+        self.assertEqual(run_script(self.path, "--stamp", str(self.repo)).returncode, 0)
+        saved = self.path.read_text()
+        for p in (self.path.with_suffix(e) for e in (".md", ".html", ".pr.md")):
+            p.unlink()
+        r = run_script(self.path, "--stamp", str(self.repo))
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("run already stamped", r.stderr)
+        self.assertEqual(self.path.read_text(), saved)
+        self.assertEqual(self.outputs_exist(), [False] * 3)
+
+    def test_unstamped_render_is_refused(self):
+        self.write(unstamped(state()))
+        r = run_script(self.path)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("run not stamped", r.stderr)
+        self.assertEqual(self.outputs_exist(), [False] * 3)
+
+    def test_bad_root_is_refused(self):
+        self.write(unstamped(state()))
+        before = self.path.read_text()
+        r = run_script(self.path, "--stamp", str(Path(self.dir.name, "missing")))
+        self.assertNotEqual(r.returncode, 0)
+        self.assertEqual(self.path.read_text(), before)
+        self.assertEqual(self.outputs_exist(), [False] * 3)
+
+    def test_rerender_keeps_the_stamp(self):
+        self.write(unstamped(state()))
+        run_script(self.path, "--stamp", str(self.repo))
+        stamped = self.path.read_text()
+        r = run_script(self.path)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.path.read_text(), stamped)
+
+    def test_earlier_runs_keep_their_dates(self):
+        st = state()
+        st["runs"].append({"date": "this-run", "ci": {"status": "passing"}, "lenses": [{"lens": "quality", "status": "ran"}]})
+        self.write(st)
+        run_script(self.path, "--stamp", str(self.repo))
+        saved = json.loads(self.path.read_text())
+        self.assertEqual(saved["runs"][0], st["runs"][0])
+
+    def test_two_stamped_runs_label_new_still_open_and_fixed(self):
+        old, gone = finding("F1", "minor"), finding("F2", "minor", title="Gone")
+        old["first_seen"] = gone["first_seen"] = "this-run"
+        self.write(unstamped(state([old, gone])))
+        run_script(self.path, "--stamp", str(self.repo))
+        st = json.loads(self.path.read_text())
+        # A review takes minutes; move the first stamp an hour back so the second can't share its minute.
+        first = st["runs"][0]["date"]
+        earlier = "2000-01-01 00:00 UTC"
+        st["runs"][0]["date"] = earlier
+        for f in st["findings"]:
+            self.assertEqual(f["first_seen"], first)
+            f["first_seen"] = earlier
+        st["runs"].append({"date": "this-run", "ci": {"status": "passing"}, "lenses": [{"lens": "quality", "status": "ran"}]})
+        new = finding("F3", "minor", title="Brand new")
+        new["first_seen"] = "this-run"
+        st["findings"][1].update(status="fixed", fixed_in="this-run")
+        st["findings"].append(new)
+        self.write(st)
+        r = run_script(self.path, "--stamp", str(self.repo))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        md = self.path.with_suffix(".md").read_text()
+        self.assertRegex(md, r"- Finding F1 \(`src/F1.py:1`\) _still open_ · F1")
+        self.assertRegex(md, r"- Brand new \(`src/F3.py:1`\) _new_ · F3")
+        self.assertIn("## Fixed since last run\n\n- Gone · F2", md)
+
+
+class SelfReview(unittest.TestCase):
+    LINE = "This PR changes pr-review. It was reviewed with the installed pr-review (`abc1234`); its own changes weren't applied to this review."
+
+    def test_note_in_all_three_outputs(self):
+        st = state()
+        st["runs"][-1]["self_review"] = "abc1234"
+        out = render(st)
+        self.assertIn(f"_{self.LINE}_\n\n<sub>pr-review", out["pr"])
+        self.assertIn(f"_{self.LINE}_", out["md"])
+        self.assertIn("<em>This PR changes pr-review. It was reviewed with the installed pr-review (<code>abc1234</code>)", out["html"])
+
+    def test_unknown_commit(self):
+        st = state()
+        st["runs"][-1]["self_review"] = "unknown"
+        self.assertIn("installed pr-review (`unknown`)", render(st)["pr"])
+
+    def test_no_note_without_the_field(self):
+        out = render(state())
+        for name in ("md", "html", "pr"):
+            self.assertNotIn("This PR changes pr-review", out[name], name)
+
+
+class References(unittest.TestCase):
+    def test_sources_row_links_references(self):
+        f = finding("F1", "major")
+        f["references"] = ["https://docs.github.com/en/actions/a", "https://docs.github.com/b?x=1&y=2"]
+        out = render(state([f]))
+        self.assertIn("- **Sources:** <https://docs.github.com/en/actions/a>, <https://docs.github.com/b?x=1&y=2>", out["md"])
+        self.assertIn('<dt>Sources</dt><dd><a href="https://docs.github.com/en/actions/a">', out["html"])
+        self.assertIn('href="https://docs.github.com/b?x=1&amp;y=2"', out["html"])
+
+    def test_non_http_reference_is_not_a_link(self):
+        f = finding("F1", "major")
+        f["references"] = ["javascript:alert(1)"]
+        out = render(state([f]))
+        self.assertNotIn('href="javascript', out["html"])
+        self.assertIn("<code>javascript:alert(1)</code>", out["html"])
+
+    def test_no_sources_row_without_references(self):
+        out = render(state([finding("F1", "major")]))
+        self.assertNotIn("Sources", out["md"])
+        self.assertNotIn("Sources", out["html"])
