@@ -31,7 +31,7 @@ Search queries (`q=repo:…`) never fill `{owner}/{repo}`: always write the repo
 | Sub-issue | `gh api repos/{owner}/{repo}/issues/<parent>/sub_issues -F sub_issue_id=<child's id, not number>` | `sub_issue_write` `add` |
 | Open a draft PR | `gh api repos/{owner}/{repo}/pulls -f base=<base> -f head=<branch> -f title='…' -F body=@body.md -F draft=true` | `create_pull_request` with `draft: true` |
 | Read a PR | `gh api repos/{owner}/{repo}/pulls/<n>` (number, title, body, `.base.ref`, `.head.ref`, `.head.sha`, `.html_url`, `.draft`) | `pull_request_read` `get` |
-| A PR's checks | `gh api repos/{owner}/{repo}/commits/$(gh api repos/{owner}/{repo}/pulls/<n> --jq .head.sha)/check-runs --jq '.check_runs \| group_by(.name) \| map(max_by([(.started_at // "~"), .id]))[] \| "\(.name) \(.status) \(.conclusion)"'`. Each check is judged by its latest run (see below). | `pull_request_read` `get_check_runs`, or `get_status`; keep only each check name's latest run (see below) |
+| A PR's checks | `gh api repos/{owner}/{repo}/commits/$(gh api repos/{owner}/{repo}/pulls/<n> --jq .head.sha)/check-runs --jq '.check_runs \| group_by([.name, .app.id]) \| map(max_by([(.started_at // "~"), .id]))[] \| "\(.name) \(.status) \(.conclusion)"'`. Each check is judged by its latest run (see below). | `pull_request_read` `get_check_runs`, or `get_status`; keep only each check's latest run (see below) |
 | Wait for a PR's checks | The loop below, at most 30 minutes. A timeout means the checks are still pending, never green. | `pull_request_read` `get_check_runs` every 30 seconds, for at most 30 minutes, until every check run is `completed` |
 | A commit's checks | `gh api repos/{owner}/{repo}/commits/<sha>/check-runs`, `.../commits/<sha>/status` | `get_commit`, then `pull_request_read` `get_check_runs` on its PR |
 | List open PRs | `gh api --paginate 'repos/{owner}/{repo}/pulls?state=open&per_page=100'` | `list_pull_requests` with `state: open` |
@@ -63,9 +63,9 @@ until [ "$(gh api repos/{owner}/{repo}/commits/$SHA/check-runs --jq '[.check_run
   [ "$(date +%s)" -ge "$end" ] && { echo "timed out waiting for checks"; break; }
   sleep 30
 done
-gh api repos/{owner}/{repo}/commits/$SHA/check-runs --jq '.check_runs|group_by(.name)|map(max_by([(.started_at // "~"), .id]))[]|"\(.name) \(.conclusion)"'
+gh api repos/{owner}/{repo}/commits/$SHA/check-runs --jq '.check_runs|group_by([.name, .app.id])|map(max_by([(.started_at // "~"), .id]))[]|"\(.name) \(.conclusion)"'
 ```
 
-**Each check by its latest run.** The check-runs endpoint returns one run per check suite, and a cancelled duplicate workflow run is a suite of its own, so one check name can come back twice: `cancelled` beside the `success` that replaced it. Keep, for each check name, only the run with the latest `started_at` (a run not started yet counts as the latest; the highest `id` on a tie), as the `--jq` filters above do. A check whose latest run is `cancelled` is reported as cancelled.
+**Each check by its latest run.** The check-runs endpoint returns one run per check suite, and a cancelled duplicate workflow run is a suite of its own, so one check name can come back twice: `cancelled` beside the `success` that replaced it. Keep, for each check (its name and the app that ran it, `.app.id`, so another app's run of the same name doesn't replace it), only the run with the latest `started_at` (a run not started yet counts as the latest; the highest `id` on a tie), as the `--jq` filters above do; the dashboard's `latestRuns` applies the same rule. Where the GitHub MCP output has no `app`, go by name. A check whose latest run is `cancelled` is reported as cancelled.
 
 Set the shell call's own timeout above 30 minutes (or run it in the background and wait for it to finish). A commit with no check runs at all passes the loop at once: if the project's CI should have started, check the PR's checks again before treating them as green. Commit statuses (such as `ship`) aren't check runs and don't hold the loop; read them with `.../commits/$SHA/status`.
