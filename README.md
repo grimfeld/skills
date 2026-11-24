@@ -273,6 +273,18 @@ claude plugin validate .                 # manifest and marketplace checks
 
 The two remaining warnings are deliberate: no `version` (see above) and no icon.
 
+The `check` workflow (`.github/workflows/check.yml`) runs on every pull request and on pushes to `main`. Run the same commands locally before marking a PR ready; `docs/agents/shipping.md` lists them:
+
+```sh
+node --test skills/*/scripts/*.test.mjs                                   # Node tests
+find skills -path '*/scripts/test_*.py' -execdir python3 -m unittest {} +  # Python tests beside skill scripts
+printf '%s\0' skills/*/scripts/*.mjs | xargs -0 -n1 node --check          # script syntax
+python3 -m py_compile skills/*/scripts/*.py
+printf '%s\0' skills/*/scripts/*.sh | xargs -0 -n1 bash -n
+actionlint .github/workflows/*.yml                                        # workflows, with shellcheck
+! grep -rn '__[A-Z_]*__' .github/workflows docs/agents                    # no placeholder left
+```
+
 ### Cloud sessions
 
 Cloud sessions don't install the plugins a repository enables in `.claude/settings.json` (adding a marketplace needs the trust prompt, which they never show). Install from the cloud environment's setup script instead, which runs inside the session's VM:

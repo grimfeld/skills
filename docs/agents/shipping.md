@@ -71,9 +71,9 @@ Bookkeeping files (a conflict only in these is mechanical):
 
 ## Checks
 
-Required on `main`: no CI checks (the repository has no CI yet), and `ship`.
+Required on `main`: `check`, and `ship`.
 
-Run locally before marking a PR ready: `claude plugin validate .`, and `uv run --no-project python -m unittest discover -s skills/pr-review/scripts -p 'test_*.py'` when a PR touches `skills/pr-review/scripts/`.
+Run locally before marking a PR ready: `node --test skills/*/scripts/*.test.mjs`, `find skills -path '*/scripts/test_*.py' -execdir python3 -m unittest {} +`, `printf '%s\0' skills/*/scripts/*.mjs | xargs -0 -n1 node --check`, `python3 -m py_compile skills/*/scripts/*.py`, `printf '%s\0' skills/*/scripts/*.sh | xargs -0 -n1 bash -n`, `actionlint .github/workflows/*.yml`, `! grep -rn '__[A-Z_]*__' .github/workflows docs/agents`, `claude plugin validate .`
 
 ## After merge
 
