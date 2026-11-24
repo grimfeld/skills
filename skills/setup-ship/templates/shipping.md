@@ -85,6 +85,14 @@ __CD_SUMMARY__
 
 Command that produces screenshots of the screens a change touches, for the review section: __SCREENS__
 
+## Try it
+
+How a person tries a branch before approving it. `/ship:build-spec` fills in each build PR's "Try it" section from
+these two lines. Previews come from the project's own CD: ship finds them and never deploys.
+
+- **Previews:** __TRY_PREVIEWS__
+- **Run a branch:** __TRY_RUN__
+
 ## Night builds
 
 `/ship:night-shift` creates its builder routines in this cloud environment. While none is chosen, it asks for one

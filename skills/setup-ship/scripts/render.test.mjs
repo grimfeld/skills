@@ -91,3 +91,26 @@ test("the version line and the rest of the template are kept as they are", () =>
   assert.equal(out.split("\n")[0], template.split("\n")[0]);
   assert.equal(out, template.replaceAll("__DEFAULT_BRANCH__", "develop"));
 });
+
+test("the Try it values fill shipping.md's Try it section as they are", () => {
+  const values = JSON.parse(readFileSync(thisRepo, "utf8"));
+  const run = "`git fetch origin <branch> && git worktree add ../try-<branch> FETCH_HEAD && cd ../try-<branch> && npm run dev`";
+  const out = render(join(templates, "shipping.md"),
+    valuesFile({ ...values, TRY_PREVIEWS: "Vercel preview deployments on every PR", TRY_RUN: run }));
+  assert.equal(out.status, 0, out.stderr);
+  assert.match(out.stdout, /\n## Try it\n/);
+  assert.ok(out.stdout.includes("\n- **Previews:** Vercel preview deployments on every PR\n"));
+  assert.ok(out.stdout.includes(`\n- **Run a branch:** ${run}\n`));
+
+  const none = render(join(templates, "shipping.md"), valuesFile({ ...values, TRY_PREVIEWS: "none", TRY_RUN: "none" }));
+  assert.equal(none.status, 0, none.stderr);
+  assert.ok(none.stdout.includes("\n- **Previews:** none\n- **Run a branch:** none\n"));
+});
+
+test("a values file without the Try it values fails on shipping.md", () => {
+  const { TRY_PREVIEWS, TRY_RUN, ...older } = JSON.parse(readFileSync(thisRepo, "utf8"));
+  const out = render(join(templates, "shipping.md"), valuesFile(older));
+  assert.notEqual(out.status, 0);
+  assert.match(out.stderr, /no value for __TRY_PREVIEWS__/);
+  assert.match(out.stderr, /no value for __TRY_RUN__/);
+});

@@ -85,6 +85,14 @@ Nothing deploys on merge. Plugin users pick up `main` through the `grimfeld` mar
 
 Command that produces screenshots of the screens a change touches, for the review section: none
 
+## Try it
+
+How a person tries a branch before approving it. `/ship:build-spec` fills in each build PR's "Try it" section from
+these two lines. Previews come from the project's own CD: ship finds them and never deploys.
+
+- **Previews:** none
+- **Run a branch:** `git fetch origin <branch> && git worktree add ../try-<branch> FETCH_HEAD && claude --plugin-dir ../try-<branch>`
+
 ## Night builds
 
 `/ship:night-shift` creates its builder routines in this cloud environment. While none is chosen, it asks for one
