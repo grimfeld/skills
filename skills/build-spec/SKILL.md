@@ -126,7 +126,7 @@ Skipped for a spec handed back at step 3 (no Agent tool): the caller runs it.
 **Try it,** on a ready PR, and on a stuck one whose branch holds built code (commits ahead of its base). A stuck spec with no PR or nothing built gets none. The section tells the owner how to try the branch before landing it:
 
 1. **The recipe:** the "Previews" and "Run a branch" lines of `shipping.md`'s `## Try it` section (read from the default branch, as at the start). A missing section, or a missing line, is "none".
-2. **The preview URL,** only when Previews isn't "none": `brief.preview_url` in pr-review's state (`.scratch/pr-review/pr-<n>.json`), else `${CLAUDE_PLUGIN_ROOT}/skills/pr-review/scripts/find-preview-url.sh gh <pr>` (exit 3: read the PR's deployment statuses and the Vercel bot's comments through the GitHub MCP tools, as pr-review's step 4 does). Never deploy anything or wait for a preview.
+2. **The preview URL,** only when Previews isn't "none": a preview the project's CD made for this PR, nothing else. Take `brief.preview_url` from pr-review's state (`.scratch/pr-review/pr-<n>.json`) only when it is an `https` URL that isn't on `localhost` or `127.0.0.1` and has no query string (a share link from the Vercel MCP's `get_access_to_vercel_url` carries its access token there, as `_vercel_share=`). Otherwise run `${CLAUDE_PLUGIN_ROOT}/skills/pr-review/scripts/find-preview-url.sh gh <pr>`, which reads only the PR's deployment statuses and the Vercel bot's comments (exit 3: read those two places through the GitHub MCP tools, as pr-review's step 4.1 does). Never use its `local` mode, deploy anything or wait for a preview.
 3. **The steps:** go through the spec's acceptance criteria, and the absorbed specs' too. A criterion a person can check by hand (something they run, open, click or read in the app or a page it produces) becomes one numbered step: what to do, then what they should see ("Run `/ship:night-shift morning`. The card for each ready PR shows its run command."). Leave out a criterion only tests or the diff can check: an internal contract, a file's contents, a script's exit code. No cap on the steps.
 4. **Write it** to `/tmp/build-spec-<n>/try-it.md`:
 
@@ -134,18 +134,19 @@ Skipped for a spec handed back at step 3 (no Agent tool): the caller runs it.
 <!-- build:try-it:start -->
 ## Try it
 - **Preview:** <url>
-- **Run this branch:** `<the Run a branch command, <branch> replaced by the PR's head branch>`
+- **Run this branch:** `<the Run a branch command, every <branch> replaced by the PR's head branch>`
 
 1. <what to do>. <what you should see>.
 <!-- build:try-it:end -->
 ```
 
+   - The head branch goes into a command a person pastes into a shell: fill it into the Run this branch or Check it out line only when it matches `${CLAUDE_PLUGIN_ROOT}/references/untrusted-input.md`'s rule 4 (`^[A-Za-z0-9._][A-Za-z0-9._/-]*$`). When it doesn't, write that line as "- **Run this branch:** the branch name isn't shell-safe: check it out by hand" (or "- **Check it out:** …" with the same words) instead of the command.
    - Previews "none": leave out the Preview line. Previews set but no URL found: "- **Preview:** Preview not found yet: see the PR's deployments".
    - Run a branch "none": leave out the command line. Both lines out: one line instead, "- **Check it out:** `git fetch origin <branch> && git switch --detach FETCH_HEAD`", with the branch filled in.
    - No hand-checkable criterion: the list is the one line "Nothing to check by hand: the tests cover this spec."
-5. **Splice it** above Decisions: `uv run --no-project python ${CLAUDE_PLUGIN_ROOT}/skills/pr-review/scripts/update-pr-body.py --markers build:try-it --before build:decisions <pr> /tmp/build-spec-<n>/try-it.md`. Without `gh`, the "Splice a section into a PR body" row of `${CLAUDE_PLUGIN_ROOT}/references/github.md`, with the same two options. A later run replaces the section in place.
+5. **Splice it** above Decisions: `uv run --no-project python ${CLAUDE_PLUGIN_ROOT}/skills/pr-review/scripts/update-pr-body.py --markers build:try-it --before build:decisions <pr> /tmp/build-spec-<n>/try-it.md`. Without `gh`, the "Splice a section into a PR body" row of `${CLAUDE_PLUGIN_ROOT}/references/github.md`, with the same `--markers build:try-it --before build:decisions`. A later run replaces the section in place.
 
-Either way, copy the spec's **Before ship** and **After merge** items to the top of the PR body, above the opening paragraph (below the `Closes` line), as unchecked boxes under `## Before ship` and `## After merge` headings. They are deferred to a person, so they don't count as unmet criteria for Ready. Leave out a section that reads "None", or that the spec doesn't have.
+Ready or stuck, copy the spec's **Before ship** and **After merge** items to the top of the PR body, above the opening paragraph (below the `Closes` line), as unchecked boxes under `## Before ship` and `## After merge` headings. They are deferred to a person, so they don't count as unmet criteria for Ready. Leave out a section that reads "None", or that the spec doesn't have.
 
 Then comment on the spec issue with one line for the morning page:
 
