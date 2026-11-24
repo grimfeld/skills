@@ -91,6 +91,7 @@ Sizes each `spec:ready` spec against prior PRs in the same areas. The rule is on
 
 - **Too big:** it proposes splitting into specs that ship on their own, split by behaviour and never by layer. It only splits once you approve.
 - **Tickets:** it then calls `to-tickets` for each spec. Tickets become commits on the spec's branch, not PRs.
+- **Spec bodies:** it adds its Slicing section between markers without rewriting the rest of the spec, reads the body back after each write, and puts the saved body back if a heading went missing.
 
 ### `/ship:night-shift`
 
