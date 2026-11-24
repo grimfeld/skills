@@ -29,6 +29,14 @@ Read first:
 
 **Check for the Agent tool.** If `Agent` isn't among your tools (ToolSearch `select:Agent` finds nothing), as in a subagent, you can build but not review, and you can't reach the user, so handle questions as `unattended` does. Step 2 builds the tickets inline, and every spec ends after step 3 with a hand-back (see step 3). A caller holding such a hand-back runs steps 4–6 for that PR itself, from a session that has the Agent tool.
 
+**Waiting.** Steps 3 and 5 wait for CI, and step 3 can wait on a long local command. Wait one of these ways, and end your turn while you wait: the wake-up arrives in this same conversation, and you continue the step you were in.
+- **CI, with a PR subscription tool:** load `subscribe_pr_activity` with ToolSearch (`select:subscribe_pr_activity`; it may be deferred). Subscribe to the PR once, after its first push. After each push, read its checks once with the "A PR's checks" row of `${CLAUDE_PLUGIN_ROOT}/references/github.md`; if any is queued or in progress, end the turn. A CI event wakes the session: read the checks once more and continue the step.
+- **CI, without one:** run the "Wait for a PR's checks" loop of `${CLAUDE_PLUGIN_ROOT}/references/github.md` with `run_in_background` and end the turn, or run it under Monitor (load Monitor with ToolSearch first). Its exit notification wakes the session.
+- **One wait at a time per PR.** A new wait replaces the old one: stop the old one first.
+- **A local command that can run past 9 minutes** (an e2e run, a full check) runs with `run_in_background`. End the turn or do other work; its completion notification is your signal.
+- **30 minutes:** a check still running 30 minutes after the push isn't green, whether the loop timed out or, with the subscription, the session wakes to find it still running. Record "CI still pending after 30 minutes: <checks>" under Decisions and go on.
+- These waits don't work: a foreground `sleep`, hand-written polling loops, and unauthenticated `curl` to api.github.com.
+
 ## For each spec, in the order given
 
 ### 1. Start
@@ -81,11 +89,11 @@ Done when every ticket is closed, or one can't be built, which makes the spec st
 
 ### 3. Check
 
-Run the local checks `docs/agents/shipping.md` lists, then the project's own pre-push checks.
+Run exactly the local checks `docs/agents/shipping.md` lists, at the scope it states (for example "the e2e specs the change touches"), then the project's own pre-push checks. Never run a whole e2e suite or a CI shard unless that file names it. A check that can run past 9 minutes runs in the background (see Waiting).
 - Fix failures that are your change's fault.
 - If a failure is also present on the base branch, it isn't your change's fault. Record it under Decisions ("pre-existing failure: …") and go on.
 
-Push, then wait for CI on the PR with the "Wait for a PR's checks" row of `${CLAUDE_PLUGIN_ROOT}/references/github.md`: one blocking REST loop with a 30-minute timeout, or its GitHub MCP column where there is no `gh`. Don't use repeated `sleep` calls. A timeout means the checks are still pending, not green: record it under Decisions ("CI still pending after 30 minutes: <checks>") and go on. The `ship` status stays pending until a person reviews the PR. That's expected, so never try to make it pass.
+Push, then wait for CI on the PR as Waiting (above) says. A check still pending after 30 minutes is not green: record it under Decisions, as Waiting says, and go on. The `ship` status stays pending until a person reviews the PR. That's expected, so never try to make it pass.
 
 **Without the Agent tool**, stop the spec here, once CI has finished: leave the spec `spec:building` and the PR a draft, post no `night-shift` comment, and end with the PR number and "review pending: run build-spec steps 4–6 from a session with the Agent tool". Specs in the chain after it are built the same way, each ending with its own hand-back.
 
@@ -95,7 +103,7 @@ Run `pr-review` with `<pr> unattended`, as `${CLAUDE_PLUGIN_ROOT}/references/run
 
 ### 5. Fix rounds, at most two
 
-Round = fix every approved finding and every red CI check on the branch, push, wait for CI, and run `pr-review <pr> fix-round unattended`: it re-checks the approved findings and the fix diff, not the whole PR. No full review runs after the last round (except step 6's confirming review, when a commit slipped past it): the first full review plus the fix-round reviews cover the final head.
+Round = fix every approved finding and every red CI check on the branch, push, wait for CI (see Waiting), and run `pr-review <pr> fix-round unattended`: it re-checks the approved findings and the fix diff, not the whole PR. No full review runs after the last round (except step 6's confirming review, when a commit slipped past it): the first full review plus the fix-round reviews cover the final head.
 
 Every commit after the first review belongs to a counted round, and that round's re-review covers it:
 - **Minors and nits** (left `pending` by `pr-review unattended`): fix one only inside a counted round, in that round's commits, before its push and re-review. With no blocker or major to fix there is no round, and they stay listed in the review for the person. Never fix one after the last review.
