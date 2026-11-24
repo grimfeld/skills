@@ -104,7 +104,7 @@ Sizes each `spec:ready` spec against prior PRs in the same areas. The rule is on
 3. Once you approve the plan, it gives each session its prompt on a reused pool of builder routines (`ship-builder-<repo>-N`, since routines can't be deleted through the API) and starts them. The routines run in the cloud environment `docs/agents/shipping.md` names (its "Cloud environment" line); without one, the plan asks you to pick tonight's, never taking the default. Each builder runs `/ship:build-spec <specs> unattended`, so nothing is asked overnight.
 
 **`/ship:night-shift morning`** gathers the results into one page:
-- PRs ready to review, smallest first, each with its verdict, risks and the decisions to check
+- PRs ready to review, smallest first, each with its verdict, risks and the decisions to check, and how to try it: the preview link when there is one, and the command that runs the branch
 - for a PR built from a design, its fidelity grid: reference beside app in every look, theme and viewport, with the views the review flagged shown full size
 - designs whose specs have all merged are closed
 - stuck specs, and what each needs from you
@@ -188,6 +188,8 @@ What each cloud session runs. night-shift's builders pass `unattended`: nobody i
 2. It runs the project's checks.
 3. It runs `pr-review <pr> unattended`, which approves the blockers and majors and leaves the rest for you.
 4. It fixes them in at most two rounds.
+
+Every PR it finishes (ready, or stuck with code on its branch) gets a **Try it** section above Decisions: the preview link when the project's CD made one, the command that runs the branch (from `shipping.md`'s Try it section), and numbered hands-on steps, one per acceptance criterion a person can check by hand, each saying what to do and what you should see. It finds previews and never deploys.
 
 A review finding whose fix is a choice only a person can make, or would undo something the spec settles, is never fixed at night: it is named under Decisions and the spec ends stuck with that choice. Every choice the spec left open goes in the PR's Decisions section. The PR ends ready, or as a draft marked stuck with the reason. It never merges and never adds `ship`.
 
