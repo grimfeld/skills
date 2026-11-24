@@ -222,3 +222,6 @@ Each entry also gives what rendering that version needs beyond the current rules
 - **4:** `shipping.md` names the cloud environment `/ship:night-shift` creates its builder routines in (its "Night builds" section, `__CLOUD_ENVIRONMENT__`). `ship.yml` changes only its version line.
   - Rendering: version 3's base renders with the current rules (`scripts/render.mjs`); it has no `__CLOUD_ENVIRONMENT__`.
   - Ask only for the cloud environment (step 1.8), recommending the one named like the repository. Nothing else changes: no labels, ruleset changes, upgrade steps or user to-dos.
+- **6:** `shipping.md` gains a "Day builds" section holding the two optional lines `/ship:day-shift` reads, `Day shift: ≤<lines> lines, <k> behaviour(s)` and `Day shift builders: <n>`, written with their defaults (≤200 lines, 1 behaviour; 2 builders). `ship.yml` changes only its version line.
+  - Rendering: version 5's base renders with the current rules (`scripts/render.mjs`); it has no "Day builds" section. The section has no placeholders: a project changes its limits by editing the two lines, and an upgrade keeps those edits.
+  - Nothing to ask. Nothing else changes: no labels, ruleset changes, upgrade steps or user to-dos.

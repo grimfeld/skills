@@ -92,6 +92,15 @@ each night. Re-run `/ship:setup-ship` to change it.
 
 - **Cloud environment:** __CLOUD_ENVIRONMENT__
 
+## Day builds
+
+`/ship:day-shift` proposes small `spec:ready` specs while you work and builds the ones you approve on the same
+builder routines, never while a night build runs. These lines set what counts as small and how many builders it uses
+at once; without them it uses the values below.
+
+- **Day shift:** ≤200 lines, 1 behaviour
+- **Day shift builders:** 2
+
 ## Spec labels
 
 Specs are GitHub issues moving through `spec:draft` → `spec:ready` → `spec:building` → `spec:in-review`, or
