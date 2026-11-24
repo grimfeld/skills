@@ -107,6 +107,7 @@ Sizes each `spec:ready` spec against prior PRs in the same areas. The rule is on
 - for a PR built from a design, its fidelity grid: reference beside app in every look, theme and viewport, with the views the review flagged shown full size
 - designs whose specs have all merged are closed
 - stuck specs, and what each needs from you
+- under each decision, how to answer it: tell the morning session `#<pr>: <choice>`, and it comments the answer on the PR and keeps the PR in the `/ship:land` line or sends it back for another night
 - what each spec, each session and the whole night would have cost at API prices, counted by each builder from its own transcript (`scripts/token-usage.mjs`, prices in `scripts/prices.json`)
 - the `/ship:land` command to run once you've reviewed: it approves the PRs you name and lands every PR carrying `ship`
 
