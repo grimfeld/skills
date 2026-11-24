@@ -25,7 +25,7 @@ The flow:
 
 1. **Drift check**: each lens records the hash of the skill it was adapted from. If that skill has changed since, the run pauses and offers to re-sync the lens.
 2. **Prepare**: resolves the diff (in a temporary worktree for PRs that aren't checked out), the spec, CI status and any previous report.
-3. **Route**: skips lenses with nothing to review, first by file type (no front-end files: no web audit; docs-only: standards and spec only), then by reading the hunks of smaller diffs (no data or loop changes: no performance review).
+3. **Route**: skips lenses with nothing to review, first by file type (no front-end files: no web audit; docs-only: standards and spec only, plus security when a ship skill under `skills/` changes), then by reading the hunks of smaller diffs (no data or loop changes: no performance review).
 4. **Find a preview URL** for the web audit: GitHub deployments, the Vercel bot comment, the Vercel MCP, then a local dev server already running. Never starts or deploys anything.
 5. **Review** in parallel, one lightweight `pr-lens-reviewer` agent per lens. Every reviewer is report-only and returns findings in one shared format. In a session without the Agent tool (a subagent), it reviews nothing and says "not run: no Agent tool in this session": the context that wrote the code doesn't review it.
 6. **Dedupe** across lenses. A finding several lenses agree on ranks higher.
@@ -287,6 +287,8 @@ printf '%s\0' skills/*/scripts/*.sh | xargs -0 -n1 bash -n
 actionlint .github/workflows/*.yml                                        # workflows, with shellcheck
 ! grep -rn '__[A-Z_]*__' .github/workflows docs/agents                    # no placeholder left
 ```
+
+Shared rules the skills read live in `references/`. `references/untrusted-input.md` says how a skill handles PR, issue, commit and CI text before it writes or pushes code (field projections, git-only code, branch-name checks, rule files from the default branch); `land` and `build-spec` read it first, and `pr-review`'s `security` lens checks a diff that changes `skills/` against it.
 
 ### Cloud sessions
 
