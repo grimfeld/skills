@@ -16,6 +16,12 @@ Before each step, read `docs/agents/shipping.md` and `docs/agents/issue-tracker.
 
 ## Evening
 
+### 0. Day builds
+
+The day shift (`/ship:day-shift`) builds on the same builder pool, and the two never run at once. Before anything else, list the `spec:building` issues and read each one's latest dispatch comment (a `night-shift` comment with `"status":"dispatched"`). One with `"shift":"day"` is a day build; a dispatch comment without a `shift` field is a night one.
+
+While any day build is `spec:building`, dispatch nothing tonight: name those specs, tell the user to wait for them to finish or stop their sessions, and to stop the day loop (the session running `/loop /ship:day-shift`), then run `/ship:night-shift` again. Check again just before step 4, and stop the same way if a day build started meanwhile.
+
 ### 1. Tonight's specs
 
 0. **The checkout:** after the fetch, report to the user, before planning, if the working tree is behind `origin/<default>` (`git rev-list --count HEAD..origin/<default>`: "local `<branch>` is N commits behind `origin/<default>`") or has uncommitted changes (`git status --porcelain`: list them). The night reads the rules from `origin/<default>` either way, so this is for the user to know, not a reason to stop. Never pull, stash, reset or check out anything: the working tree is theirs.
@@ -79,12 +85,12 @@ Builds run on a fixed **pool** of routines, reused every night: `ship-builder-<r
 
    Then create it with `RemoteTrigger` `create`, using a `run_once_at` an hour ahead (the API requires one schedule) and `enabled: false`.
 3. **Give each session its prompt and start it.**
-   - Update the routine's `job_config.ccr.events` with tonight's prompt, built from `templates/builder-prompt.md` in `${CLAUDE_SKILL_DIR}`, with a fresh event `uuid`.
+   - Update the routine's `job_config.ccr.events` with tonight's prompt, built from `templates/builder-prompt.md` in `${CLAUDE_SKILL_DIR}`, with a fresh event `uuid`. `{{RESUME}}` is empty, or ` resume` for a session that finishes stuck specs' open PRs instead of building them again.
    - Start it with `RemoteTrigger` `run`. One routine runs one session.
 4. **Check each session started:** `list_runs` should show a new run. Then comment on each spec:
 
 ```
-<!-- night-shift {"status":"dispatched","routine":"<id>","session":"<id>"} -->
+<!-- night-shift {"status":"dispatched","shift":"night","routine":"<id>","session":"<id>"} -->
 night-shift: building tonight in <session link>.
 ```
 
@@ -108,7 +114,7 @@ A subagent's transcript sits under `<session>/subagents/`. Its `meta.json` holds
 
 ## Morning
 
-1. **Collect** every spec with a `night-shift` comment from the last 24 hours.
+1. **Collect** every spec with a `night-shift` comment from the last 24 hours, except those whose latest dispatch comment (`"status":"dispatched"`) carries `"shift":"day"`: the day shift has already reported them. A dispatch comment without a `shift` field is a night one.
    - Read the spec's latest `night-shift` JSON comment, its PR, the PR's checks, and the PR's review and Decisions sections.
    - A spec still `spec:building` after its session ended crashed. Read the run log (`RemoteTrigger` `list_runs`, then `get_run_log`) for the cause, then label it `spec:stuck` and comment the cause.
    - **Designs:** close each `design:specced` issue whose sub-issue specs have all closed, with a comment listing their PRs. Name in the report the held place specs that the merges since last night have unblocked.
