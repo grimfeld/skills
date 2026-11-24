@@ -41,9 +41,9 @@ def splice(body: str, section: str, name: str = "pr-review", before: str | None 
     j = body.find(end, i + len(start)) if i != -1 else -1
     if i != -1 and j != -1:
         return body[:i] + section + body[j + len(end):]
-    k = body.find(markers(before)[0]) if before else -1
-    if k != -1:
-        return body[:k] + section + "\n\n" + body[k:]
+    insert_at = body.find(markers(before)[0]) if before else -1  # the start marker of the --before section
+    if insert_at != -1:
+        return body[:insert_at] + section + "\n\n" + body[insert_at:]
     return (body.rstrip() + "\n\n" + section + "\n") if body.strip() else section + "\n"
 
 
