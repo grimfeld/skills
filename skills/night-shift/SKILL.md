@@ -51,6 +51,7 @@ Show the plan and ask for one yes:
 - one row per **session**: the spec or chain, in build order, with each spec's estimate
 - the builder routine each session goes to
 - the model (`claude-opus-5-5` unless `shipping.md` names another)
+- the cloud environment the builders run in: the "Cloud environment" line of `shipping.md`'s "Night builds" section (`` `env_…` (<name>) ``). With no such line, or "none chosen", list the user's cloud environments (`list_environments` from the Claude Code remote tools) and ask which one tonight's builds run in, recommending the one named like the repository. Say that a `/ship:setup-ship` re-run records it in `shipping.md`. Never fall back to the default environment, and don't write the line yourself: `shipping.md` changes go through setup-ship's PR.
 
 Specs the user wants to hold back stay `spec:ready`.
 
@@ -58,10 +59,11 @@ Specs the user wants to hold back stay `spec:ready`.
 
 Builds run on a fixed **pool** of routines, reused every night: `ship-builder-<repo>-1`, `-2`, and so on. A routine can't be deleted through the API, so never create one per spec.
 
-1. **Find the pool.** List the routines (`RemoteTrigger` `list`) and keep the ones with this repository's pool name.
+1. **Find the pool.** List the routines (`RemoteTrigger` `list`) and keep the ones with this repository's pool name, with each one's environment ID (its `job_config.ccr.environment_id`).
+   - A pool routine in another environment than the night plan's: `RemoteTrigger` `update` it to that environment before giving it a session, and say so.
 2. **Create missing routines,** if the pool is smaller than tonight's session count. Show the user each new routine's configuration first:
    - this repository as `sources`
-   - the default cloud environment
+   - the night plan's cloud environment (step 3)
    - the model
    - `allowed_tools`: `Bash`, `Read`, `Write`, `Edit`, `Glob`, `Grep`, `Skill`, `Agent`, `ToolSearch`, `WebFetch`
    - `enabled: false`, so it never fires on its own

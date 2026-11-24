@@ -100,7 +100,7 @@ Sizes each `spec:ready` spec against prior PRs in the same areas. The rule is on
    - Specs that overlap but don't disagree are chained without asking: built in order in one session, each PR on top of the previous one.
    - Conflicting decisions go to you, in one round.
    - A design's place specs wait until its foundation and shell have merged.
-3. Once you approve the plan, it gives each session its prompt on a reused pool of builder routines (`ship-builder-<repo>-N`, since routines can't be deleted through the API) and starts them. Each builder runs `/ship:build-spec <specs> unattended`, so nothing is asked overnight.
+3. Once you approve the plan, it gives each session its prompt on a reused pool of builder routines (`ship-builder-<repo>-N`, since routines can't be deleted through the API) and starts them. The routines run in the cloud environment `docs/agents/shipping.md` names (its "Cloud environment" line); without one, the plan asks you to pick tonight's, never taking the default. Each builder runs `/ship:build-spec <specs> unattended`, so nothing is asked overnight.
 
 **`/ship:night-shift morning`** gathers the results into one page:
 - PRs ready to review, smallest first, each with its verdict, risks and the decisions to check
@@ -201,10 +201,10 @@ Run once per project. It works in an empty folder too: it creates the local repo
 - **Landing:** `/ship:land`, an agent that merges every `ship` PR itself, parents before their stacked children. Nothing merges on its own: no auto-merge, no scheduled run.
 - **Dependabot:** patch updates and GitHub Actions updates are labelled `ship` and land with the next `/ship:land`.
 - **Labels:** `ship`, `pr-reviewed`, `changes-requested`, and the `spec:*` and `design:*` labels the pipeline uses.
-- **`docs/agents/shipping.md`:** the rules, written down for people and for the other skills.
+- **`docs/agents/shipping.md`:** the rules, written down for people and for the other skills, including the cloud environment night-shift's builders run in (it lists your environments and asks).
 - **The project's `.claude/settings.json`:** enables the plugin.
 
-Run it again in a project set up by an older version and it offers an upgrade: it re-renders `ship.yml` and `shipping.md` with the values already installed, keeps your own edits to them, and shows the diff first. Upgrading from version 2 also turns auto-merge off and retires the `conflicts` label.
+Run it again in a project set up by an older version and it offers an upgrade: it re-renders `ship.yml` and `shipping.md` with the values already installed, keeps your own edits to them, and shows the diff first. Upgrading from version 2 also turns auto-merge off and retires the `conflicts` label. Upgrading from version 3 asks only for the cloud environment.
 
 After adding a CI job, add it to the "Required on" line of `docs/agents/shipping.md` and merge that, then re-run `/ship:setup-ship`: it shows the checks it would add or remove from the ruleset (`+ check`, `- check`, or "required checks in sync") and writes them on your yes, keeping `ship` and every other rule.
 
