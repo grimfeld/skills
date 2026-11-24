@@ -6,6 +6,10 @@
 
 <What changes, from the user's side.>
 
+## Prototype
+
+<Written by `/ship:prototype-me`. Delete this section when there is none.>
+
 ## Acceptance criteria
 
 - [ ] <Observable, testable behaviour.>

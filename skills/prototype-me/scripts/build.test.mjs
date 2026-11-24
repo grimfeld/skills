@@ -55,9 +55,11 @@ test("build fails, naming the placeholder, when the page lacks one", () => {
   }
 });
 
-test("build fails with no variants, or more than 5", () => {
+test("build takes more than 5 variants, for remixes, and fails with none", () => {
   const six = Object.fromEntries("ABCDEF".split("").map((k) => [`${k}.html`, `<!-- name: ${k} -->\n<p>${k}</p>`]));
-  for (const files of [{ "styles.css": "p {}" }, six]) {
-    assert.throws(() => build(variants(files)), (err) => err.status === 1 && /1 to 5 are allowed/.test(err.stderr));
-  }
+  const dir = variants(six);
+  build(dir);
+  const keys = [...readFileSync(join(dir, "out", "prototype.html"), "utf8").matchAll(/<section data-variant="(\w)"/g)].map((m) => m[1]);
+  assert.deepEqual(keys, ["A", "B", "C", "D", "E", "F"]);
+  assert.throws(() => build(variants({ "styles.css": "p {}" })), (err) => err.status === 1 && /has 0 variants/.test(err.stderr));
 });
