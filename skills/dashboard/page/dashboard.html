@@ -2,7 +2,7 @@
 <meta name="claude:viewport-fit-sides" content="cover">
 <style>
 /* Layout: a header strip, one summary row per project, then the four buckets as columns
-   (phone: project chips, bucket tabs, one column). Neutrals lean toward harbour slate. */
+   (phone: bucket tabs, one column). Project chips filter the board on every screen. Neutrals lean toward harbour slate. */
 :root {
   --bg: #f3f6f7;
   --surface: #ffffff;
@@ -198,27 +198,46 @@ header.top .status { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-w
   .project .name a { display: inline-flex; align-items: center; min-height: 44px; }
 }
 
-.chips, .tabs { display: none; }
+/* Project chips, on every screen: a wrapping row on a wide one, one scrolling line on a phone. */
+.chips { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
+.chip {
+  flex: none; display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px;
+  border-radius: 999px; border: 1px solid var(--line); background: var(--surface); cursor: pointer;
+  font-family: var(--font-mono); font-size: 13px;
+}
+.chip:hover { border-color: var(--muted); }
+.chip[aria-pressed="true"] { background: var(--fg); border-color: var(--fg); color: var(--bg); }
+.chip-n { color: var(--needs); font-weight: 500; }
+.chip[aria-pressed="true"] .chip-n { color: inherit; }
+.chip-flag { font-family: var(--font-body); font-size: 11px; color: var(--muted); }
+.chip[aria-pressed="true"] .chip-flag { color: inherit; opacity: 0.8; }
+.project.filtered-out { display: none; }
+
+/* What waits on another PR or spec: folded under the card it waits on, or at the foot of its column. */
+.waiting { display: grid; gap: 8px; min-width: 0; }
+.waiting-toggle {
+  display: flex; align-items: center; gap: 6px; width: 100%; min-height: 44px; padding: 0; margin: 0;
+  border: 0; background: none; font: inherit; font-size: 13px; color: var(--muted); text-align: left; cursor: pointer;
+}
+.waiting-toggle::before { content: "▸"; display: inline-block; width: 1em; transition: transform 0.15s; }
+.waiting-toggle[aria-expanded="true"]::before { transform: rotate(90deg); }
+.waiting-toggle:hover { color: var(--fg); }
+.waiting-list { display: grid; gap: 8px; padding-left: 10px; border-left: 2px solid var(--line); min-width: 0; }
+.waiting-list .card { background: var(--bg); }
+.col-held { border-top: 1px dashed var(--line); padding-top: 4px; }
+
+.tabs { display: none; }
 @media (max-width: 720px) {
   .phone-hide, .projects .phone-hide { display: none; }
   .projects > h2 { display: none; }
   .project.is-error { border-top: 0; }
   .btn.small { min-height: 44px; }
+  .chips { flex-wrap: nowrap; }
   .chips, .tabs {
     display: flex; gap: 8px; overflow-x: auto; overscroll-behavior-x: contain;
     scrollbar-width: none; min-width: 0; padding-block: 2px;
   }
   .chips::-webkit-scrollbar, .tabs::-webkit-scrollbar { display: none; }
-  .chip {
-    flex: none; display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px;
-    border-radius: 999px; border: 1px solid var(--line); background: var(--surface); cursor: pointer;
-    font-family: var(--font-mono); font-size: 13px;
-  }
-  .chip[aria-pressed="true"] { background: var(--fg); border-color: var(--fg); color: var(--bg); }
-  .chip-n { color: var(--needs); font-weight: 500; }
-  .chip[aria-pressed="true"] .chip-n { color: inherit; }
-  .chip-flag { font-family: var(--font-body); font-size: 11px; color: var(--muted); }
-  .chip[aria-pressed="true"] .chip-flag { color: inherit; opacity: 0.8; }
   .tabs { gap: 0; border-bottom: 1px solid var(--line); }
   .tab {
     flex: none; min-height: 44px; padding: 0 12px; border: 0; background: none; cursor: pointer;
@@ -1202,6 +1221,7 @@ dialog.sheet::backdrop { background: rgb(0 0 0 / 0.45); }
     if (card.kind === "spec") {
       if (card.openQuestions > 0) facts.push(el("span", { class: "fact-warn", text: plural(card.openQuestions, "open question") }));
       if (card.pr) facts.push(outLink(card.pr.url, `PR #${card.pr.number}`, `pr:${key}`, ["github.com"]));
+      if (card.waitsOn) facts.push(el("span", { text: `waits on #${card.waitsOn.number}` }));
     }
     if (card.kind === "design") facts.push(outLink(card.designUrl, "Open design", `design:${key}`, CLAUDE_ONLY));
     if (card.kind === "pr") {
@@ -1260,8 +1280,28 @@ dialog.sheet::backdrop { background: rgb(0 0 0 / 0.45); }
       act?.status === "done" ? el("p", { class: "act-done", text: act.text }) : null];
   }
 
-  // One card. Sibling specs extend the dashboard here: details, actions and sessions hang off the card.
+  // Folded groups opened with a tap, by data-key, so a re-render keeps them open.
+  const openGroups = new Set();
+  // A toggle and the cards it folds away: what waits on a card (under it), or what waits on work not
+  // on the board (at the foot of a column). Closed until tapped.
+  function renderWaiting(key, label, cards) {
+    if (!cards.length) return null;
+    const open = openGroups.has(key);
+    const listId = `list-${key.replace(/[^\w-]/g, "_")}`;
+    const toggle = el("button", { class: "waiting-toggle", type: "button", "aria-expanded": String(open), "aria-controls": listId, "data-key": key }, label);
+    toggle.addEventListener("click", () => {
+      if (!openGroups.delete(key)) openGroups.add(key);
+      scheduleRender();
+    });
+    const list = el("div", { class: "waiting-list", id: listId }, ...cards.map((c) => renderCard(c)));
+    list.hidden = !open;
+    return el("div", { class: "waiting" }, toggle, list);
+  }
+
+  // One card, and, folded under it, the cards waiting on it (board.mjs's groupWaiting).
+  // Sibling specs extend the dashboard here: details, actions and sessions hang off the card.
   function renderCard(card) {
+    const waiting = card.waiting ?? [];
     return el("article", { class: `card b-${TONE[card.bucket]}`, "data-project": card.project, "data-kind": card.kind },
       el("div", { class: "card-meta" },
         el("span", { class: "card-project mono", title: card.project, text: card.project }),
@@ -1275,6 +1315,7 @@ dialog.sheet::backdrop { background: rgb(0 0 0 / 0.45); }
         el("time", { class: "card-age mono", datetime: card.since, title: new Date(card.since).toLocaleString(), text: card.age }),
       ),
       renderCardActions(card),
+      renderWaiting(`waiting:${card.project}#${card.number}`, `${plural(waiting.length, "item")} waiting on this`, waiting),
     );
   }
 
@@ -1309,24 +1350,36 @@ dialog.sheet::backdrop { background: rgb(0 0 0 / 0.45); }
     const warn = unchecked ? el("span", { class: "row-warn", text: `checks couldn't be read for ${unchecked} ${unchecked === 1 ? "PR" : "PRs"}` }) : null;
     const cut = prsCut(load) ? el("span", { class: "row-warn", text: "some PRs not shown" }) : null;
     return el("div", { class: "project", "data-project": full }, name,
-      el("div", { class: "counts" }, ...countPills(counts(cards))),
+      el("div", { class: "counts" }, ...countPills(tallyOf(cards))),
       el("div", { class: "updated" }, load.storedAt ? `updated ${since(load.storedAt)}` : "", stale, warn, cut),
       ...renderLand(full));
   }
 
-  function renderBoard(cards, stillLoading) {
+  // grouped: board.mjs's groupWaiting. Each column shows the cards needing something now; what waits
+  // on another card is folded under it, and what waits on work not on the board is folded at the foot.
+  function renderBoard(grouped, stillLoading) {
     const board = el("section", { class: "board", "aria-label": "Buckets" });
     for (const b of BUCKETS) {
-      const mine = sortBucket(cards.filter((c) => c.bucket === b.id), b.id);
+      const mine = sortBucket(grouped.cards.filter((c) => c.bucket === b.id), b.id);
+      const held = sortBucket(grouped.held.filter((c) => c.bucket === b.id), b.id);
+      // One flat list: a held card, then what waits on it.
+      const flatHeld = held.flatMap(({ waiting, ...c }) => [c, ...waiting]);
       const empty = el("p", { class: "col-empty", text: stillLoading ? "Loading…" : b.empty });
+      const heldGroup = renderWaiting(`held:${b.id}`, `${plural(flatHeld.length, "item")} waiting on other work`, flatHeld);
+      heldGroup?.classList.add("col-held");
       board.append(el("section", { class: `col b-${b.tone}`, "data-bucket": b.id, "aria-label": b.title },
         el("h2", {}, el("span", { class: "dot", "aria-hidden": "true" }), b.title, el("span", { class: "col-n mono", text: String(mine.length) })),
-        mine.length ? el("div", { class: "cards" }, ...mine.map(renderCard)) : empty));
+        mine.length ? el("div", { class: "cards" }, ...mine.map(renderCard)) : empty,
+        heldGroup));
     }
     return board;
   }
 
-  // ---- Phone: projects become filter chips, buckets become toggle buttons. Remembered per viewer.
+  // What a project's counts, chips and tabs count: the cards needing something now, not those waiting.
+  const tallyOf = (cards) => counts(groupWaiting(cards).cards);
+
+  // ---- Project chips filter the board (every screen); on a phone, buckets become toggle buttons.
+  // Both remembered per viewer.
 
   const phone = window.matchMedia("(max-width: 720px)");
   phone.addEventListener?.("change", () => { if (state.mcp) scheduleRender(); });
@@ -1341,7 +1394,7 @@ dialog.sheet::backdrop { background: rgb(0 0 0 / 0.45); }
     };
     return [chip("all", "All"), ...list.map((full) => {
       const phase = phaseOf(loads.get(full));
-      const mark = phase === "ready" ? el("span", { class: "chip-n mono", text: String(counts(cardsBy.get(full))["needs-you"] || "") })
+      const mark = phase === "ready" ? el("span", { class: "chip-n mono", text: String(tallyOf(cardsBy.get(full))["needs-you"] || "") })
         : el("span", { class: "chip-flag", text: phase });
       const short = full.split("/")[1];
       const clash = list.filter((other) => other.split("/")[1] === short).length > 1;
@@ -1401,12 +1454,13 @@ dialog.sheet::backdrop { background: rgb(0 0 0 / 0.45); }
     }
     if (view.project !== "all" && !list.includes(view.project)) view.project = "all";
     const cardsBy = new Map(list.map((full) => [full, cardsOf(full)]));
-    // On a phone the chip filters what shows; desktop always shows every project.
-    const shownProjects = phone.matches && view.project !== "all" ? [view.project] : list;
+    // The chip picked filters the rows and the board, on every screen.
+    const picked = view.project !== "all";
+    const shownProjects = picked ? [view.project] : list;
     const rows = list.map((full) => projectRow(full, cardsBy.get(full)));
+    rows.forEach((row) => row.classList.toggle("filtered-out", !shownProjects.includes(row.dataset.project)));
     // Phone: a row shows for an error, or, once its chip is picked, for its Land button and
     // morning-page link.
-    const picked = view.project !== "all";
     rows.forEach((row) => row.classList.toggle("phone-hide", !shownProjects.includes(row.dataset.project) ||
       !(row.classList.contains("is-error") || (picked && row.querySelector("a.morning, .land")))));
     box.append(...rows);
@@ -1415,11 +1469,11 @@ dialog.sheet::backdrop { background: rgb(0 0 0 / 0.45); }
     const stillLoading = shownProjects.some((full) => phaseOf(loads.get(full)) === "loading");
     noteLayout(cards);
     announceMoves(cards);
-    const board = renderBoard(cards, stillLoading);
+    const board = renderBoard(groupWaiting(cards), stillLoading);
     board.dataset.tab = view.tab;
     $("board").replaceChildren(board);
     $("chips").replaceChildren(...renderChips(list, cardsBy));
-    $("tabs").replaceChildren(...renderTabs(counts(cards)));
+    $("tabs").replaceChildren(...renderTabs(tallyOf(cards)));
     const newest = Math.max(0, ...list.map((full) => loads.get(full)?.storedAt ?? 0));
     $("status").textContent = `${list.length} ${list.length === 1 ? "project" : "projects"}` + (newest ? ` · updated ${since(newest)}` : "");
   }

@@ -42,7 +42,7 @@ const ISSUE_RULES = [
   { when: (i, now) => !i.open && i.spec && now - Date.parse(i.updatedAt) < WEEK, kind: "spec", bucket: "landed", reason: "closed" },
 ];
 
-function issueCard(project, issue, now, prs) {
+function issueCard(project, issue, now, prs, openIssues) {
   const i = { l: new Set(names(issue.labels)), spec: isSpec(issue.labels), open: String(issue.state).toUpperCase() === "OPEN", updatedAt: issue.updated_at };
   const rule = ISSUE_RULES.find((r) => r.when(i, now));
   if (!rule) return null;
@@ -50,7 +50,7 @@ function issueCard(project, issue, now, prs) {
     project, number: issue.number, title: issue.title, url: `https://github.com/${project}/issues/${issue.number}`,
     kind: rule.kind, bucket: rule.bucket, reason: rule.reason, since: issue.updated_at, age: ago(now - Date.parse(issue.updated_at)),
     labels: [...i.l],
-    ...(rule.kind === "spec" ? { openQuestions: openQuestions(issue.body), pr: specPr(project, issue.number, prs) } : {}),
+    ...(rule.kind === "spec" ? { openQuestions: openQuestions(issue.body), pr: specPr(project, issue.number, prs), waitsOn: i.open ? specWaitsOn(issue, openIssues) : null } : {}),
     ...(rule.kind === "design" ? { designUrl: designLink(issue.body) } : {}),
   };
 }
@@ -89,6 +89,49 @@ function landsAfter(project, pr, openPrs) {
   if (!base) return null;
   const parent = openPrs.find((o) => o.number !== pr.number && o.head?.ref === base && isOwnPr(project, o));
   return parent ? parent.number : null;
+}
+
+// A spec's "Depends on" line (skills/slice/SKILL.md, skills/design-me/SKILL.md):
+// "- **Depends on:** #12 | none", possibly naming several. → the issue numbers, [] for none or without the line.
+export function dependsOn(body) {
+  const line = String(body ?? "").split(/\r?\n/).find((l) => /^\s*([-*]\s+)?\*\*Depends on:\*\*/i.test(l));
+  return line ? [...line.matchAll(/#(\d+)\b/g)].map((m) => Number(m[1])) : [];
+}
+
+// An open spec waits on the first issue its Depends on names that is still open (not itself).
+// openIssues: the open issue numbers. → { kind: "issue", number } or null.
+function specWaitsOn(issue, openIssues) {
+  const n = dependsOn(issue.body).find((d) => d !== issue.number && openIssues.has(d));
+  return n ? { kind: "issue", number: n } : null;
+}
+
+// Cards waiting on another item of their project (waitsOn: a stacked PR's parent PR, a spec's open
+// Depends on) leave the buckets, so the board shows only what needs something now. Each hangs under
+// the card it waits on, or, when that item has no card on the board, is held. A card's `waiting` is
+// every card waiting on it, directly or down a chain, depth-first in number order, so a stack reads in
+// landing order. Cards waiting on each other in a loop wait on nothing outside it: they stay in their
+// buckets. cards: toCards' cards, of any number of projects.
+// → { cards: the cards for the buckets, held: cards whose item isn't on the board }, each with `waiting`.
+export function groupWaiting(cards) {
+  const key = (project, n) => `${String(project).toLowerCase()}#${n}`;
+  const byKey = new Map(cards.map((c) => [key(c.project, c.number), c]));
+  const parentOf = (c) => (c.waitsOn ? byKey.get(key(c.project, c.waitsOn.number)) ?? null : null);
+  const inLoop = (c) => {
+    let at = parentOf(c);
+    for (let steps = 0; at && steps < cards.length; steps += 1, at = parentOf(at)) if (at === c) return true;
+    return false;
+  };
+  const kids = new Map();
+  const top = [];
+  const held = [];
+  for (const c of cards) {
+    if (!c.waitsOn || inLoop(c)) top.push(c);
+    else if (parentOf(c)) kids.set(parentOf(c), [...(kids.get(parentOf(c)) ?? []), c]);
+    else held.push(c);
+  }
+  const below = (c) => [...(kids.get(c) ?? [])].sort((a, b) => a.number - b.number).flatMap((k) => [k, ...below(k)]);
+  const withWaiting = (c) => ({ ...c, waiting: below(c) });
+  return { cards: top.map(withWaiting), held: held.map(withWaiting) };
 }
 
 const FAILED_RUN = new Set(["failure", "timed_out", "cancelled", "action_required", "startup_failure"]);
@@ -130,10 +173,12 @@ function prCard(project, pr, check, now, openPrs) {
   const since = rule.at(p);
   const age = ago(now - Date.parse(since));
   const review = trustedReview(project, pr);
+  const after = p.open ? landsAfter(project, pr, openPrs) : null;
   return {
     project, number: pr.number, title: pr.title, url: `https://github.com/${project}/pull/${pr.number}`,
     kind: "pr", bucket: rule.bucket, reason: rule.reason(age), since, age,
-    review, landsAfter: p.open ? landsAfter(project, pr, openPrs) : null,
+    review, landsAfter: after,
+    waitsOn: after ? { kind: "pr", number: after } : null,
     labels: [...p.l], action: prAction(pr, review),
   };
 }
@@ -165,23 +210,25 @@ export function prAction(pr, review) {
 
 // toCards(project, issues, prs, checks, now) → cards, issues first, then PRs.
 //   project: "owner/name"
-//   issues:  list_issues items { number, title, state, labels, updated_at }
+//   issues:  list_issues items { number, title, body, state, labels, updated_at }
 //   prs:     list_pull_requests items { number, title, body, state, draft, merged_at, labels, updated_at,
 //            head: { ref, sha, repo: { full_name } }, base: { ref } }
 //   checks:  { [prNumber]: { check_runs, statuses } }, missing for PRs whose checks weren't read
 //            (or couldn't be: an unread PR counts as not failing, and the page says so on its row)
 //   now:     epoch ms
 // Each card: { project, number, title, url, kind: "spec"|"design"|"pr", bucket, reason, since, age, labels (names) }, plus
-//   spec cards:   openQuestions (a count, or null without the section), pr ({ number, url } or null)
+//   spec cards:   openQuestions (a count, or null without the section), pr ({ number, url } or null),
+//                 waitsOn ({ kind: "issue", number }: the open issue its Depends on names, or null)
 //   design cards: designUrl (claude.ai, or null)
 //   PR cards:     review (trustedReview: parseReview plus outOfDate, or null), landsAfter (the PR it is stacked on, or null),
-//                 action (prAction: "approve", "review-first", "unapprove" or null)
+//                 waitsOn ({ kind: "pr", number: landsAfter }, or null), action (prAction: "approve", "review-first", "unapprove" or null)
 // Items that need nothing from the dashboard (spec:in-review specs, unreviewed ready PRs,
 // PRs closed unmerged, anything older than a week in Landed) get no card.
 export function toCards(project, issues, prs, checks, now) {
   const openPrs = (prs ?? []).filter(isOpenPr);
+  const openIssues = new Set((issues ?? []).filter((i) => String(i.state).toUpperCase() === "OPEN").map((i) => i.number));
   return [
-    ...(issues ?? []).map((i) => issueCard(project, i, now, prs)),
+    ...(issues ?? []).map((i) => issueCard(project, i, now, prs, openIssues)),
     ...(prs ?? []).map((p) => prCard(project, p, checks?.[p.number], now, openPrs)),
   ].filter(Boolean);
 }
