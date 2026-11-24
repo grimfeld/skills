@@ -123,7 +123,9 @@ Skipped for a spec handed back at step 3 (no Agent tool): the caller runs it.
 - Add a "Stuck" section to the PR body below Decisions: what blocks, what you tried, and what a person has to decide. For a `needs-person` finding, name the finding, the spec line it contradicts if any, and the choice: keep the spec and accept or document the finding, or change the spec (or pick one of its options).
 - Relabel the issue `spec:stuck`.
 
-Either way, comment on the spec issue with one line for the morning page:
+Either way, copy the spec's **Before ship** and **After merge** items to the top of the PR body, above the opening paragraph (below the `Closes` line), as unchecked boxes under `## Before ship` and `## After merge` headings. They are deferred to a person, so they don't count as unmet criteria for Ready. Leave out a section that reads "None", or that the spec doesn't have.
+
+Then comment on the spec issue with one line for the morning page:
 
 ```
 <!-- night-shift {"status":"ready|stuck","pr":<n or null>,"reason":"<stuck reason or empty>","decisions":<count>,"rounds":<0-2>} -->
