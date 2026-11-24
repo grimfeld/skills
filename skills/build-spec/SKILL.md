@@ -97,6 +97,10 @@ Run `pr-review` with `<pr> unattended`, as `${CLAUDE_PLUGIN_ROOT}/references/run
 
 Round = fix every approved finding and every red CI check on the branch, push, wait for CI, and run `pr-review <pr> fix-round unattended`: it re-checks the approved findings and the fix diff, not the whole PR. No full review runs after the last round: the first full review plus the fix-round reviews cover the final head.
 
+Every commit after the first review belongs to a counted round, and that round's re-review covers it:
+- **Minors and nits** (left `pending` by `pr-review unattended`): fix one only inside a counted round, in that round's commits, before its push and re-review. With no blocker or major to fix there is no round, and they stay listed in the review for the person. Never fix one after the last review.
+- **Push nothing after the last round's review** (or after the first review, when no round was needed). Step 6 checks that the review section names the PR's head.
+
 - **A finding marked `property: <the property>` in pr-review's hand-off** (`fix_kind: "property"`: an algorithm's output over many inputs): write a seeded property test of the property its fix names first, see it red, then fix until it is green, not until the reported example passes. Use the repo's property-testing library if it has one, otherwise a seeded loop over generated inputs in the existing test runner. Add no dependency.
 - A finding you think is wrong: record it in Decisions with your reason, and leave it.
 - **A `needs-person` finding** (pr-review's hand-off lists them under "Needs a person"): fix nothing for it and make no commit for it. Add a Decisions line, "finding <id> needs a person: <option names>", or "finding <id> contradicts the spec's '<quoted line>': not fixed". Run the rounds for the remaining approved findings as usual; with none left, no round is needed.
