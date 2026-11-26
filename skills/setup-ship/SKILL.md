@@ -49,6 +49,8 @@ Read only, except the required-checks sync on a current install (step 0), which 
 2. **Rulesets and protection.** `gh api repos/{owner}/{repo}/rulesets` and each one's rules. Also check the legacy branch protection on the default branch.
 3. **CI checks.** Take the check names from the last 10 merged PRs: `gh pr checks <n> --json name,workflow`. Required checks are the ones that ran on every PR whatever the change, typically lint, typecheck and unit tests. A job that runs only on some PRs must not be required, or PRs without it never merge. List the candidates.
 4. **CD.** Look for workflows triggered by `push` to the default branch, and for deployments on recent default-branch commits: `gh api repos/{owner}/{repo}/deployments?per_page=5`, plus Vercel, Netlify or Fly configs. Summarise what deploys and how. If nothing does, say so.
+   - **Previews,** for the Try it section: deployments on recent PR head commits (`gh api 'repos/{owner}/{repo}/deployments?sha=<head sha>'` for the last few merged PRs, or a Vercel or Netlify bot comment on them), and a `vercel.json`, `netlify.toml` or `fly.toml` that deploys branches or PRs. Note where previews come from ("Vercel preview deployments on every PR"), or that there are none.
+   - **Run a branch,** for the Try it section: the manifest's `dev` or `start` script (`package.json`, or the project's equivalent: a `Makefile` target, `bin/dev`, `docker compose up`). Propose a command with a `<branch>` placeholder that fetches the branch into its own worktree and runs it there, for example `git fetch origin <branch> && git worktree add ../try-<branch> FETCH_HEAD && cd ../try-<branch> && npm install && npm run dev`. Nothing runnable (a library with no app): "none".
 5. **Project docs.** Read `CLAUDE.md`, `AGENTS.md`, `docs/agents/*` and the ADRs about merging. Look for:
    - a merge rule, for example "always squash"
    - the local check commands
@@ -65,7 +67,7 @@ Done when you hold every item above.
 
 **Upgrade:** read every value back from the installed files instead of asking for it again:
 - from `ship.yml`: the default branch;
-- from `shipping.md`: the merge method (its "Merge method" line), required and local checks, CD summary, screens command, bookkeeping files and, from version 4, the cloud environment (its "Cloud environment" line);
+- from `shipping.md`: the merge method (its "Merge method" line), required and local checks, CD summary, screens command, bookkeeping files, from version 4, the cloud environment (its "Cloud environment" line) and, from version 5, the Try it values (its "Previews" and "Run a branch" lines);
 - for the installed version's *base* (step 4.0), the values its template fills, as its "Versions" rendering rules say: for versions 1 and 2, the mode and, in `command` mode, the cron, prefix, commit email, landing command and setup steps from `ship.yml`, and the landing mode, summary and details from `shipping.md`.
 
 Ask only for values the newer template adds that can't be derived from those (the "Versions" list says which). With none, skip the question round.
@@ -77,6 +79,7 @@ Otherwise, ask the user the open choices in one `AskUserQuestion` round, giving 
 - **Local checks:** the commands from step 1.5.
 - **Bookkeeping files:** the candidates from step 1.7, as globs. A conflict only in these files is mechanical to resolve.
 - **Cloud environment:** the one `/ship:night-shift` creates builder routines in, from step 1.8, or "none chosen". Recommend the one named like the repository.
+- **Try it:** where previews come from, and the command that runs a branch, from step 1.4's Previews and Run a branch findings. Each can be "none".
 
 When step 1.1 planned a Repository group, there is no history to read: don't ask the required checks or bookkeeping files (take step 1.1's defaults), and recommend `merge` as the merge method.
 - **The GitHub repo**, only when step 1.1 found none: its owner (preselect the signed-in user, `gh api user --jq .login`; offer their organisations), name (preselect the folder's name) and visibility (preselect private). Private on a personal account on the free plan: show step 1.1's warning that the gate becomes advisory.
@@ -115,7 +118,7 @@ The user's part is the to-dos the "Versions" list gives for each version passed.
     - `spec:stuck`
     - `design:ready`: "A Claude Design artifact, marked done"
     - `design:specced`: "Turned into specs by /ship:design-me"
-    - `changes-requested`: "Sent back for a rebuild: move its spec to spec:ready"
+    - `changes-requested`: "Feedback on the PR to adjust: /ship:build-spec #<pr> adjust"
     - `retro`: "Filed by /ship:retro-issues from a session retro"
     - `bug`: "A bug: fixed by /ship:fix-me" (color `d73a4a`)
     - `bug:specced`: "A bug too big for /ship:fix-me: built as a spec" (color `fbca04`)
@@ -157,6 +160,8 @@ Work in a branch, through a worktree if the project's docs say so.
    - `SCREENS`: the command, or "none".
    - `BOOKKEEPING_FILES`: the globs, as a list (`[]` for none).
    - `CLOUD_ENVIRONMENT`: `` `env_…` (<environment name>) ``, or "none chosen".
+   - `TRY_PREVIEWS`: where the project's CD makes previews, in a few words, or "none".
+   - `TRY_RUN`: the command that runs a branch, in backticks, with a literal `<branch>` where the branch name goes, or "none".
 
    A list is formatted for you (each item in backticks; "no CI checks", "none", "- none" when empty). A string goes in as it is, for wording a list can't give.
 2. **Render.** For each of `ship.yml` and `shipping.md`, run `node ${CLAUDE_SKILL_DIR}/scripts/render.mjs ${CLAUDE_SKILL_DIR}/templates/<file> <values.json>`. It prints the file, keeping `ship.yml`'s first line, `# ship.yml version: <n>`, as it is: `/ship:land` and later runs of this skill read it. It exits non-zero, printing nothing, when a placeholder has no value or one is left over; fix the values and run it again.
@@ -187,6 +192,7 @@ Re-read each setting to confirm it took:
    - what was verified
    - what's still on the user's list (the `SHIP_TOKEN` Dependabot secret, the cloud setup script, and the to-dos of each version passed)
    - the CD finding from step 1.4
+   - with Previews "none": that the project has no preview deploys, so a build PR's Try it section has no preview link, and that turning them on in the project's CD (Vercel or Netlify preview deployments, or a workflow that deploys each PR) would give one. Change nothing to make them.
    - that `/ship:land` lands the approved PRs
    - after a Repository group: that the files already in the folder are uncommitted, for the user to commit in a PR now that the gate is on
 3. **`SHIP_TOKEN`.** When the user says the secret is set, check it exists: `gh secret list --app dependabot --repo <owner>/<repo>` lists `SHIP_TOKEN`. Say whether it does. The list shows names only: never read, print or ask for its value.
@@ -224,3 +230,10 @@ Each entry also gives what rendering that version needs beyond the current rules
 - **4:** `shipping.md` names the cloud environment `/ship:night-shift` creates its builder routines in (its "Night builds" section, `__CLOUD_ENVIRONMENT__`). `ship.yml` changes only its version line.
   - Rendering: version 3's base renders with the current rules (`scripts/render.mjs`); it has no `__CLOUD_ENVIRONMENT__`.
   - Ask only for the cloud environment (step 1.8), recommending the one named like the repository. Nothing else changes: no labels, ruleset changes, upgrade steps or user to-dos.
+- **5:** `shipping.md` has a `## Try it` section: where previews come from (`__TRY_PREVIEWS__`) and the command that runs a branch (`__TRY_RUN__`). `/ship:build-spec` fills each build PR's "Try it" section from them. Its "Spec labels" section says a PR sent back with `changes-requested` is adjusted on its own branch, and a full rebuild is closing the PR and relabelling the spec `spec:ready`. `ship.yml` changes only its version line.
+  - Rendering: version 4's base renders with the current rules (`scripts/render.mjs`); it has no `__TRY_PREVIEWS__` or `__TRY_RUN__`.
+  - Ask only for the two Try it values (step 1.4's Previews and Run a branch findings), each with your proposal. No new labels, ruleset changes or user to-dos.
+  - Upgrade step: update the `changes-requested` label's description (`gh label create changes-requested --force`, with the description above).
+- **6:** `shipping.md` gains a "Day builds" section holding the two optional lines `/ship:day-shift` reads, `Day shift: ≤<lines> lines, <k> behaviour(s)` and `Day shift builders: <n>`, written with their defaults (≤200 lines, 1 behaviour; 2 builders). `ship.yml` changes only its version line.
+  - Rendering: version 5's base renders with the current rules (`scripts/render.mjs`); it has no "Day builds" section. The section has no placeholders: a project changes its limits by editing the two lines, and an upgrade keeps those edits.
+  - Nothing to ask. Nothing else changes: no labels, ruleset changes, upgrade steps or user to-dos.

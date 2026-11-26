@@ -13,3 +13,12 @@ The ship skills, `implement-spec`, `to-tickets` and `retro` are all user-invoked
 3. **Follow it in this session, to the end.** Then go back to the caller's next step. Where the caller says it replaces or skips one of the skill's steps, the caller wins.
 
 Skills without that flag, such as `grilling` and `domain-modeling`, are still called with the Skill tool.
+
+## Subagents' scratch folders
+
+Subagents that run side by side must not write into the same folder: they overwrite each other.
+
+- **`<scratch>`** is the session's scratchpad directory when it has one, else `.scratch/` in the repository, kept untracked (if `git check-ignore -q .scratch` fails, append `.scratch/` to `.git/info/exclude`).
+- **Each subagent that writes files gets its own folder,** `<scratch>/<skill>-<n>/`: `<skill>` is the skill or task it runs, `<n>` the spec or issue number it works on, or a short slug when there is none.
+- **The caller makes the folder before the dispatch** and gives its absolute path in the brief. The brief says to write only there and in the repository.
+- **Two subagents never share a folder.** A subagent that needs another's output reads it from that one's folder, which its brief names.

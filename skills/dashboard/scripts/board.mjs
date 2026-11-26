@@ -129,7 +129,7 @@ const updated = (p) => p.updatedAt;
 const PR_RULES = [
   { when: (p) => p.open && p.failing, bucket: "needs-you", reason: () => "checks failing", at: updated },
   { when: (p, now) => p.open && p.l.has("ship") && now - Date.parse(p.updatedAt) > DAY, bucket: "needs-you", reason: (age) => `ship label on, no update for ${age}`, at: updated },
-  { when: (p) => p.open && p.l.has("changes-requested"), bucket: "in-flight", reason: () => "changes requested, back to the night shift", at: updated },
+  { when: (p) => p.open && p.l.has("changes-requested"), bucket: "in-flight", reason: () => "changes requested: adjusting next", at: updated },
   { when: (p) => p.open && p.l.has("pr-reviewed") && !p.l.has("ship"), bucket: "needs-you", reason: () => "reviewed, waiting for your verdict", at: updated },
   { when: (p) => p.open && p.draft, bucket: "in-flight", reason: () => "draft", at: updated },
   { when: (p) => p.open && p.l.has("ship"), bucket: "in-flight", reason: () => "ship label on, landing", at: updated },
