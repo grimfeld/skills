@@ -51,6 +51,7 @@ Facts come from the code, through subagents, not from the user. Decisions come f
 5. **Touches:** the Modules, Apps, packages or surfaces it changes, in the project's own words, plus anything shared it modifies (a core type, a shared component, the schema). The night shift compares this section across specs to find conflicts, so be complete.
 6. **Data:** new or changed fields, collections and migrations, and what happens to existing data. Write "None" if there are none.
 7. **UI states**, for anything a person sees: empty, loading, error, the longest content, phone width. Write "No UI" if there is none.
+   When this branch stalls because the user can't picture the options, suggest `/ship:prototype-me #<n>`: it shows a few variants on an Artifact and writes the pick back into this spec; resume afterwards with `/ship:spec-me #<n>`.
 8. **Implementation decisions:** interfaces, contracts, schema shapes and architecture choices. No file paths. When the solution runs another skill or command, read that skill's argument hint and what it does with each argument, and record the exact command with its effect (`/ship:land 12`: "approves #12 and lands it").
 9. **Test seams:** where behaviour is tested, preferring existing seams and the highest one possible, plus the prior art to copy.
 10. **Docs to update:** the user guide, ADRs, glossary, README, the project's own extras. ADRs and glossary entries settled in the session go in full under Decision records.
