@@ -1,6 +1,6 @@
 # GitHub Actions checklist
 
-For the `quality` and `security` lenses, when the dispatch prompt lists **workflow files** (pr-review's step 3 defines them; templates such as `skills/setup-ship/templates/ship.yml` count).
+For the `quality` and `security` lenses, when the dispatch prompt lists **workflow files** (pr-review's step 3 defines them; templates such as `${CLAUDE_PLUGIN_ROOT}/skills/setup-ship/templates/ship.yml` count).
 
 Workflow bugs hide in the event model, not in the YAML: each item below is a failure that passed earlier reviews here. For each, the failure, then the sign in a diff. Report what you find in your own lane, in the usual finding format; cite the item by its name in `category` (`actions:race`, `actions:concurrency`, …).
 
@@ -36,6 +36,6 @@ Workflow bugs hide in the event model, not in the YAML: each item below is a fai
 
 ## 6. A template with mode blocks: review every render (`actions:template`)
 
-**Failure:** a workflow template with mode blocks or placeholders (`__PLACEHOLDER__` values, `# >>> <mode> mode` blocks that setup keeps or removes, as in `setup-ship`'s `ship.yml` and its `templates/history/` versions) is several workflows. A bug that exists only in one mode's render, or only when a placeholder takes one of its values, is invisible in the template text.
+**Failure:** a workflow template with mode blocks or placeholders (`__PLACEHOLDER__` values, `# >>> <mode> mode` blocks that setup keeps or removes, as in `setup-ship`'s `ship.yml` and its `${CLAUDE_PLUGIN_ROOT}/skills/setup-ship/templates/history/` versions) is several workflows. A bug that exists only in one mode's render, or only when a placeholder takes one of its values, is invisible in the template text.
 
 **Sign:** a changed template with mode markers or placeholders. Render it once per mode, with the placeholder values the setup skill can write (read the skill that renders it, such as `setup-ship`), and review each render against items 1–5. Name the mode in any finding.
