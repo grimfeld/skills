@@ -95,6 +95,25 @@ test("failing checks need you; the pending ship status and skipped runs are not 
   ]);
 });
 
+test("each check is judged by its latest run: a cancelled duplicate before a pass isn't failing", () => {
+  const prs = [pr(34, []), pr(35, []), pr(36, []), pr(37, [])];
+  const run = (id, started_at, conclusion, name = "e2e") => ({ id, name, status: "completed", conclusion, started_at });
+  const checks = {
+    // cancelled, then success: not failing
+    34: { check_runs: [run(2, "2026-11-24T10:05:00Z", "success"), run(1, "2026-11-24T10:00:00Z", "cancelled")] },
+    // success, then cancelled: failing
+    35: { check_runs: [run(1, "2026-11-24T10:00:00Z", "success"), run(2, "2026-11-24T10:05:00Z", "cancelled")] },
+    // same start: the higher id wins
+    36: { check_runs: [run(9, "2026-11-24T10:00:00Z", "success"), run(8, "2026-11-24T10:00:00Z", "cancelled")] },
+    // another check's failure still counts
+    37: { check_runs: [run(1, "2026-11-24T10:00:00Z", "cancelled"), run(2, "2026-11-24T10:05:00Z", "success"), run(3, "2026-11-24T10:00:00Z", "failure", "lint")] },
+  };
+  assert.deepEqual(pick(toCards("acme/app", [], prs, checks, NOW)), [
+    [35, "pr", "needs-you", "checks failing"],
+    [37, "pr", "needs-you", "checks failing"],
+  ]);
+});
+
 test("PRs merged in the last 7 days have landed; older merges are dropped", () => {
   const prs = [
     pr(40, ["ship"], { state: "closed", merged: true, merged_at: hoursAgo(24 * 6) }),
@@ -212,6 +231,23 @@ test("needsCheckRead: an unchanged PR with a run queued or in progress, or anoth
     assert.equal(needsCheckRead(lastRead, { check_runs: [{ name: "test", status, conclusion: null }], statuses: [] }, PR, false), true, status);
   }
   assert.equal(needsCheckRead(lastRead, { check_runs: [], statuses: [{ context: "ci/build", state: "pending" }] }, PR, false), true);
+});
+
+test("needsCheckRead: a run replaced by a newer run of the same check doesn't keep the PR re-read", () => {
+  const replaced = { check_runs: [
+    { id: 1, name: "e2e", status: "in_progress", conclusion: null, started_at: "2026-11-24T10:00:00Z" },
+    { id: 2, name: "e2e", status: "completed", conclusion: "success", started_at: "2026-11-24T10:05:00Z" },
+  ], statuses: [] };
+  assert.equal(needsCheckRead(lastRead, replaced, PR, false), false);
+});
+
+test("each check is judged by name and app: another app's later run of the same name doesn't hide a failure", () => {
+  const prs = [pr(38, [])];
+  const checks = { 38: { check_runs: [
+    { id: 1, name: "e2e", app: { id: 15368 }, status: "completed", conclusion: "failure", started_at: "2026-11-24T10:00:00Z" },
+    { id: 2, name: "e2e", app: { id: 999 }, status: "completed", conclusion: "success", started_at: "2026-11-24T10:05:00Z" },
+  ] } };
+  assert.deepEqual(pick(toCards("acme/app", [], prs, checks, NOW)), [[38, "pr", "needs-you", "checks failing"]]);
 });
 
 test("needsCheckRead: checks that couldn't be read are read again", () => {

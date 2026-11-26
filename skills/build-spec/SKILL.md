@@ -59,9 +59,10 @@ With `resume`, for each spec, in the order given:
 
 ### 1. Start
 
-1. **Read the issue:** body, comments and labels. If it isn't `spec:building` or `spec:ready`, or it has no "Slicing" section, mark it stuck (step 6) with that reason and go to the next. If its body has no `## Problem` heading, mark it stuck with the reason "spec body has no Problem section; restore it from the issue's edit history": a wiped body is never built. Either way, the next spec in the chain is handled as for any stuck spec.
-2. **Relabel it:** `spec:ready` → `spec:building`.
-3. **Choose the base:**
+1. **Mark it:** the first thing you do for each spec, run `node ${CLAUDE_PLUGIN_ROOT}/skills/night-shift/scripts/token-usage.mjs mark <n>`. It prints one line; the night shift's token count splits your session by these marks.
+2. **Read the issue:** body, comments and labels. If it isn't `spec:building` or `spec:ready`, or it has no "Slicing" section, mark it stuck (step 6) with that reason and go to the next. If its body has no `## Problem` heading, mark it stuck with the reason "spec body has no Problem section; restore it from the issue's edit history": a wiped body is never built. Either way, the next spec in the chain is handled as for any stuck spec.
+3. **Relabel it:** `spec:ready` → `spec:building`.
+4. **Choose the base:**
    - The spec's Depends on is in this chain: build on that spec's branch.
    - The dependency is already merged: build on the default branch.
    - The dependency is neither merged nor in this chain: stuck, "depends on #N, which isn't built".

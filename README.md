@@ -112,13 +112,14 @@ Sizes each `spec:ready` spec against prior PRs in the same areas. The rule is on
 - for a PR built from a design, its fidelity grid: reference beside app in every look, theme and viewport, with the views the review flagged shown full size
 - designs whose specs have all merged are closed
 - stuck specs, and what each needs from you
+- specs still building, when builders are still running: their own section, no cost yet, never in the `/ship:land` line; run the morning again later and it updates the same page
 - builder sessions stopped at the 5-hour limit, with their specs: open the session after the reset and send `Try again` (re-running the routine starts over). Each morning also records the night's size, cost and limit stops in `.scratch/night-shift/nights.jsonl`, for the evening's Load line
 - under each decision, how to answer it: tell the morning session `#<pr>: <choice>`, and it comments the answer on the PR and keeps the PR in the `/ship:land` line or sends it back (`changes-requested`) to be adjusted the next night
 - to change a PR you've tried: write the feedback on the PR and label it `changes-requested`; the next night adjusts it on its own branch. To rebuild it from scratch, close the PR and relabel its spec `spec:ready`
-- what each spec, each session and the whole night would have cost at API prices, counted by each builder from its own transcript (`scripts/token-usage.mjs`, prices in `scripts/prices.json`)
+- what each spec, each session and the whole night would have cost at API prices, counted by each builder from its own transcript (`scripts/token-usage.mjs`, prices in `scripts/prices.json`); builders mark each spec's start, so a chained session's tokens land on the spec being worked on, and a spec nothing was counted toward reads "cost not reported"
 - the `/ship:land` command to run once you've reviewed: it approves the PRs you name and lands every PR carrying `ship`
 
-Each collected spec gets a comment linking that morning's page, marked `<!-- ship:morning-page -->`, so the page can be found from the spec.
+Each collected spec gets a comment linking the morning page, marked `<!-- ship:morning-page -->`, so the page can be found from the spec. A spec whose newest such comment already names that URL gets no new one, so republishing the page to the same URL posts nothing.
 
 **Day builds.** `/ship:day-shift` builds on the same builder pool during the day, so the shifts never overlap: every dispatch comment says which shift wrote it (`"shift":"night"` or `"shift":"day"`; one without the field counts as night). The evening dispatches nothing while a day build is still `spec:building`: it names those specs and asks you to wait for them or stop them, and to stop the day loop. The morning page leaves out day builds, which the day shift has already reported.
 

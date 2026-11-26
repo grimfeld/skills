@@ -19,6 +19,8 @@ When the line above reads `#<pr> adjust`, this is an adjust session: you change 
 
 ## Token usage
 
+The count splits this session by spec at each `token-usage.mjs mark <n>` call. `build-spec` marks each spec as it starts. When a later turn works on a spec you had already left (a fix to an earlier spec of this list, say), first run `node <root>/skills/night-shift/scripts/token-usage.mjs mark <n>` for it (with the same `<root>` as above; if this turn has lost it, find it again as step 1 says).
+
 The morning page shows what tonight cost. Only you can count it, because your transcript leaves with this session. Count it after `build-spec`'s End step. Count it again at the end of every later turn that did work, for example when a person's message woke you and you acted on it:
 
 1. Use the same `<root>` as above. If this turn has lost it, find it again the same way (step 1), cloning only when there is no plugin.
@@ -26,6 +28,7 @@ The morning page shows what tonight cost. Only you can count it, because your tr
    - It prints tokens by spec and by model. A subagent counts toward the spec it was started for. `shared` holds work outside every spec.
    - Don't add up or estimate tokens yourself.
    - If the script fails, write `"tokens": null` and give its error in one line under the comment.
+   - For a spec the output lists under `unmatched`, write `"tokens": null`.
 3. For each spec, take its latest `night-shift` comment (the one with the status) and add `"tokens": <that spec's object from the output>` to its JSON.
    - On the first spec of this list only, also add `"session_shared": <the output's shared object>`.
    - Edit the comment in place, as `<root>/references/github.md` says ("Edit a comment").
