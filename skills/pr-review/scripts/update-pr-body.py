@@ -5,12 +5,14 @@ usage: see USAGE below.
 
 The section sits between <!-- <name>:start --> and <!-- <name>:end -->; <name> defaults to
 `pr-review` (the review section). build-spec's Decisions section uses `--markers build:decisions`,
-its Environment notes `--markers build:notes`; slice writes a spec's Slicing section with `--markers slice`.
+its Environment notes `--markers build:notes`, its Try it section `--markers build:try-it --before build:decisions`;
+slice writes a spec's Slicing section with `--markers slice`.
 Everything else in the description (the author's text, the other sections) is kept byte for byte.
-Without markers in the description, the section is appended at the end. With `--markers slice` only,
-it goes directly after the spec template's marker line (a line starting with `<!-- Below this line`)
-when there is one, and an unmarked `## Slicing` section outside code fences (its heading to the next
-`## ` line or the end) is removed in the same splice, so a re-slice leaves one Slicing section. A section file
+Without markers in the description, the section is appended, or, with `--before <other>`, put just
+above the <other> section's start marker when that is there. With `--markers slice` only, it goes
+directly after the spec template's marker line (a line starting with `<!-- Below this line`) when there
+is one, and an unmarked `## Slicing` section outside code fences (its heading to the next `## ` line or
+the end) is removed in the same splice, so a re-slice leaves one Slicing section. A section file
 without the markers is wrapped in them.
 
 With a PR number, or `--issue <n>` for an issue, the body is fetched and patched with `gh api`
@@ -27,9 +29,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-USAGE = """update-pr-body.py [--markers <name>] <pr-number> <section.md>
+USAGE = """update-pr-body.py [--markers <name>] [--before <other>] <pr-number> <section.md>
        update-pr-body.py --issue <n> [--markers <name>] <section.md>
-       update-pr-body.py [--markers <name>] --body-file <current.md> <section.md>"""
+       update-pr-body.py [--markers <name>] [--before <other>] --body-file <current.md> <section.md>"""
 
 
 def markers(name: str) -> tuple[str, str]:
@@ -51,7 +53,7 @@ def remove_slicing(body: str) -> str:
     return "".join(out)
 
 
-def splice(body: str, section: str, name: str = "pr-review") -> str:
+def splice(body: str, section: str, name: str = "pr-review", before: str | None = None) -> str:
     start, end = markers(name)
     section = section.strip()
     if not section.startswith(start):
@@ -60,6 +62,9 @@ def splice(body: str, section: str, name: str = "pr-review") -> str:
     j = body.find(end, i + len(start)) if i != -1 else -1
     if i != -1 and j != -1:
         return body[:i] + section + body[j + len(end):]
+    insert_at = body.find(markers(before)[0]) if before else -1  # the start marker of the --before section
+    if insert_at != -1:
+        return body[:insert_at] + section + "\n\n" + body[insert_at:]
     if name == "slice":
         # Specs sliced before the markers existed have a bare `## Slicing`; the first marked splice
         # replaces it, and a new section goes where the spec template asks for it.
@@ -77,6 +82,7 @@ def splice(body: str, section: str, name: str = "pr-review") -> str:
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(usage=USAGE)
     parser.add_argument("--markers", default="pr-review")
+    parser.add_argument("--before", metavar="<other>")
     parser.add_argument("--body-file", type=Path)
     parser.add_argument("--issue", metavar="<n>")
     parser.add_argument("args", nargs="+", metavar="[<pr-number>] <section.md>")
@@ -89,7 +95,7 @@ def main(argv: list[str]) -> int:
             parser.error("with --body-file, pass only <section.md>")
         section = Path(a.args[0]).read_text()
         body = a.body_file.read_bytes().decode("utf-8")
-        sys.stdout.write(splice(body, section, a.markers))
+        sys.stdout.write(splice(body, section, a.markers, a.before))
         return 0
 
     if a.issue is not None:
@@ -104,7 +110,7 @@ def main(argv: list[str]) -> int:
     # Bytes, not text mode: text mode would turn the body's \r\n into \n everywhere.
     body = subprocess.run(["gh", "api", url, "-q", ".body // \"\""],
                           check=True, capture_output=True).stdout.decode("utf-8").rstrip("\n")
-    new = splice(body, section, a.markers)
+    new = splice(body, section, a.markers, a.before)
     if new == body:
         print("unchanged")
         return 0

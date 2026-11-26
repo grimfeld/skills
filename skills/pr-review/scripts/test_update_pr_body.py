@@ -73,6 +73,30 @@ class BodyFile(BodyFileHelpers, unittest.TestCase):
         self.assertEqual(self.run_script("--body-file", body, section),
                          "<!-- pr-review:end -->\nkeep\n<!-- pr-review:start -->\nnew\n<!-- pr-review:end -->\n")
 
+    def test_try_it_goes_above_decisions_the_first_time(self):
+        body = self.write("body.md", BODY)
+        section = self.write("s.md", "## Try it\n1. Open it.\n")
+        out = self.run_script("--markers", "build:try-it", "--before", "build:decisions", "--body-file", body, section)
+        try_it = "<!-- build:try-it:start -->\n## Try it\n1. Open it.\n<!-- build:try-it:end -->\n\n"
+        self.assertEqual(out, BODY.replace("<!-- build:decisions:start -->", try_it + "<!-- build:decisions:start -->"))
+
+    def test_try_it_is_replaced_in_place_next_to_the_other_sections(self):
+        try_it = "<!-- build:try-it:start -->\n## Try it\nold steps\n<!-- build:try-it:end -->\n\n"
+        current = BODY.replace("<!-- build:decisions:start -->", try_it + "<!-- build:decisions:start -->")
+        body = self.write("body.md", current)
+        section = self.write("s.md", "<!-- build:try-it:start -->\n## Try it\nnew steps\n<!-- build:try-it:end -->\n")
+        out = self.run_script("--markers", "build:try-it", "--before", "build:decisions", "--body-file", body, section)
+        self.assertEqual(out, current.replace("old steps", "new steps"))
+        # The other two sections are untouched, byte for byte.
+        self.assertIn("- old decision", out)
+        self.assertIn("old review", out)
+
+    def test_before_a_section_that_is_not_there_appends(self):
+        body = self.write("body.md", "Closes #7\n\nIntro.\n")
+        section = self.write("s.md", "## Try it\nsteps\n")
+        out = self.run_script("--markers", "build:try-it", "--before", "build:decisions", "--body-file", body, section)
+        self.assertEqual(out, "Closes #7\n\nIntro.\n\n<!-- build:try-it:start -->\n## Try it\nsteps\n<!-- build:try-it:end -->\n")
+
     def test_body_file_with_extra_argument_is_a_usage_error(self):
         r = subprocess.run([sys.executable, str(SCRIPT), "--body-file", "x", "a", "b"], capture_output=True)
         self.assertEqual(r.returncode, 2)

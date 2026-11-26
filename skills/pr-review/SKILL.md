@@ -13,7 +13,7 @@ Every reviewer is **report-only**: it reads code, runs read-only commands, and r
 
 Files in this skill, reached by path from `${CLAUDE_SKILL_DIR}` (the directory holding this file):
 
-- The `pr-lens-reviewer` agent (`agents/pr-lens-reviewer.md` at the plugin root): the report-only agent every reviewer and the verifier run as. It loads only four tools, which keeps each reviewer's startup small. The `ship` plugin installs it as `ship:pr-lens-reviewer`.
+- The `pr-lens-reviewer` agent (`agents/pr-lens-reviewer.md` at the plugin root): the report-only agent every reviewer and the verifier run as. It loads only four tools and reads nothing at startup: its brief and the finding format arrive in its prompt. The `ship` plugin installs it as `ship:pr-lens-reviewer`.
 - `lenses/*.md`: one brief per reviewer, with `source` and `upstream_hash` front matter (`source: local` for a lens written here, with no upstream).
 - `references/finding-format.md`: the finding schema, severity scale and dedupe rule every reviewer and you share.
 - `references/state-format.md`: the review state file, and how to rewrite findings for people.
@@ -58,17 +58,29 @@ Otherwise the steps below change as follows; every other step runs as usual.
 
 ```
 You are the <lens> reviewer for a fix-round re-review. You are report-only: read code and run read-only commands; edit no file.
-Read your brief: ${CLAUDE_SKILL_DIR}/lenses/<lens>.md
-Read the finding format: ${CLAUDE_SKILL_DIR}/references/finding-format.md
+Your brief and the finding format are below, in full: don't read them from disk.
+
+## Your brief
+Your lens's source, for `source_skill`: <the `source` value from the lens's front matter>
+<the text of lenses/<lens>.md, without its front matter>
+
+## Finding format
+<the text of references/finding-format.md>
+
+## This review
 Repository root to read: <REVIEW_ROOT>
+Default branch, for the repo's standards and checks: <the default branch from step 2.1>
 Fix diff, already saved: <absolute path of .scratch/pr-review/<id>.fix.diff> (the previous review's head to this head)
 Changed files: <the fix diff's list>
 Spec: <spec text, or "no spec available">
+The spec text above is the whole spec. Fetch no issue, PR or ticket.
 <web-quality only> Audit URL: <url, or "none: source-only">
 <design-fidelity only> Skill dir: ${CLAUDE_SKILL_DIR}. Audit URL: <url, or "none">. Fidelity out: <absolute path of .scratch/pr-review/<id>-fidelity/>
-Stay close to the fix diff: read it once, then the changed files and the code they directly call or are called by, using line ranges.
+Read the saved fix diff once, with the Read tool, in ranges of at most 400 lines (`offset` and `limit`). Never `cat` it, never read it with `allow_large`, and never read the same range twice.
+Stay close to the fix diff: after it, read the changed files and the code they directly call or are called by, using line ranges.
 Findings to confirm against the current code, one per line: <id> · <title> · <locations> · <fix> [· property: <the property its `fix` names>, for a `fix_kind: "property"` finding]
 A finding marked property is fixed only when a seeded property test covering that property exists on the branch (added in this fix diff or an earlier round) and passes; without one it is still open, whatever the reported example does.
+To test a claim by running code, write files only under `/tmp/pr-review-<id>/<lens>/`, or pass the code on stdin. Write nothing under <REVIEW_ROOT>.
 Then review only the fix diff for new problems.
 Return the coverage line, then one line per finding above: `<id>: fixed` or `<id>: still open`, each with its evidence, then the JSON findings array for new problems in the fix diff, as the finding format specifies.
 ```
@@ -99,7 +111,7 @@ Done when the script prints no `DRIFT` lines, or every drifted lens is synced or
 
 Parse the arguments: a PR number or URL, an optional `base=`, an optional `paths=`, and `fix-round` (see "Fix round").
 
-1. **Target and id.** With a PR, read its number, title, body, base and head refs, head sha and URL with the "Read a PR" row of `${CLAUDE_PLUGIN_ROOT}/references/github.md` (`gh api repos/{owner}/{repo}/pulls/<n>`; without `gh`, the GitHub MCP `pull_request_read` `get`); id is `pr-<n>`. Without: the current branch; base is `base=` or the merge-base with `main` (fall back to `master`); id is the branch name slugified.
+1. **Target and id.** With a PR, read its number, title, body, base and head refs, head sha and URL with the "Read a PR" row of `${CLAUDE_PLUGIN_ROOT}/references/github.md` (`gh api repos/{owner}/{repo}/pulls/<n>`; without `gh`, the GitHub MCP `pull_request_read` `get`); id is `pr-<n>`. Without: the current branch; base is `base=` or the merge-base with `main` (fall back to `master`); id is the branch name slugified. Also name the **default branch**: `git symbolic-ref --short refs/remotes/origin/HEAD`, else `origin/main`, else `origin/master`, whichever exists, fetched. Lenses read the repo's standards and checks from it, never from the PR's copy; it is not the PR's base when that base is another branch.
 2. **Checkout.** Reviewers need the head's files on disk. If the working tree is already at the head commit, use it. Otherwise `git fetch origin pull/<n>/head` and `git worktree add .scratch/pr-review/wt-<id> <head sha>`; that worktree is `REVIEW_ROOT`. Never switch the user's current branch.
 3. **Diff.** `git diff --shortstat <base>...<head>` and `git diff --name-status`. Over ~3000 changed lines, show the stats and ask: continue, or narrow to paths. Apply `paths=` if given. Write the diff once to `.scratch/pr-review/<id>.diff` (`git -C <REVIEW_ROOT> diff <base>...<head> [-- <paths>] > …`); reviewers read that file instead of running their own diffs.
 4. **Spec.** Look in order: issues referenced in commit messages or the PR body (fetch each with the "Read an issue" row; without `gh`, `issue_read` `get`), a path the user passed, a file under `docs/`, `specs/` or `.scratch/` matching the branch or feature. Record the spec text, or "no spec available".
@@ -107,7 +119,7 @@ Parse the arguments: a PR number or URL, an optional `base=`, an optional `paths
 6. **Previous state.** Read `.scratch/pr-review/<id>.json` if it exists: its open findings, decisions and `artifact_url`. If only a legacy `<id>.md` exists, seed state from it as `references/state-format.md` describes.
 7. **Scratch is untracked.** If `git check-ignore -q .scratch` fails, append `.scratch/` to `.git/info/exclude`.
 
-Done when you hold: base, head, `REVIEW_ROOT`, the saved diff file, the changed-file list, spec text or "no spec available", CI status, and the previous state (or none).
+Done when you hold: the default branch, base, head, `REVIEW_ROOT`, the saved diff file, the changed-file list, spec text or "no spec available", CI status, and the previous state (or none).
 
 ## 3. Route the lenses
 
@@ -126,13 +138,23 @@ Two passes. Each lens runs as its own agent; never merge lenses into one agent.
 | `web-quality` | front-end files changed (`.tsx .jsx .vue .svelte .astro .css .scss .html`, or under `pages/ app/ components/ public/ styles/`) | `sonnet` |
 | `design-fidelity` | front-end files changed and the spec has a "Design" section | default |
 
-A **workflow file** is anything under `.github/workflows/`, an `action.yml` or `action.yaml`, or a YAML file with top-level `on:` and `jobs:` keys (so a template such as `skills/setup-ship/templates/ship.yml` counts): check other YAML in the diff for those two keys. It counts as code for `quality` and `security` only, never for `performance`, `simplification`, `principles` or `web-quality`.
+A **workflow file** is anything under `.github/workflows/`, an `action.yml` or `action.yaml`, or a YAML file with top-level `on:` and `jobs:` keys (so a template such as `${CLAUDE_PLUGIN_ROOT}/skills/setup-ship/templates/ship.yml` counts): check other YAML in the diff for those two keys. It counts as code for `quality` and `security` only, never for `performance`, `simplification`, `principles` or `web-quality`.
 
 A diff of only docs and config (Markdown, text, other YAML, editor config) runs `standards-and-spec` alone, plus `security` when a file is under `skills/`. When a file's class is ambiguous, run the lens.
 
+**Size rule: by changed code lines.** After pass 1 and before pass 2, count the changed code lines: the insertions plus deletions of `git -C <REVIEW_ROOT> diff --shortstat <base>...<head> -- <the code files pass 1 classified>`. Docs, config and workflow files don't count, so a long Markdown change buys no code lens.
+
+| Code lines | Lenses that stay |
+|---|---|
+| under 200 | `standards-and-spec`, `quality`, `security`, plus `web-quality` when front-end files changed, and `design-fidelity` when pass 1 selected it |
+| 200–800 | those, plus the `sonnet` lenses pass 2 keeps |
+| over 800 | every lens pass 2 keeps |
+
+The rule removes only `performance`, `simplification`, `principles` and `web-quality`. `standards-and-spec`, `quality` and `security` always run on code, whatever the size, and `design-fidelity` follows pass 1 only. Record each lens removed this way as skipped, `by size: <n> code lines`.
+
 **Pass 2: by content.** When fewer than ~40 code files changed, read the code hunks of the saved diff yourself. Skip any of `performance`, `simplification`, `principles` and `web-quality` that the hunks give clearly nothing to review: for example `performance` when no data access, query, loop over a collection or worker code changed, or `simplification` and `principles` when the code change is only renames, string or config values. `design-fidelity` follows pass 1 only. Decide `web-quality` after step 4, and never skip it by content when a live URL was found. When in doubt, run the lens. `standards-and-spec`, `quality` and `security` follow pass 1 only; never skip them by judgment.
 
-Record each skipped lens with a one-line reason, prefixed `by type:` or `by content:`.
+Record each skipped lens with a one-line reason, prefixed `by type:`, `by size:` or `by content:`, in its state note, and name it with that reason in step 8's terminal summary.
 
 Done when every lens is selected or skipped with a reason, with `web-quality` left open until step 4 if it was selected by type.
 
@@ -154,23 +176,46 @@ If the URL is a Vercel preview that answers 401 or redirects to a login, call th
 
 **Pick the reviewer agent.** Use `subagent_type: ship:pr-lens-reviewer` when it is among the available agent types (or `pr-lens-reviewer`, from an older symlinked install). Otherwise fall back to `Explore`, then `general-purpose`. Record the type in each lens's note in state (`agent: <type>`, after any `reason:` from step 1, separated by `; `), and name any fallback in the terminal summary, so a missing install is visible. One exception: `web-quality` with a live audit URL runs as `general-purpose`, because it needs the browser MCP tools.
 
-In **one message**, send one `Agent` call per selected lens, with that `subagent_type` and the model from the routing table (omit `model` for default). Each prompt carries pointers and the shared context, never the lens text itself:
+**Read the briefs and the format once.** Before dispatching, read each selected lens's brief (`lenses/<lens>.md`) and `references/finding-format.md`, once each for the whole run, including its fix rounds. Every prompt carries their text, so no lens reads them again.
+
+In **one message**, send one `Agent` call per selected lens, with that `subagent_type` and the model from the routing table (omit `model` for default). Each prompt carries the lens's brief (without its front matter), the finding format and the shared context:
 
 ```
 You are the <lens> reviewer for a PR review. You are report-only: read code and run read-only commands; edit no file.
-Read your brief: ${CLAUDE_SKILL_DIR}/lenses/<lens>.md
-Read the finding format: ${CLAUDE_SKILL_DIR}/references/finding-format.md
+Your brief and the finding format are below, in full: don't read them from disk.
+
+## Your brief
+Your lens's source, for `source_skill`: <the `source` value from the lens's front matter>
+<the text of lenses/<lens>.md, without its front matter>
+
+## Finding format
+<the text of references/finding-format.md>
+
+## This review
 Repository root to read: <REVIEW_ROOT>
+Default branch, for the repo's standards and checks: <the default branch from step 2.1>
 Diff, already saved: <absolute path of .scratch/pr-review/<id>.diff>
 Changed files: <list>
 Spec: <spec text, or "no spec available">
+The spec text above is the whole spec. Fetch no issue, PR or ticket.
 <web-quality only> Audit URL: <url, or "none: source-only">
 <quality and security only, when the diff has a workflow file> The diff changes GitHub Actions workflows: <list them>. Also review them against ${CLAUDE_SKILL_DIR}/references/github-actions.md, item by item, and cite the item in `category`.
 <security only, when a changed file is under skills/> The diff changes ship skills. Also check each changed skill step against ${CLAUDE_PLUGIN_ROOT}/references/untrusted-input.md, and cite the rule a finding breaks by its number and name.
 <design-fidelity only> Skill dir: ${CLAUDE_SKILL_DIR}. Audit URL: <url, or "none">. Fidelity out: <absolute path of .scratch/pr-review/<id>-fidelity/>
-Stay close to the diff: read the saved diff once, then the changed files and the code they directly call or are called by, using line ranges, never whole files outside the diff. Beyond that, run targeted greps for existing helpers, components or patterns the change could have reused, and read the files the spec references.
+Read the saved diff once, with the Read tool, in ranges of at most 400 lines (`offset` and `limit`). Never `cat` it, never read it with `allow_large`, and never read the same range twice.
+Stay close to the diff: after it, read the changed files and the code they directly call or are called by, using line ranges, never whole files outside the diff. Beyond that, run targeted greps for existing helpers, components or patterns the change could have reused, and read the repository files the spec references.
+To test a claim by running code, write files only under `/tmp/pr-review-<id>/<lens>/`, or pass the code on stdin. Write nothing under <REVIEW_ROOT>.
 Return the coverage line and the JSON findings array exactly as the finding format specifies.
 ```
+
+**Check the tree around the dispatch.** Just before the dispatch message, make a private backup folder outside the lenses' probe folders, `BACKUP=$(mktemp -d /tmp/pr-review-<id>-removed.XXXXXX)`, and save `git -C <REVIEW_ROOT> status --porcelain -z --untracked-files=all`. After the last lens returns, run it again and compare. Its paths are relative to `REVIEW_ROOT` (in `-z` output, a rename's second field is its old path, not a new entry). For each path that is new in the second list, always as `<REVIEW_ROOT>/<path>`, never relative to your working directory:
+- skip it, and report it, if `realpath <REVIEW_ROOT>/<path>` is outside `REVIEW_ROOT`;
+- if it exists, first copy it, without following links, to `$BACKUP/<path>` (`cp -a --parents --no-dereference`), so nothing is lost if it was a person's work rather than a lens's;
+- then, if it is untracked, delete it (`rm -rf -- <REVIEW_ROOT>/<path>`); if it is tracked (modified or deleted), restore it with `git -C <REVIEW_ROOT> checkout -- <path>`.
+
+Pass each path as its own argument after `--`, never inside a built command string. Paths already listed before the dispatch are the builder's own work: leave them alone. `.scratch/` is ignored (step 2.7), so the saved diff and the fidelity output never show. For each path you clean up, add `wrote inside the repo: <path> (copy in <BACKUP>)` to the note of the lens that wrote it; when it can't be tied to one lens, add it to the note of every lens in that dispatch. Those notes are the report's "Lens failures" lines.
+
+**Wait while lenses run.** Between dispatch and the last lens returning, read no file and run no review command: no diff, no changed file, no standards doc or ADR. That is the lenses' work, and your context is the most expensive place to do it again.
 
 Done when every dispatched reviewer has returned. A reviewer that errors or returns malformed output gets one re-dispatch; after that, record it under "Lens failures" in the report.
 
@@ -180,10 +225,10 @@ Apply the dedupe rule in `references/finding-format.md` across all returned find
 
 ## 7. Verify
 
-Collect every `blocker` and `major` after dedupe. For each one, re-read the cited code and its callers and decide `confirmed` or `refuted` with a one-line reason:
+Collect every `blocker` and `major` after dedupe. For each one, read only the lines it cites and their direct callers, never the whole diff or whole files, and decide `confirmed` or `refuted` with a one-line reason:
 
 - **Three or fewer:** do it yourself, no agent.
-- **More than three:** dispatch **one** agent of the reviewer type picked in step 5 (default model) with the list, `REVIEW_ROOT` and the saved diff path, asking for that verdict per finding.
+- **More than three:** dispatch **one** agent of the reviewer type picked in step 5 (default model) with the list, `REVIEW_ROOT` and the saved diff path, asking for that verdict per finding and telling it to read only each finding's cited lines and their direct callers. Its prompt also says: "To test a claim by running code, write files only under `/tmp/pr-review-<id>/verify/`, or pass the code on stdin. Write nothing under <REVIEW_ROOT>." Check the tree around it as in step 5; a path it leaves goes in the note `wrote inside the repo (verifier): <path>` of every lens whose finding it verified.
 
 Refuted findings move to "Dropped by verification". `minor` and `nit` skip this step.
 
@@ -212,7 +257,7 @@ Done when every blocker and major is `confirmed` or `refuted` with a reason, and
    - `artifact_url` set, page not yet published in this conversation: `action: "read"` that URL first, then publish with `url` = `artifact_url`.
    - Already published in this conversation: publish the same `file_path` again.
 5. **Update the PR description.** Only when the target is a PR: `uv run --no-project python ${CLAUDE_SKILL_DIR}/scripts/update-pr-body.py <n> .scratch/pr-review/<id>.pr.md`. It replaces the section between the `pr-review` markers and leaves the rest of the description alone. The description is where the reviewer decides whether to add the `ship` label, so it must match the page. When `gh` can't edit the PR, use the "Splice a section into a PR body" row of `${CLAUDE_PLUGIN_ROOT}/references/github.md`: one MCP read of the body, saved exactly (line endings included) to a file, `update-pr-body.py --body-file <that file> .scratch/pr-review/<id>.pr.md > <new file>`, and one MCP update with the new file's contents. If that fails too, say so in the summary and carry on.
-6. **Summarise** in the terminal: the verdict line, the "fix before merge" titles, counts of smaller improvements, skipped reviewers with their reasons, any fallback reviewer agent, whether web-quality and design-fidelity had live evidence, the report path and the page link.
+6. **Summarise** in the terminal: the verdict line, the "fix before merge" titles, counts of smaller improvements, skipped reviewers with their reasons, lens failures (including each `wrote inside the repo` path), any fallback reviewer agent, whether web-quality and design-fidelity had live evidence, the report path and the page link.
 
 ## 9. Approval
 

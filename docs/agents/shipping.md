@@ -75,7 +75,7 @@ Required on `main`: `check`, and `ship`.
 
 After changing that list here and merging it, re-run `/ship:setup-ship`: it syncs the ruleset to it.
 
-Run locally before marking a PR ready: `node --test skills/*/scripts/*.test.mjs`, `find skills -path '*/scripts/test_*.py' -execdir python3 -m unittest {} +`, `printf '%s\0' skills/*/scripts/*.mjs | xargs -0 -n1 node --check`, `python3 -m py_compile skills/*/scripts/*.py`, `printf '%s\0' skills/*/scripts/*.sh | xargs -0 -n1 bash -n`, `actionlint .github/workflows/*.yml`, `! grep -rn '__[A-Z_]*__' .github/workflows docs/agents`, `claude plugin validate .`
+Run locally before marking a PR ready: `node --test skills/*/scripts/*.test.mjs`, `find skills -path '*/scripts/test_*.py' -execdir python3 -m unittest {} +`, `printf '%s\0' skills/*/scripts/*.mjs | xargs -0 -n1 node --check`, `python3 -m py_compile skills/*/scripts/*.py`, `printf '%s\0' skills/*/scripts/*.sh | xargs -0 -n1 bash -n`, `actionlint .github/workflows/*.yml`, `! grep -rn '__[A-Z_]*__' .github/workflows docs/agents`, `node --test scripts/*.test.mjs && node scripts/check-paths.mjs`, `claude plugin validate .`
 
 ## After merge
 
@@ -84,6 +84,14 @@ Nothing deploys on merge. Plugin users pick up `main` through the `grimfeld` mar
 ## Screens
 
 Command that produces screenshots of the screens a change touches, for the review section: none
+
+## Try it
+
+How a person tries a branch before approving it. `/ship:build-spec` fills in each build PR's "Try it" section from
+these two lines. Previews come from the project's own CD: ship finds them and never deploys.
+
+- **Previews:** none
+- **Run a branch:** `git fetch origin <branch> && git worktree add ../try-<branch> FETCH_HEAD && claude --plugin-dir ../try-<branch>`
 
 ## Night builds
 
@@ -95,8 +103,10 @@ each night. Re-run `/ship:setup-ship` to change it.
 ## Spec labels
 
 Specs are GitHub issues moving through `spec:draft` → `spec:ready` → `spec:building` → `spec:in-review`, or
-`spec:stuck`, and close with their tickets when their PR ships. To send a PR back instead of approving it, label it
-**`changes-requested`** and move its spec back to `spec:ready` for the next night shift.
+`spec:stuck`, and close with their tickets when their PR ships. To send a PR back instead of approving it, write what to change in its
+comments or a review and label it **`changes-requested`**: the next night shift adjusts it on its own branch
+(`/ship:build-spec #<pr> adjust`, which you can also run yourself). To rebuild it from scratch instead, close the PR
+and relabel its spec `spec:ready`.
 
 ## Design labels
 

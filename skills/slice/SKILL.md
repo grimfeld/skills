@@ -22,7 +22,7 @@ Read the project's `docs/agents/issue-tracker.md` (how issues are created, edite
 
 For each spec, from its Touches, Data, UI states and acceptance criteria:
 
-1. **Explore** the areas it touches with a subagent, enough to know what exists and what must be built.
+1. **Explore** the areas it touches with a subagent, enough to know what exists and what must be built. One subagent per spec, each writing only to its own scratch folder, as "Subagents' scratch folders" in `${CLAUDE_PLUGIN_ROOT}/references/running-skills.md` says.
 2. **Find prior art.** Look for two or three merged PRs that did something similar in the same areas: the "Search merged PRs" row of `${CLAUDE_PLUGIN_ROOT}/references/github.md` with the area words, then each PR's additions, deletions and files one at a time (a list query with additions can hit GitHub's size limit).
 3. **Estimate** in **reviewable lines**: the hand-written lines changed, excluding tests, lockfiles, generated files, snapshots and docs. Give a range, and say which PR it is based on.
 4. **Count the distinct behaviours** a reviewer has to judge: one per acceptance-criteria group that a user would notice separately.
@@ -78,6 +78,7 @@ Every Slicing section goes into a spec body by one way only: the "Splice a secti
 
 For each spec that will be built, kept or new, run `to-tickets` on its issue, as `${CLAUDE_PLUGIN_ROOT}/references/running-skills.md` says. The Skill tool can't call it.
 
+- When it runs in subagents, one per spec, each gets its own scratch folder, as "Subagents' scratch folders" in that file says.
 - Tickets are tracer-bullet vertical slices with blocking edges, published as sub-issues. That's what `implement-spec` reads.
 - `to-tickets` asks the user to approve the breakdown, which is fine here: slicing happens while the user is present.
 - Tell `to-tickets` to apply no triage label (no `ready-for-agent`): ship tracks work by the spec's `spec:*` label, and the repo may not have that label.
