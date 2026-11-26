@@ -4,25 +4,56 @@
 //   count --specs 602,603 [--session <id>] [--projects <dir>]
 //     Run by a builder in its cloud session. Reads this session's transcript and
 //     its subagents' transcripts, and prints tokens by spec and by model as JSON:
-//     {"session", "specs": {"602": {<model>: {...}}}, "shared": {<model>: {...}}}.
+//     {"session", "specs": {"602": {<model>: {...}} | null}, "shared": {<model>: {...}},
+//      "unmatched": ["<n>", ...]}.
 //     A message counts toward a spec when its git branch is spec/<n>-… or its
 //     working directory names spec-<n>. A subagent's other messages count toward
 //     the spec its parent was on when it started it. Where a builder's subagents
 //     work, and how they link to their parent: night-shift's SKILL.md, "Where the
 //     work happens". Anything else is the session's shared bucket.
+//     A spec no message counted toward is null (not reported, never $0) and is
+//     listed in "unmatched": [<n>, ...], with one stderr line each; count still
+//     exits 0 so the matched specs keep their numbers.
 //     --session and --projects default to this session; tests pass them.
+//     Marks: once the main transcript holds a `token-usage.mjs mark <n>` Bash
+//     call, its messages go by mark alone, in line order: from a mark up to the
+//     next, to that spec (to shared under a mark for a spec not in --specs, and
+//     before the first mark); branch and working directory no longer count there.
+//     A subagent goes to the spec of the mark its Agent call was made under,
+//     following nested subagents up; only when that gives none do its own branch
+//     and working directory decide. A session with no marks counts as above.
+//
+//   mark <n>
+//     Run by a builder as it starts (or comes back to) spec <n>. Prints
+//     {"mark":"<n>"} and nothing else: count reads the call from the transcript.
+//
+//   rows --specs 650,657 [--repo <owner/repo>] [--from <dir>]
+//     Run by the morning step: prints the array price reads, one row per spec,
+//     from the spec issue's comments (gh api --paginate; --repo defaults to the
+//     clone's own; --from reads <dir>/<n>.json instead, an array of comments
+//     with id, created_at, author_association and body, as GitHub returns them).
+//     Only comments by an OWNER, MEMBER or COLLABORATOR count. The session is the
+//     newest `dispatched` night-shift comment's; tokens (and session_shared) come
+//     from the newest night-shift comment after it whose JSON has "tokens",
+//     passed through as written; none gives null. A spec whose newest night-shift
+//     comment since dispatched isn't ready or stuck also gets "status":
+//     "building": no ready or stuck report yet. Comments can't tell a running
+//     session from one that crashed or stopped; the morning step decides that.
 //
 //   price [--prices <file>] < specs.json
 //     Run by the morning step. stdin is an array of
-//     {"spec": <n>, "session": "<id>", "tokens": {...} | null, "session_shared": {...}?}
+//     {"spec": <n>, "session": "<id>", "tokens": {...} | null, "session_shared": {...}?,
+//      "status": "building"?} (status is ignored)
 //     and the output is, per spec, per session and for the night: usd, out,
 //     fresh_in, cache_read and the models it couldn't price. Sessions and the
-//     night also list their specs that never reported.
+//     night also list their specs that never reported: tokens null, or {} (an
+//     object with no models).
 
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { join, dirname, basename } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
+import { execFileSync } from "node:child_process";
 
 const FIELDS = ["in", "out", "cache_read", "cache_write_5m", "cache_write_1h"];
 
@@ -66,20 +97,38 @@ function specOf(where, specs) {
   return null;
 }
 
+// A builder's `token-usage.mjs mark <n>`, as a Bash call anywhere in its command line.
+const MARK = /token-usage\.mjs["']?\s+mark\s+["']?#?(\d+)\b/g;
+function markIn(block) {
+  if (block?.type !== "tool_use" || block.name !== "Bash" || typeof block.input?.command !== "string") return null;
+  return [...block.input.command.matchAll(MARK)].at(-1)?.[1] ?? null;
+}
+
 // One pass over every transcript. Keeps, per assistant message, only what the
 // count needs, and where each Agent call (by tool_use id) was made from.
-function readTranscripts(files) {
+// In the main transcript it also follows the marks, in line order: each message
+// and Agent call carries the latest mark at or before it (`mark`, or undefined).
+function readTranscripts(main, files) {
   const messages = new Map();
   const spawnedFrom = new Map();
+  let marked = false;
   for (const file of files) {
+    let mark;
     for (const line of readFileSync(file, "utf8").split("\n")) {
       if (!line.trim()) continue;
       let e;
       try { e = JSON.parse(line); } catch { continue; }
       const m = e.message;
       if (e.type !== "assistant" || !m) continue;
-      const where = { gitBranch: e.gitBranch, cwd: e.cwd, file };
-      for (const block of Array.isArray(m.content) ? m.content : []) {
+      const blocks = Array.isArray(m.content) ? m.content : [];
+      if (file === main) {
+        for (const block of blocks) {
+          const n = markIn(block);
+          if (n) { mark = n; marked = true; }
+        }
+      }
+      const where = { gitBranch: e.gitBranch, cwd: e.cwd, file, mark };
+      for (const block of blocks) {
         if (block?.type === "tool_use" && block.id) spawnedFrom.set(block.id, where);
       }
       if (!m.usage || !m.model || m.model === "<synthetic>") continue;
@@ -88,12 +137,18 @@ function readTranscripts(files) {
       messages.set(m.id ?? e.uuid, { ...where, model: m.model, usage: m.usage });
     }
   }
-  return { messages, spawnedFrom };
+  return { messages, spawnedFrom, marked };
 }
+
+// With marks, a main-transcript message or Agent call belongs to its mark's
+// spec; before the first mark, or under a mark for a spec not counted, to none.
+const markSpec = (where, specs) => (where.mark && specs.has(where.mark) ? where.mark : null);
 
 // The spec a subagent's parent was on when it started it, following parents up
 // through nested subagents. Its meta.json names the Agent call's tool_use id.
-function parentSpecs(subagents, spawnedFrom, specs) {
+// In a marked session an Agent call in the main transcript gives its mark's
+// spec, and one made in a subagent follows that subagent up first.
+function parentSpecs(main, subagents, spawnedFrom, specs, marked) {
   const memo = new Map();
   const resolve = (file, seen = new Set()) => {
     if (memo.has(file)) return memo.get(file);
@@ -105,7 +160,13 @@ function parentSpecs(subagents, spawnedFrom, specs) {
       let toolUseId = null;
       try { toolUseId = JSON.parse(readFileSync(meta, "utf8")).toolUseId; } catch {}
       const parent = toolUseId && spawnedFrom.get(toolUseId);
-      if (parent) spec = specOf(parent, specs) ?? resolve(parent.file, seen);
+      if (parent) {
+        // Unmarked: the branch the call was made on first. Marked: the mark wins
+        // over any branch, so follow the call up to the main transcript first.
+        if (!marked) spec = specOf(parent, specs) ?? resolve(parent.file, seen);
+        else if (parent.file === main) spec = markSpec(parent, specs);
+        else spec = resolve(parent.file, seen) ?? specOf(parent, specs);
+      }
     }
     memo.set(file, spec);
     return spec;
@@ -125,20 +186,34 @@ function addUsage(bucket, model, u) {
   t.cache_write_1h += u.cache_creation?.ephemeral_1h_input_tokens ?? 0;
 }
 
+// Marks win: in a marked session the main transcript goes by mark alone, and a
+// subagent by its Agent call before its own branch or worktree.
+function specForMessage(msg, { main, marked, specs, fromParent }) {
+  if (!marked) return specOf(msg, specs) ?? fromParent.get(msg.file) ?? null;
+  if (msg.file === main) return markSpec(msg, specs);
+  return fromParent.get(msg.file) ?? specOf(msg, specs);
+}
+
 function count(opts) {
   const specs = new Set(String(opts.specs ?? "").split(/[,\s#]+/).filter(Boolean));
   if (!specs.size) throw new Error("count needs --specs <n,n,...>");
   const session = opts.session ?? process.env.CLAUDE_CODE_SESSION_ID ?? null;
   const projects = opts.projects ?? join(homedir(), ".claude", "projects");
   const { main, subagents } = findTranscripts(projects, session);
-  const { messages, spawnedFrom } = readTranscripts([main, ...subagents]);
-  const fromParent = parentSpecs(subagents, spawnedFrom, specs);
+  const { messages, spawnedFrom, marked } = readTranscripts(main, [main, ...subagents]);
+  const fromParent = parentSpecs(main, subagents, spawnedFrom, specs, marked);
 
   const out = { session: session ?? basename(main, ".jsonl"), specs: {}, shared: {} };
   for (const n of specs) out.specs[n] = {};
   for (const msg of messages.values()) {
-    const n = specOf(msg, specs) ?? fromParent.get(msg.file) ?? null;
+    const n = specForMessage(msg, { main, marked, specs, fromParent });
     addUsage(n ? out.specs[n] : out.shared, msg.model, msg.usage);
+  }
+  // A spec no message counted toward is not reported, never $0: null, listed and warned about.
+  out.unmatched = [...specs].filter((n) => !Object.keys(out.specs[n]).length);
+  for (const n of out.unmatched) {
+    out.specs[n] = null;
+    console.error(`token-usage: no message matched spec #${n}; its tokens are null (not reported)`);
   }
   return out;
 }
@@ -186,7 +261,8 @@ function price(opts) {
     const s = (sessions[key] ??= { specs: [], not_reported: [], shared: emptyColumns(), total: emptyColumns() });
     s.specs.push(r.spec);
     if (r.session_shared) s.shared = plus(s.shared, columns(r.session_shared, prices));
-    if (!r.tokens) {
+    // A tokens object with no models ({}) is as unreported as null.
+    if (!r.tokens || !Object.keys(r.tokens).length) {
       specs[r.spec] = null;
       s.not_reported.push(r.spec);
       continue;
@@ -204,12 +280,72 @@ function price(opts) {
   return { specs: { ...specs }, sessions: { ...sessions }, night };
 }
 
+// The JSON of a `<!-- night-shift {...} -->` comment, or null.
+function nightShiftJson(body) {
+  const m = /<!--\s*night-shift\s+(\{[\s\S]*?\})\s*-->/.exec(String(body ?? ""));
+  if (!m) return null;
+  try { return JSON.parse(m[1]); } catch { return null; }
+}
+
+// Anyone can comment on a public repo's issue: only a comment from someone with
+// write access counts, as the dashboard reads the morning-page comments.
+const TRUSTED_AUTHORS = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
+
+// A spec's comments as [{id, created_at, author_association, body}].
+function specComments(n, opts) {
+  if (opts.from) return JSON.parse(readFileSync(join(opts.from, `${n}.json`), "utf8"));
+  // gh fills {owner}/{repo} from the clone it runs in. One compact JSON comment
+  // per line, whatever gh does with pages.
+  const out = execFileSync("gh", ["api", "--paginate", `repos/${opts.repo ?? "{owner}/{repo}"}/issues/${n}/comments?per_page=100`,
+    "--jq", ".[] | {id, created_at, author_association, body} | @json"], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  return out.split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l));
+}
+
+// A spec's night-shift notes from trusted authors, oldest first.
+function nightShiftNotes(n, opts) {
+  return specComments(n, opts)
+    .filter((c) => TRUSTED_AUTHORS.has(c?.author_association))
+    .map((c) => ({ c, json: nightShiftJson(c.body) }))
+    .filter((x) => x.json && typeof x.json === "object")
+    .sort((a, b) => String(a.c.created_at).localeCompare(String(b.c.created_at)) || (a.c.id ?? 0) - (b.c.id ?? 0));
+}
+
+// One row per spec for price, from its night-shift comments after its newest
+// `dispatched` one (all of them when it has none).
+function rows(opts) {
+  const specs = [...new Set(String(opts.specs ?? "").split(/[,\s#]+/).filter(Boolean))];
+  if (!specs.length) throw new Error("rows needs --specs <n,n,...>");
+  return specs.map((n) => {
+    const notes = nightShiftNotes(n, opts);
+    const lastDispatch = notes.findLastIndex((x) => x.json.status === "dispatched");
+    const tonight = notes.slice(lastDispatch + 1); // all of them when there is no dispatched (-1)
+    const row = { spec: Number(n), session: lastDispatch >= 0 ? (notes[lastDispatch].json.session ?? null) : null, tokens: null };
+    const counted = tonight.findLast((x) => Object.hasOwn(x.json, "tokens"));
+    // tokens pass through as the builder wrote them, null and {} included.
+    if (counted) {
+      row.tokens = counted.json.tokens ?? null;
+      if (counted.json.session_shared) row.session_shared = counted.json.session_shared;
+    }
+    const status = tonight.at(-1)?.json.status;
+    if (status !== "ready" && status !== "stuck") row.status = "building";
+    return row;
+  });
+}
+
+// Only validates and echoes: count finds the call itself in the transcript.
+function mark(opts) {
+  const m = /^#?(\d+)$/.exec(opts._[1] ?? "");
+  if (!m || opts._.length !== 2) throw new Error("usage: token-usage.mjs mark <n>");
+  return { mark: m[1] };
+}
+
 const opts = args(process.argv.slice(2));
 const mode = opts._[0];
 try {
-  const result = mode === "count" ? count(opts) : mode === "price" ? price(opts) : null;
-  if (!result) throw new Error("usage: token-usage.mjs count --specs <n,...> | price < specs.json");
-  console.log(JSON.stringify(result, null, 2));
+  const modes = { count, price, mark, rows };
+  const result = Object.hasOwn(modes, mode) ? modes[mode](opts) : null;
+  if (!result) throw new Error("usage: token-usage.mjs count --specs <n,...> | mark <n> | rows --specs <n,...> | price < specs.json");
+  console.log(mode === "mark" ? JSON.stringify(result) : JSON.stringify(result, null, 2));
 } catch (err) {
   console.error(`token-usage: ${err.message}`);
   process.exit(1);

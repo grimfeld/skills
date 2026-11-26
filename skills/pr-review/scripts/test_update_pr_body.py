@@ -18,7 +18,7 @@ BODY = (
 )
 
 
-class BodyFile(unittest.TestCase):
+class BodyFileHelpers:
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.dir.cleanup)
@@ -35,6 +35,8 @@ class BodyFile(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr.decode())
         return r.stdout.decode()
 
+
+class BodyFile(BodyFileHelpers, unittest.TestCase):
     def test_replaces_review_section_and_keeps_the_rest_byte_identical(self):
         body = self.write("body.md", BODY)
         section = self.write("s.md", "<!-- pr-review:start -->\n## Review\nnew review\n<!-- pr-review:end -->\n")
@@ -71,6 +73,30 @@ class BodyFile(unittest.TestCase):
         self.assertEqual(self.run_script("--body-file", body, section),
                          "<!-- pr-review:end -->\nkeep\n<!-- pr-review:start -->\nnew\n<!-- pr-review:end -->\n")
 
+    def test_try_it_goes_above_decisions_the_first_time(self):
+        body = self.write("body.md", BODY)
+        section = self.write("s.md", "## Try it\n1. Open it.\n")
+        out = self.run_script("--markers", "build:try-it", "--before", "build:decisions", "--body-file", body, section)
+        try_it = "<!-- build:try-it:start -->\n## Try it\n1. Open it.\n<!-- build:try-it:end -->\n\n"
+        self.assertEqual(out, BODY.replace("<!-- build:decisions:start -->", try_it + "<!-- build:decisions:start -->"))
+
+    def test_try_it_is_replaced_in_place_next_to_the_other_sections(self):
+        try_it = "<!-- build:try-it:start -->\n## Try it\nold steps\n<!-- build:try-it:end -->\n\n"
+        current = BODY.replace("<!-- build:decisions:start -->", try_it + "<!-- build:decisions:start -->")
+        body = self.write("body.md", current)
+        section = self.write("s.md", "<!-- build:try-it:start -->\n## Try it\nnew steps\n<!-- build:try-it:end -->\n")
+        out = self.run_script("--markers", "build:try-it", "--before", "build:decisions", "--body-file", body, section)
+        self.assertEqual(out, current.replace("old steps", "new steps"))
+        # The other two sections are untouched, byte for byte.
+        self.assertIn("- old decision", out)
+        self.assertIn("old review", out)
+
+    def test_before_a_section_that_is_not_there_appends(self):
+        body = self.write("body.md", "Closes #7\n\nIntro.\n")
+        section = self.write("s.md", "## Try it\nsteps\n")
+        out = self.run_script("--markers", "build:try-it", "--before", "build:decisions", "--body-file", body, section)
+        self.assertEqual(out, "Closes #7\n\nIntro.\n\n<!-- build:try-it:start -->\n## Try it\nsteps\n<!-- build:try-it:end -->\n")
+
     def test_body_file_with_extra_argument_is_a_usage_error(self):
         r = subprocess.run([sys.executable, str(SCRIPT), "--body-file", "x", "a", "b"], capture_output=True)
         self.assertEqual(r.returncode, 2)
@@ -94,6 +120,131 @@ class PrNumber(unittest.TestCase):
             self.assertEqual((r.returncode, r.stdout), (0, "updated\n"), r.stderr)
             sent = json.loads((d / "patch.json").read_text())["body"]
             self.assertEqual(sent, BODY.rstrip("\n").replace("- old decision", "- new decision"))
+
+
+TEMPLATE = (
+    "## What to build\r\nStuff.  \n\n"
+    "<!-- Below this line: filled in by the agent -->\n"
+    "## Notes\nkept\n"
+)
+SLICE = "<!-- slice:start -->\n## Slicing\n- new slice\n<!-- slice:end -->\n"
+
+
+def fake_gh(d, body):
+    """A gh stub on PATH: records its args, serves `body` for GETs, saves the PATCH payload."""
+    d = Path(d)
+    (d / "body.txt").write_bytes(body.encode())
+    gh = d / "gh"
+    gh.write_text(
+        f'#!/bin/sh\necho "$*" >> "{d}/args.txt"\n'
+        f'case "$*" in *PATCH*) cat > "{d}/patch.json";; *) cat "{d}/body.txt";; esac\n')
+    gh.chmod(0o755)
+    return dict(os.environ, PATH=f"{d}:{os.environ['PATH']}")
+
+
+class Issue(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        self.d = Path(self.dir.name)
+
+    def run_script(self, body, section, *args):
+        env = fake_gh(self.d, body)
+        (self.d / "s.md").write_text(section)
+        r = subprocess.run([sys.executable, str(SCRIPT), *args, str(self.d / "s.md")],
+                           capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r
+
+    def sent(self):
+        return json.loads((self.d / "patch.json").read_text())["body"]
+
+    def test_issue_form_fetches_and_patches_the_issue(self):
+        body = "head \r\n" + SLICE.replace("new", "old") + "tail  "
+        r = self.run_script(body, SLICE, "--issue", "250", "--markers", "slice")
+        self.assertEqual(r.stdout, "updated\n")
+        args = (self.d / "args.txt").read_text().splitlines()
+        self.assertEqual(len(args), 2)
+        self.assertIn("repos/{owner}/{repo}/issues/250", args[0])
+        self.assertIn("-X PATCH repos/{owner}/{repo}/issues/250", args[1])
+        self.assertNotIn("pulls", "".join(args))
+        self.assertEqual(self.sent(), "head \r\n" + SLICE.rstrip("\n") + "\ntail  ")
+
+    def test_issue_form_keeps_bytes_outside_markers(self):
+        body = "a\r\n  b \n" + SLICE.replace("new", "old") + "\nz\t\n"
+        self.run_script(body, SLICE, "--issue", "9", "--markers", "slice")
+        sent = self.sent()
+        self.assertTrue(sent.startswith("a\r\n  b \n<!-- slice:start -->"))
+        self.assertTrue(sent.endswith("<!-- slice:end -->\n\nz\t"))
+        self.assertIn("new slice", sent)
+
+    def test_no_markers_appends_after_template_marker_line(self):
+        self.run_script(TEMPLATE, SLICE, "--issue", "9", "--markers", "slice")
+        self.assertEqual(self.sent(), TEMPLATE.replace(
+            "agent -->\n", "agent -->\n" + SLICE.rstrip("\n") + "\n").rstrip("\n"))
+
+    def test_no_markers_no_template_line_appends_at_the_end(self):
+        body = "## What to build\nStuff\n"
+        self.run_script(body, SLICE, "--issue", "9", "--markers", "slice")
+        self.assertEqual(self.sent(), "## What to build\nStuff\n\n" + SLICE)
+
+    def test_unmarked_slicing_section_is_removed(self):
+        body = ("Intro\n\n## Slicing\n- old a\n- old b\n\n## Notes\nkeep\n"
+                "<!-- Below this line -->\n## Slicing\nsecond, to the end\n")
+        self.run_script(body, SLICE, "--issue", "9", "--markers", "slice")
+        sent = self.sent()
+        self.assertEqual(sent.count("## Slicing"), 1)
+        self.assertNotIn("old a", sent)
+        self.assertNotIn("second, to the end", sent)
+        self.assertIn("## Notes\nkeep\n", sent)
+        self.assertTrue(sent.startswith("Intro\n\n## Notes"))
+        self.assertIn("<!-- Below this line -->\n<!-- slice:start -->", sent)
+
+    def test_slicing_is_left_alone_for_other_markers(self):
+        body = "## Slicing\nkeep\n"
+        self.run_script(body, "<!-- pr-review:start -->\nr\n<!-- pr-review:end -->", "9")
+        self.assertIn("## Slicing\nkeep", self.sent())
+
+    def test_resplice_keeps_one_slicing_section(self):
+        first = self.run_script("## What\nx\n", SLICE, "--issue", "9", "--markers", "slice")
+        self.assertEqual(first.stdout, "updated\n")
+        again = self.run_script(self.sent(), SLICE.replace("new", "newer"), "--issue", "9", "--markers", "slice")
+        self.assertEqual(again.stdout, "updated\n")
+        self.assertEqual(self.sent().count("## Slicing"), 1)
+        self.assertIn("newer slice", self.sent())
+
+
+class BodyFileSlice(BodyFileHelpers, unittest.TestCase):
+    def test_fenced_slicing_heading_is_kept(self):
+        text = "## Problem\n```\n## Slicing\nquoted\n```\nafter\n"
+        out = self.run_script("--markers", "slice", "--body-file", self.write("b.md", text), self.write("s.md", SLICE))
+        self.assertEqual(out, text + "\n" + SLICE)
+
+    def test_template_line_is_ignored_for_other_markers(self):
+        text = "Intro\n<!-- Below this line, x -->\nTail\n"
+        section = "<!-- pr-review:start -->\nr\n<!-- pr-review:end -->"
+        out = self.run_script("--body-file", self.write("b.md", text), self.write("s.md", section))
+        self.assertEqual(out, text + "\n" + section + "\n")
+
+    def test_issue_number_must_be_a_positive_integer(self):
+        r = subprocess.run([sys.executable, str(SCRIPT), "--issue", "5/comments", self.write("s.md", SLICE)],
+                           capture_output=True, env=dict(os.environ, PATH=""))
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn(b"positive integer", r.stderr)
+
+    def test_slice_body_file_removes_unmarked_slicing_and_calls_no_gh(self):
+        body = self.write("body.md", "x\n## Slicing\nold\n## Tail\nt\n")
+        section = self.write("s.md", SLICE)
+        out = self.run_script("--markers", "slice", "--body-file", body, section)
+        self.assertEqual(out, "x\n## Tail\nt\n\n" + SLICE)
+
+    def test_decisions_and_notes_sections_survive_a_review_update(self):
+        body = ("Intro\n<!-- build:decisions:start -->\n## Decisions\n- d\n<!-- build:decisions:end -->\n"
+                "<!-- build:notes:start -->\n## Environment notes\n- n  \n<!-- build:notes:end -->\n"
+                "<!-- pr-review:start -->\nold\n<!-- pr-review:end -->\n")
+        section = self.write("s.md", "<!-- pr-review:start -->\nnew\n<!-- pr-review:end -->")
+        out = self.run_script("--body-file", self.write("b.md", body), section)
+        self.assertEqual(out, body.replace("old", "new"))
 
 
 if __name__ == "__main__":
