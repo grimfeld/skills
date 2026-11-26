@@ -34,7 +34,7 @@ The argument `unattended` means no person is present, for example during a night
 - **Page (step 8.4):** publish it only if the Artifact tool is available. Otherwise the PR description is the review.
 - **Approval (step 9):**
   - Every blocker and major still `pending` (or `needs-person`) is `approved`, with the reason "unattended: fix before merge", except one with `options`: that one is `needs-person`, and `decision.reason` is "contradicts the spec's '<spec_line>'" when it has a `spec_line`, otherwise "a choice for a person". A decision a person already made (approved, rejected or deferred) is kept.
-  - Minors and nits stay `pending`, for the person who reviews the PR.
+  - Minors and nits stay `pending`, for the person who reviews the PR. A caller fixes one only inside a counted fix round, before that round's push and re-review, and never after the last review, so the review section always names the PR's head (build-spec step 5).
 - **Spec and tickets (step 10):** skip it. The caller fixes approved findings on the branch itself.
 - **Hand off (step 11.3):** end with the approved findings as a list of ids, titles, locations and fixes, marking each `fix_kind: "property"` finding `property: <the property its fix names>`. Then, only when there are any, a separate "Needs a person" list: each `needs-person` finding's id, title, options and the spec line it contradicts, if any. Don't suggest a next command.
 
