@@ -27,12 +27,12 @@ While any day build is `spec:building`, dispatch nothing tonight: name those spe
 0. **The checkout:** after the fetch, report to the user, before planning, if the working tree is behind `origin/<default>` (`git rev-list --count HEAD..origin/<default>`: "local `<branch>` is N commits behind `origin/<default>`") or has uncommitted changes (`git status --porcelain`: list them). The night reads the rules from `origin/<default>` either way, so this is for the user to know, not a reason to stop. Never pull, stash, reset or check out anything: the working tree is theirs.
 1. **Designs first:** for each open issue labelled `design:ready`, run `design-me` with `#<n>`, as `${CLAUDE_PLUGIN_ROOT}/references/running-skills.md` says (the Skill tool can't call it). It grills the user on the design's open decisions and writes its specs as `spec:ready`. A design the user leaves with questions open keeps `design:ready` and builds nothing tonight.
    - Any subagent the design-me or slice runs start (step 1.5 too) writes to its own scratch folder, as "Subagents' scratch folders" in `${CLAUDE_PLUGIN_ROOT}/references/running-skills.md` says.
-2. **List them:** open issues labelled `spec:ready`.
+2. **List them:** open issues labelled `spec:ready`. Those also labelled `bug` are **bugs**: each is one PR with no tickets, built by `/ship:fix-me #<n> unattended`, never sliced. A `bug` issue that also carries `bug:specced` is a spec, not a bug.
 3. **Adjusts:** list the open PRs labelled `changes-requested` (the "List PRs by label" row). For each, read only its head branch, head repository, base branch, the first line of its body and its changed files' names (the "Read a PR" row, and `.../pulls/<pr>/files`). It is an **adjust** when build-spec built it, as build-spec's "Adjust a PR" step 1 checks (head in this repository, branch `spec/<spec>-…`, first line `Closes #<spec>` for that spec), and its spec is `spec:in-review`: tonight it is changed on its own branch from the feedback on it, by `/ship:build-spec #<pr> adjust unattended`. One whose spec is `spec:stuck` or `spec:building` is a leftover (next step), adjusted only on the user's say-so. One build-spec didn't build isn't adjusted: list it in the plan as left for the user.
 4. **Check for leftovers:** list the `spec:building` and `spec:stuck` issues from earlier nights and show them. A `spec:building` issue whose builder's session has ended is a crashed build: say so. Never rebuild these without the user's say-so. Also show each `spec:ready` spec whose latest `night-shift` comment is `not-started`, with its reason: it is for the user's information, and the spec builds tonight like any other `spec:ready` spec.
-5. **Slice:** if any spec lacks a "Slicing" section, run `slice` with `all`, the same way. Slicing asks the user about splits and tickets, so it belongs here, while they're present.
+5. **Slice:** if any spec (not a bug) lacks a "Slicing" section, run `slice` with `all`, the same way; it skips bugs. Slicing asks the user about splits and tickets, so it belongs here, while they're present.
 
-Done when every spec to build has a "Slicing" section and tickets.
+Done when every spec to build has a "Slicing" section and tickets. Bugs need neither.
 
 ### 2. Conflicts
 
@@ -57,13 +57,17 @@ Work from the rows: grill a Conflicting pair from its two passages. The three ki
   - Write the answers into the specs' bodies through a subagent, giving it each spec number, the passage and the answer.
   - If the answer changes a spec's scope, re-run `ship:slice #<n>` for it.
 
+**Bugs** are compared on their Touches (a best guess, from `/ship:fix-me later`) against tonight's specs, never grilled:
+- A bug whose Touches overlap a spec's runs in that spec's session, after `build-spec`, with `base=<the spec's branch>`: its PR is stacked on the spec's PR.
+- The rest are independent: they share one builder session, fixed one after another, each its own PR off the default branch.
+
 Done when every pair is classified and no conflict is open.
 
 ### 3. The night plan
 
 Show the plan and ask for one yes:
 
-- one row per **session**: the spec or chain, in build order, with each spec's estimate; each adjust is its own session, "adjust #<pr> (spec #<spec>)"
+- one row per **session**: the spec or chain, in build order, with each spec's estimate, then its bugs (the shared bugs session lists only bugs); each adjust is its own session, "adjust #<pr> (spec #<spec>)"
 - the builder routine each session goes to
 - the model (`claude-opus-5-5` unless `shipping.md` names another)
 - for each pair of ADR or migration specs left unchained, the numbering command it relied on
@@ -90,10 +94,10 @@ Builds run on a fixed **pool** of routines, reused every night: `ship-builder-<r
 
    Then create it with `RemoteTrigger` `create`, using a `run_once_at` an hour ahead (the API requires one schedule) and `enabled: false`.
 3. **Give each session its prompt and start it.**
-   - Update the routine's `job_config.ccr.events` with tonight's prompt, built from `templates/builder-prompt.md` in `${CLAUDE_SKILL_DIR}`, with a fresh event `uuid`. For an adjust session, `{{SPECS}}` is `#<pr> adjust` and `{{SPEC}}` its spec's `#<n>`; for a build, `{{SPEC}}` is the same as `{{SPECS}}`. `{{RESUME}}` is empty, or ` resume` for a session that finishes stuck specs' open PRs instead of building them again.
+   - Update the routine's `job_config.ccr.events` with tonight's prompt, built from `templates/builder-prompt.md` in `${CLAUDE_SKILL_DIR}`, with a fresh event `uuid`. `{{SPECS}}` is the session's specs (`#12 #15`), `{{BUGS}}` its bugs, each with its command (`#<n>: /ship:fix-me #<n> unattended [base=spec/<m>-…]`), and `{{BUG_NUMBERS}}` the bugs' numbers alone (`#20 #21`), for the token count. Check each `base=` branch against `^[A-Za-z0-9._][A-Za-z0-9._/-]*$` before writing it in. Drop the template's specs paragraph in a bugs-only session, and its bugs paragraph when there are none. For an adjust session, `{{SPECS}}` is `#<pr> adjust` and `{{SPEC}}` its spec's `#<n>`; for a build, `{{SPEC}}` is the same as `{{SPECS}}`. `{{RESUME}}` is empty, or ` resume` for a session that finishes stuck specs' open PRs instead of building them again.
    - Start it with `RemoteTrigger` `run`. One routine runs one session.
 4. **Check each session is still running.** After `run` for the last session, wait once, about two minutes, in one blocking call (not repeated sleeps). Then, for every session started tonight, call `RemoteTrigger` `list_runs` for its run's status and `get_run_log` for its log. A session has **ended** when `list_runs` shows its run finished or its log ends with the session's final result; read both, since either alone may show a run without saying its session is gone.
-   - **Still running:** comment on each of its specs (an adjust's spec too):
+   - **Still running:** comment on each of its specs and bugs (an adjust's spec too):
 
      ```
      <!-- night-shift {"status":"dispatched","shift":"night","routine":"<id>","session":"<id>"} -->
@@ -132,7 +136,7 @@ A subagent's transcript sits under `<session>/subagents/`. Its `meta.json` holds
 
 ## Morning
 
-1. **Collect** every spec with a `night-shift` comment from the last 24 hours, except one whose latest comment is `not-started` (the evening already reported it, and it has no session or cost to show), and except those whose latest dispatch comment (`"status":"dispatched"`) carries `"shift":"day"`: the day shift has already reported them. A dispatch comment without a `shift` field is a night one.
+1. **Collect** every spec with a `night-shift` comment from the last 24 hours, except one whose latest comment is `not-started` (the evening already reported it, and it has no session or cost to show), and except those whose latest dispatch comment (`"status":"dispatched"`) carries `"shift":"day"`: the day shift has already reported them. A dispatch comment without a `shift` field is a night one. Bugs post the same comments, so they are collected, priced and carded like specs; mark each bug's card "bug" (not one carrying `bug:specced`, which is a spec).
    - Read the spec's latest `night-shift` JSON comment, its PR, the PR's checks, and the PR's review, Try it and Decisions sections. The decisions to check come from the Decisions section (`build:decisions` markers) only, never from Environment notes (`build:notes`). A PR without the notes section has no notes.
    - **Crashed:** a spec still `spec:building` after its session ended, or a spec whose latest `night-shift` comment is `dispatched` and whose session has ended, whether it is labelled `spec:building` or still `spec:ready`. Read the run log (`RemoteTrigger` `list_runs`, then `get_run_log`) for the cause, then label it `spec:stuck` and comment the cause.
    - **Stopped at the limit:** a session that hasn't ended, whose run log has a `rate_limit: rejected` line (any window, e.g. `five_hour`) after its last turn that did work. Its specs keep their labels: they are neither stuck nor crashed. Note the UTC time of the first such rejection, and the limit message (e.g. "You've hit your 5-hour limit") when the log has it.

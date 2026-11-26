@@ -88,7 +88,7 @@ When step 1.1 planned a Repository group, there is no history to read: don't ask
 
 Print every change, grouped, and ask for one yes. On an **upgrade**, run step 4.0's renders and `git merge-file -p` now, printing only, and settle any conflict with the user here. The files part is the diff of `ship.yml` and `shipping.md` against what's installed, with the project's own edits listed separately, each with whether it's kept; the user can drop any of them. The repository settings part is:
 - the upgrade steps the "Versions" list gives for each version passed, with the PRs from step 1.9 they touch;
-- what's missing: new labels and ruleset changes the "Versions" list gives for each version passed, plus ruleset changes if the checks changed.
+- what's missing: new labels and ruleset changes the "Versions" list gives for each version passed, any label of step 3's Labels list that step 1.6 didn't find, plus ruleset changes if the checks changed.
 
 The user's part is the to-dos the "Versions" list gives for each version passed.
 
@@ -120,8 +120,10 @@ The user's part is the to-dos the "Versions" list gives for each version passed.
     - `design:specced`: "Turned into specs by /ship:design-me"
     - `changes-requested`: "Feedback on the PR to adjust: /ship:build-spec #<pr> adjust"
     - `retro`: "Filed by /ship:retro-issues from a session retro"
+    - `bug`: "A bug: fixed by /ship:fix-me" (color `d73a4a`)
+    - `bug:specced`: "A bug too big for /ship:fix-me: built as a spec" (color `fbca04`)
 
-    Create them with `gh label create --force`, which keeps a label's other PRs and issues.
+    Create them with `gh label create --force`, which keeps a label's other PRs and issues. On an upgrade or a re-run, also create any label of this list that step 1.6 didn't find, even when no version in the "Versions" list adds it: `bug` and `bug:specced` came without a version bump.
   - The ruleset on the default branch. Amend the existing ruleset that targets it; don't add a second one. It needs:
     - `pull_request`, with no required approvals: one person can't approve their own PRs, and the `ship` label is the review
     - `required_status_checks`: the chosen checks plus `ship`. Pin `ship` to GitHub Actions (`"integration_id": 15368`), so only the `gate` job can set it, not anyone with push access calling the statuses API. On a re-run, compute the change as "Sync required checks" does, with the "Required on" line you are writing.

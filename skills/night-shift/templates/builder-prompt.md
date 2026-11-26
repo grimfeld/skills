@@ -6,6 +6,8 @@ Run `build-spec` with the arguments `{{SPECS}} unattended{{RESUME}}` and follow 
 
 When the line above reads `#<pr> adjust`, this is an adjust session: you change that PR from the feedback on it, as build-spec's "Adjust a PR" says, rather than building specs. Its spec is {{SPEC}}.
 
+Fix these bugs, after the specs if there are any, one after another, each in its own PR: {{BUGS}}. For each, run `node <root>/skills/night-shift/scripts/token-usage.mjs mark <n>` (`<root>` as step 1 below finds it), then `fix-me` with the arguments given for it (`#<n> unattended`, with `base=<branch>` for a bug stacked on a spec of this session): read `<root>/skills/fix-me/SKILL.md` and follow it to the end, the same way as `build-spec` in step 2 below. In a session with only bugs, skip step 2.
+
 **Never call a ship skill with the Skill tool.** Ship skills are user-invoked only (`disable-model-invocation`), so `build-spec` never shows in the Skill tool's list and the Skill tool refuses it even when the plugin is installed. Neither says anything about whether the plugin is installed, and a refusal is not a reason to stop: read the skill's `SKILL.md` and follow it instead.
 
 1. **Find the plugin root, `<root>`.** Run:
@@ -21,15 +23,15 @@ When the line above reads `#<pr> adjust`, this is an adjust session: you change 
 
 The count splits this session by spec at each `token-usage.mjs mark <n>` call. `build-spec` marks each spec as it starts. When a later turn works on a spec you had already left (a fix to an earlier spec of this list, say), first run `node <root>/skills/night-shift/scripts/token-usage.mjs mark <n>` for it (with the same `<root>` as above; if this turn has lost it, find it again as step 1 says).
 
-The morning page shows what tonight cost. Only you can count it, because your transcript leaves with this session. Count it after `build-spec`'s End step. Count it again at the end of every later turn that did work, for example when a person's message woke you and you acted on it:
+The morning page shows what tonight cost. Only you can count it, because your transcript leaves with this session. Count it after the last `build-spec` or `fix-me` End step of this session. Count it again at the end of every later turn that did work, for example when a person's message woke you and you acted on it:
 
 1. Use the same `<root>` as above. If this turn has lost it, find it again the same way (step 1), cloning only when there is no plugin.
-2. Run `node <root>/skills/night-shift/scripts/token-usage.mjs count --specs "{{SPEC}}"`.
+2. Run `node <root>/skills/night-shift/scripts/token-usage.mjs count --specs "{{SPEC}} {{BUG_NUMBERS}}"`.
    - It prints tokens by spec and by model. A subagent counts toward the spec it was started for. `shared` holds work outside every spec.
    - Don't add up or estimate tokens yourself.
    - If the script fails, write `"tokens": null` and give its error in one line under the comment.
    - For a spec the output lists under `unmatched`, write `"tokens": null`.
-3. For each spec, take its latest `night-shift` comment (the one with the status) and add `"tokens": <that spec's object from the output>` to its JSON.
+3. For each spec and bug, take its latest `night-shift` comment (the one with the status) and add `"tokens": <that spec's object from the output>` to its JSON.
    - On the first spec of this list only, also add `"session_shared": <the output's shared object>`.
    - Edit the comment in place, as `<root>/references/github.md` says ("Edit a comment").
    - If you can't edit comments, post the whole comment again with the new JSON. The morning step reads the latest one.
