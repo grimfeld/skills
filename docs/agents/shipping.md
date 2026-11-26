@@ -85,6 +85,14 @@ Nothing deploys on merge. Plugin users pick up `main` through the `grimfeld` mar
 
 Command that produces screenshots of the screens a change touches, for the review section: none
 
+## Try it
+
+How a person tries a branch before approving it. `/ship:build-spec` fills in each build PR's "Try it" section from
+these two lines. Previews come from the project's own CD: ship finds them and never deploys.
+
+- **Previews:** none
+- **Run a branch:** `git fetch origin <branch> && git worktree add ../try-<branch> FETCH_HEAD && claude --plugin-dir ../try-<branch>`
+
 ## Night builds
 
 `/ship:night-shift` creates its builder routines in this cloud environment. While none is chosen, it asks for one
@@ -95,8 +103,10 @@ each night. Re-run `/ship:setup-ship` to change it.
 ## Spec labels
 
 Specs are GitHub issues moving through `spec:draft` → `spec:ready` → `spec:building` → `spec:in-review`, or
-`spec:stuck`, and close when their PR ships. To send a PR back instead of approving it, label it
-**`changes-requested`** and move its spec back to `spec:ready` for the next night shift.
+`spec:stuck`, and close when their PR ships. To send a PR back instead of approving it, write what to change in its
+comments or a review and label it **`changes-requested`**: the next night shift adjusts it on its own branch
+(`/ship:build-spec #<pr> adjust`, which you can also run yourself). To rebuild it from scratch instead, close the PR
+and relabel its spec `spec:ready`.
 
 ## Design labels
 

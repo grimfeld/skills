@@ -18,5 +18,7 @@
   "CD_SUMMARY": "Nothing deploys on merge. Plugin users pick up `main` through the `grimfeld` marketplace on their next plugin update.",
   "SCREENS": "none",
   "BOOKKEEPING_FILES": ["README.md"],
-  "CLOUD_ENVIRONMENT": "`env_01Muin97QuFfZsc1eidb2f4F` (Default)"
+  "CLOUD_ENVIRONMENT": "`env_01Muin97QuFfZsc1eidb2f4F` (Default)",
+  "TRY_PREVIEWS": "none",
+  "TRY_RUN": "`git fetch origin <branch> && git worktree add ../try-<branch> FETCH_HEAD && claude --plugin-dir ../try-<branch>`"
 }

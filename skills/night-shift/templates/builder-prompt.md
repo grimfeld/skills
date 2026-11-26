@@ -4,6 +4,8 @@ Build these specs, in this order, each on top of the one before: {{SPECS}}.
 
 Run `build-spec` with the arguments `{{SPECS}} unattended` and follow it to the end, as below.
 
+When the line above reads `#<pr> adjust`, this is an adjust session: you change that PR from the feedback on it, as build-spec's "Adjust a PR" says, rather than building specs. Its spec is {{SPEC}}.
+
 **Never call a ship skill with the Skill tool.** Ship skills are user-invoked only (`disable-model-invocation`), so `build-spec` never shows in the Skill tool's list and the Skill tool refuses it even when the plugin is installed. Neither says anything about whether the plugin is installed, and a refusal is not a reason to stop: read the skill's `SKILL.md` and follow it instead.
 
 1. **Find the plugin root, `<root>`.** Run:
@@ -20,7 +22,7 @@ Run `build-spec` with the arguments `{{SPECS}} unattended` and follow it to the 
 The morning page shows what tonight cost. Only you can count it, because your transcript leaves with this session. Count it after `build-spec`'s End step. Count it again at the end of every later turn that did work, for example when a person's message woke you and you acted on it:
 
 1. Use the same `<root>` as above. If this turn has lost it, find it again the same way (step 1), cloning only when there is no plugin.
-2. Run `node <root>/skills/night-shift/scripts/token-usage.mjs count --specs "{{SPECS}}"`.
+2. Run `node <root>/skills/night-shift/scripts/token-usage.mjs count --specs "{{SPEC}}"`.
    - It prints tokens by spec and by model. A subagent counts toward the spec it was started for. `shared` holds work outside every spec.
    - Don't add up or estimate tokens yourself.
    - If the script fails, write `"tokens": null` and give its error in one line under the comment.

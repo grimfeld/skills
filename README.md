@@ -25,9 +25,9 @@ The flow:
 
 1. **Drift check**: each lens records the hash of the skill it was adapted from. If that skill has changed since, the run pauses and offers to re-sync the lens.
 2. **Prepare**: resolves the diff (in a temporary worktree for PRs that aren't checked out), the spec, CI status and any previous report.
-3. **Route**: skips lenses with nothing to review, first by file type (no front-end files: no web audit; docs-only: standards and spec only, plus security when a ship skill under `skills/` changes; a GitHub Actions workflow or workflow template gets quality and security with an Actions checklist), then by reading the hunks of smaller diffs (no data or loop changes: no performance review).
+3. **Route**: skips lenses with nothing to review, first by file type (no front-end files: no web audit; docs-only: standards and spec only, plus security when a ship skill under `skills/` changes; a GitHub Actions workflow or workflow template gets quality and security with an Actions checklist), then by size (under 200 changed code lines: only the standards, quality and security lenses, plus the web audit and design fidelity when they apply), then by reading the hunks of smaller diffs (no data or loop changes: no performance review).
 4. **Find a preview URL** for the web audit: GitHub deployments, the Vercel bot comment, the Vercel MCP, then a local dev server already running. Never starts or deploys anything.
-5. **Review** in parallel, one lightweight `pr-lens-reviewer` agent per lens. Every reviewer is report-only and returns findings in one shared format. In a session without the Agent tool (a subagent), it reviews nothing and says "not run: no Agent tool in this session": the context that wrote the code doesn't review it.
+5. **Review** in parallel, one lightweight `pr-lens-reviewer` agent per lens. Each prompt carries the lens's brief, the finding format and the whole spec, so a reviewer fetches none of them; it reads the saved diff once, in ranges of at most 400 lines. The orchestrator reads nothing while the lenses run, and verification reads only the lines a finding cites. Reviewers write probe files only under `/tmp`; the orchestrator compares `git status` before and after the review, removes anything a reviewer left in the repo (keeping a copy in a private folder under `/tmp`) and lists it as a lens failure. Every reviewer is report-only and returns findings in one shared format. In a session without the Agent tool (a subagent), it reviews nothing and says "not run: no Agent tool in this session": the context that wrote the code doesn't review it.
 6. **Dedupe** across lenses. A finding several lenses agree on ranks higher.
 7. **Verify** every blocker and major against the code; false positives are dropped.
 8. **Report**: findings are rewritten in plain language and kept in `.scratch/pr-review/<id>.json`; a script renders them into a readable report (`<id>.md`) that opens with the verdict and groups smaller findings by theme, plus a private Artifact page with the same content. Re-runs mark findings fixed, still open or new, and never resurface rejected ones. With `fix-round`, only the lenses that raised open approved findings, plus `quality`, re-check those findings and the fix diff, and a finding is marked fixed only when a lens confirms it.
@@ -101,17 +101,19 @@ Sizes each `spec:ready` spec against prior PRs in the same areas. The rule is on
    - Specs that overlap but don't disagree are chained without asking: built in order in one session, each PR on top of the previous one.
    - Conflicting decisions go to you, in one round.
    - A design's place specs wait until its foundation and shell have merged.
+   - Open PRs labelled `changes-requested` become **adjust sessions**: `/ship:build-spec #<pr> adjust unattended` changes the PR on its own branch from your feedback on it. The conflict check treats an adjust like a spec whose Touches are the PR's changed files.
 3. Once you approve the plan, it gives each session its prompt on a reused pool of builder routines (`ship-builder-<repo>-N`, since routines can't be deleted through the API) and starts them. The routines run in the cloud environment `docs/agents/shipping.md` names (its "Cloud environment" line); without one, the plan asks you to pick tonight's, never taking the default. Each builder reads `build-spec` from the installed plugin (or from a clone when there is none; never through the Skill tool, which refuses ship skills) and runs it with `<specs> unattended`, so nothing is asked overnight.
 4. About two minutes after starting them, it checks each session is still running before reporting it as building. A session that already ended without reporting its specs is shown with the cause from its log, and offered one restart; specs of a session not restarted stay `spec:ready` with a `not-started` comment.
 5. The plan shows a **Load** line comparing tonight with the last recorded night, and warns when a night that size already stopped at the 5-hour limit.
 
 **`/ship:night-shift morning`** gathers the results into one page:
-- PRs ready to review, smallest first, each with its verdict, risks and the decisions to check
+- PRs ready to review, smallest first, each with its verdict, risks and the decisions to check, and how to try it: the preview link when there is one, and the command that runs the branch
 - for a PR built from a design, its fidelity grid: reference beside app in every look, theme and viewport, with the views the review flagged shown full size
 - designs whose specs have all merged are closed
 - stuck specs, and what each needs from you
 - builder sessions stopped at the 5-hour limit, with their specs: open the session after the reset and send `Try again` (re-running the routine starts over). Each morning also records the night's size, cost and limit stops in `.scratch/night-shift/nights.jsonl`, for the evening's Load line
-- under each decision, how to answer it: tell the morning session `#<pr>: <choice>`, and it comments the answer on the PR and keeps the PR in the `/ship:land` line or sends it back for another night
+- under each decision, how to answer it: tell the morning session `#<pr>: <choice>`, and it comments the answer on the PR and keeps the PR in the `/ship:land` line or sends it back (`changes-requested`) to be adjusted the next night
+- to change a PR you've tried: write the feedback on the PR and label it `changes-requested`; the next night adjusts it on its own branch. To rebuild it from scratch, close the PR and relabel its spec `spec:ready`
 - what each spec, each session and the whole night would have cost at API prices, counted by each builder from its own transcript (`scripts/token-usage.mjs`, prices in `scripts/prices.json`)
 - the `/ship:land` command to run once you've reviewed: it approves the PRs you name and lands every PR carrying `ship`
 
@@ -146,7 +148,7 @@ It shows every project set up for ship (a repo with `docs/agents/shipping.md` am
 |---|---|
 | **Needs you** | `spec:draft` and `spec:stuck` specs, `design:ready` designs, PRs with failing checks, PRs that have carried `ship` for over 24 h without merging, and reviewed PRs (`pr-reviewed`, without `changes-requested`) waiting for your `ship` |
 | **Ready for tonight** | `spec:ready` specs |
-| **In flight** | `spec:building` specs, PRs labelled `changes-requested` (back with the night shift), draft PRs, and approved PRs landing now |
+| **In flight** | `spec:building` specs, PRs labelled `changes-requested` (adjusting next), draft PRs, and approved PRs landing now |
 | **Landed** | specs closed and PRs merged in the last 7 days |
 
 An item that fits several buckets shows once, in the first. Each card says why it's there ("checks failing", "ship label on, no update for 31 h") and for how long. The page refreshes every 5 minutes while it's open, and on **Refresh**.
@@ -192,9 +194,13 @@ What each cloud session runs. night-shift's builders pass `unattended`: nobody i
 3. It runs `pr-review <pr> unattended`, which approves the blockers and majors and leaves the rest for you.
 4. It fixes them in at most two rounds.
 
+Every PR it finishes (ready, or stuck with code on its branch) gets a **Try it** section above Decisions: the preview link when the project's CD made one, the command that runs the branch (from `shipping.md`'s Try it section), and numbered hands-on steps, one per acceptance criterion a person can check by hand, each saying what to do and what you should see. It finds previews and never deploys.
+
 A review finding whose fix is a choice only a person can make, or would undo something the spec settles, is never fixed at night: it is named under Decisions and the spec ends stuck with that choice. Every choice the spec left open goes in the PR's Decisions section. The PR ends ready, or as a draft marked stuck with the reason. It never merges and never adds `ship`.
 
 Unattended, its last step unsubscribes the session from the PRs it opened or reviewed, so later PR events (CI finishing, a PR marked ready) don't wake a finished builder.
+
+**`/ship:build-spec #<pr> adjust`** changes a PR it built from your feedback, instead of rebuilding it. Try the PR, write what to change in its comments or a review, and label it `changes-requested`. The adjust reads the comments, review comments and review bodies posted since the last adjust (or since the PR was marked ready) by people with write access to the repository, and says how many others it ignored (`scripts/select-feedback.mjs`). It changes the code on the PR's own branch, runs `pr-review <pr> fix-round` (at most two rounds), refreshes Try it, removes `changes-requested` and leaves a `build:adjusted` marker comment. Feedback that contradicts the spec wins: it is recorded under Decisions as "changed from the spec by the owner", and the spec issue is edited to match. With no feedback since the last adjust, it changes nothing and the label stays on. Run it yourself and it asks its questions; the night shift runs it with `unattended`, and feedback that needs a decision leaves the PR stuck.
 
 In a session without the Agent tool (a subagent), it builds the tickets inline, stops after the checks, and hands the draft PR back: "review pending: run build-spec steps 4–6 from a session with the Agent tool". The caller runs those steps.
 
@@ -209,9 +215,10 @@ Run once per project. It works in an empty folder too: it creates the local repo
 - **Dependabot:** patch updates and GitHub Actions updates are labelled `ship` and land with the next `/ship:land`.
 - **Labels:** `ship`, `pr-reviewed`, `changes-requested`, and the `spec:*` and `design:*` labels the pipeline uses.
 - **`docs/agents/shipping.md`:** the rules, written down for people and for the other skills, including the cloud environment night-shift's builders run in (it lists your environments and asks). The skills read it, and `docs/agents/issue-tracker.md`, from the fetched default branch, never the working tree; without them they use the defaults in `references/project-docs.md` (GitHub issues, the `spec:*` labels, the project's own checks).
+- **Try it:** `shipping.md` records how a branch is tried: where previews come from (the project's own CD, or "none") and the command that runs a branch, with a `<branch>` placeholder (or "none"). Setup proposes both from what it finds (deployments on PRs, a Vercel or Netlify config, a `dev` or `start` script). `/ship:build-spec` fills each build PR's Try it section from them. With no preview deploys, the report says so and suggests turning them on in your CD; setup changes nothing to make them.
 - **The project's `.claude/settings.json`:** enables the plugin.
 
-Run it again in a project set up by an older version and it offers an upgrade: it re-renders `ship.yml` and `shipping.md` with the values already installed, keeps your own edits to them, and shows the diff first. Upgrading from version 2 also turns auto-merge off and retires the `conflicts` label. Upgrading from version 3 asks only for the cloud environment.
+Run it again in a project set up by an older version and it offers an upgrade: it re-renders `ship.yml` and `shipping.md` with the values already installed, keeps your own edits to them, and shows the diff first. Upgrading from version 2 also turns auto-merge off and retires the `conflicts` label. Upgrading from version 3 asks only for the cloud environment. Upgrading from version 4 asks only for the two Try it values.
 
 After adding a CI job, add it to the "Required on" line of `docs/agents/shipping.md` and merge that, then re-run `/ship:setup-ship`: it shows the checks it would add or remove from the ruleset (`+ check`, `- check`, or "required checks in sync") and writes them on your yes, keeping `ship` and every other rule.
 
