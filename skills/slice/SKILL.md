@@ -22,7 +22,7 @@ Read the project's `docs/agents/issue-tracker.md` (how issues are created, edite
 
 For each spec, from its Touches, Data, UI states and acceptance criteria:
 
-1. **Explore** the areas it touches with a subagent, enough to know what exists and what must be built.
+1. **Explore** the areas it touches with a subagent, enough to know what exists and what must be built. One subagent per spec, each writing only to its own scratch folder, as "Subagents' scratch folders" in `${CLAUDE_PLUGIN_ROOT}/references/running-skills.md` says.
 2. **Find prior art.** Look for two or three merged PRs that did something similar in the same areas: the "Search merged PRs" row of `${CLAUDE_PLUGIN_ROOT}/references/github.md` with the area words, then each PR's additions, deletions and files one at a time (a list query with additions can hit GitHub's size limit).
 3. **Estimate** in **reviewable lines**: the hand-written lines changed, excluding tests, lockfiles, generated files, snapshots and docs. Give a range, and say which PR it is based on.
 4. **Count the distinct behaviours** a reviewer has to judge: one per acceptance-criteria group that a user would notice separately.
@@ -44,7 +44,14 @@ Ask for one yes, or for changes. A split happens only on a yes. Keeping a spec a
 
 ## 4. Write it down
 
-**Kept spec:** append a "Slicing" section to the issue body, below the marker line:
+Every Slicing section goes into a spec body by one way only: the "Splice a section into an issue body" row of `${CLAUDE_PLUGIN_ROOT}/references/github.md` (`update-pr-body.py --issue <n> --markers slice <section.md>`, or its `--body-file` form through the GitHub MCP). It writes between `<!-- slice:start -->` and `<!-- slice:end -->`, keeps the rest of the body byte for byte, puts a new section right after the template's `<!-- Below this line …` marker, and drops an unmarked `## Slicing` left by an older slice. Never write a spec body any other way.
+
+**The splice check**, around every splice. `<scratch>` is the session's scratchpad directory when it has one, else `.scratch/`.
+1. Before: save the body as read to `<scratch>/slice-<n>/body.before.md`.
+2. After: read the body back and check that every `## ` heading the saved body had is still there (an unmarked `## Slicing` excepted: the splice replaces it), that `## Problem` and `## Slicing` are present, and, in step 5, that the Tickets line is present.
+3. A failed check: put the saved body back (the "Edit an issue's body" row, with `body.before.md`), say which spec and which headings were missing, and stop slicing that spec. The report (step 6) lists it.
+
+**Kept spec:** splice a "Slicing" section into the issue body:
 
 ```
 ## Slicing
@@ -56,24 +63,26 @@ Ask for one yes, or for changes. A split happens only on a yes. Keeping a spec a
 
 **Split spec:** create the new specs.
 
-1. Create one issue per part.
+1. Create one issue per part, with its full body in one create call.
    - Copy the parent's template sections, narrowed to the part.
    - Each part gets its own acceptance criteria, Touches and Data.
    - Each Decision record goes to the first part that relies on it, so it ships once.
    - Add a Depends on line where it applies.
    - Label each one `spec:ready`.
    - Link each one as a sub-issue of the parent, using the tracker doc's operation.
-2. Give the parent a "Slicing" section listing its parts.
+   - Splice its own Slicing section in, with the splice check.
+2. Splice a "Slicing" section listing its parts into the parent, with the splice check.
 3. Remove the parent's `spec:ready` label, so the night shift builds the parts instead. Leave the parent open: it closes when its last part ships.
 
 ## 5. Tickets
 
 For each spec that will be built, kept or new, run `to-tickets` on its issue, as `${CLAUDE_PLUGIN_ROOT}/references/running-skills.md` says. The Skill tool can't call it.
 
+- When it runs in subagents, one per spec, each gets its own scratch folder, as "Subagents' scratch folders" in that file says.
 - Tickets are tracer-bullet vertical slices with blocking edges, published as sub-issues. That's what `implement-spec` reads.
 - `to-tickets` asks the user to approve the breakdown, which is fine here: slicing happens while the user is present.
 - Tell `to-tickets` to apply no triage label (no `ready-for-agent`): ship tracks work by the spec's `spec:*` label, and the repo may not have that label.
-- When it's done, add a "Tickets" line to the spec's Slicing section listing them in order.
+- When it's done, add a "Tickets" line listing them in order to the spec's Slicing section. The line sits inside the `slice` markers, so splice the whole Slicing section again, Tickets line included, with the splice check.
 
 ## 6. Report
 
@@ -87,4 +96,4 @@ Print one table, with one row per spec built tonight:
 | Tickets | how many |
 | Depends on | the spec it waits for, or none |
 
-Then list the parents that were split, and anything the user asked to change.
+Then list the parents that were split, and anything the user asked to change. Add one line per spec whose splice check failed: the headings that were missing, and that its body was put back.

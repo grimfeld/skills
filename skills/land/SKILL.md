@@ -246,6 +246,24 @@ land: GitHub refused the merge:
 `ship` stays on.
 ```
 
+**After the merge: close the spec.** Only when the merged PR's head branch (already checked against the safe pattern in step 3) matches `^spec/([0-9]+)-`. Take `<n>` from the branch name, never from the PR or issue text, and read only numbers and states:
+
+```
+gh api repos/{owner}/{repo}/issues/<n> --jq '{number, state, pr: (.pull_request != null), labels: [.labels[].name | select(startswith("spec:"))]}'
+gh api --paginate repos/{owner}/{repo}/issues/<n>/sub_issues --jq '.[] | {number, state}'
+```
+
+Go on only when #n is an issue, not a PR (`pr` is false), and carries a `spec:` label; otherwise close nothing and note "#<n> isn't a spec" in the report line. Close each of spec #n and its sub-issues that is still open, as completed, and comment on it, projecting every write's output so no title or body reaches you:
+
+```
+gh api -X PATCH repos/{owner}/{repo}/issues/<i> -f state=closed -f state_reason=completed --jq '{number, state}'
+gh api repos/{owner}/{repo}/issues/<i>/comments -f body='Closed by `/ship:land`: shipped in #<pr>.' --jq '{id}'
+```
+
+Without `gh`, close nothing: the MCP tools return whole issues. GitHub's Closes keywords still close them; report `(couldn't close: no gh)`.
+
+GitHub's own keyword close can lag a few seconds; an issue already closed is left alone, with no comment. A failure to read or close an issue doesn't stop the PR or the run (the PR is already merged): name the issue in the report line and go on.
+
 ### 4.6 Stopping a PR
 
 Post the comment (`gh api repos/{owner}/{repo}/issues/<n>/comments -F body=@<file>`). Keep the HTML marker on its first line: it tells the ship tooling's comments from the user's. Its `reason` is one of `contradiction`, `conflict`, `push-rejected`, `branch-changed`, `check`, `merge-refused`, `base` or `retarget`. The last two have no template above; use:
@@ -272,7 +290,7 @@ Done when every PR in the batch is merged, stopped, skipped or waiting. Remove y
 
 One line per PR, each linked, in landing order:
 
-- **Merged:** `merged #12 <url>`, and for a child `(after #11)`. Mark one whose conflict you resolved, `(resolved conflicts in <files>)`, and one whose check you fixed, `(fixed <check>)`.
+- **Merged:** `merged #12 <url>`, and for a child `(after #11)`. Name the issues you closed yourself after it, `(closed #40, #41)`, and any you couldn't, `(couldn't close #42: <error>)`; issues GitHub closed aren't listed. Mark one whose conflict you resolved, `(resolved conflicts in <files>)`, and one whose check you fixed, `(fixed <check>)`.
 - **Stopped:** `stopped #13 <url>: the sides contradict in <files>: <decision to make>` / `conflict in <files>: local checks fail after resolving` / `check <name> failed` / `check <name> still fails after <n> fixes` / `check <name> didn't finish in 30 minutes` / `GitHub refused: <error>` / `push rejected` / `base is <branch>, not <default>` / `couldn't retarget it`.
 - **Skipped:** `skipped #14 <url>: <reason>`: draft, fork, closed, `ship` removed, waiting on #<parent> (not approved, or stopped).
 - **Refused:** the named PRs step 2 refused, with the reason.

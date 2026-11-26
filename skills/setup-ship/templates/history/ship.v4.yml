@@ -1,0 +1,69 @@
+# ship.yml version: 4
+# Installed by /ship:setup-ship. The rules it enforces are in docs/agents/shipping.md.
+#
+# A PR reaches __DEFAULT_BRANCH__ only once a person has reviewed it and added the `ship` label.
+# This workflow lands nothing: /ship:land merges every `ship` PR itself.
+# - `gate` sets the required `ship` commit status: pending until labelled, success after.
+# - `dependabot` labels low-risk dependency PRs `ship`, so the next /ship:land merges them.
+#
+# SHIP_TOKEN is a fine-grained token (pull requests: read and write), saved as a Dependabot secret. A label
+# added with the default GITHUB_TOKEN doesn't start other workflows, so `dependabot` uses it to start `gate`.
+name: Ship
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, labeled, unlabeled, ready_for_review]
+
+env:
+  SHIP_LABEL: ship
+
+permissions:
+  contents: read
+  pull-requests: read
+  statuses: write
+
+jobs:
+  gate:
+    # Approval is the label: /ship:land merges a PR only while it carries `ship`, and the ruleset requires this status.
+    runs-on: ubuntu-latest
+    permissions:
+      statuses: write
+    steps:
+      - name: Set the ship status
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: |
+          state=pending; desc="Waiting for review: add the '$SHIP_LABEL' label to ship it"
+          if echo "$LABELS" | jq -e --arg l "$SHIP_LABEL" 'index($l) != null' >/dev/null; then
+            state=success; desc="Reviewed"
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$SHA" -f state="$state" -f context=ship -f description="$desc" >/dev/null
+          echo "ship: $state ($desc)"
+
+  dependabot:
+    if: github.event.action == 'opened' && github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      # Reads Dependabot's commit metadata itself rather than through dependabot/fetch-metadata,
+      # so repos whose Actions policy allows only their own and GitHub's actions can run it.
+      - name: Approve patch and GitHub Actions updates
+        env:
+          GH_TOKEN: ${{ secrets.SHIP_TOKEN }}
+          READ_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD: ${{ github.head_ref }}
+        run: |
+          case "$HEAD" in
+            dependabot/github_actions/*) ;;
+            *)
+              # One `update-type:` line per dependency; a grouped PR is approved only if all are patches.
+              types=$(GH_TOKEN="$READ_TOKEN" gh api "repos/$GITHUB_REPOSITORY/pulls/$PR/commits" --jq '.[0].commit.message' | sed -n 's/^[ -]*update-type: *//p')
+              if [ -z "$types" ] || echo "$types" | grep -qv '^version-update:semver-patch$'; then
+                echo "Needs review: $(echo "$types" | sort -u | paste -sd, -)"; exit 0
+              fi ;;
+          esac
+          [ -n "$GH_TOKEN" ] || { echo "::warning::Add SHIP_TOKEN as a Dependabot secret; skipping the label."; exit 0; }
+          # The label approves it; the next /ship:land merges it.
+          gh api "repos/$GITHUB_REPOSITORY/issues/$PR/labels" -f "labels[]=$SHIP_LABEL" >/dev/null
