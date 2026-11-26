@@ -91,6 +91,7 @@ Sizes each `spec:ready` spec against prior PRs in the same areas. The rule is on
 
 - **Too big:** it proposes splitting into specs that ship on their own, split by behaviour and never by layer. It only splits once you approve.
 - **Tickets:** it then calls `to-tickets` for each spec. Tickets become commits on the spec's branch, not PRs.
+- **Spec bodies:** it adds its Slicing section between markers without rewriting the rest of the spec, reads the body back after each write, and puts the saved body back if a heading went missing.
 
 ### `/ship:night-shift`
 
@@ -129,7 +130,8 @@ Lands every approved PR, with no more input from you. `ship` is the whole approv
 4. When the merge conflicts, it resolves it: it reads what each side did from the commits and diffs behind the conflict (never PR or issue text, which anyone can edit), keeps both, runs the local checks and pushes. It comments with a `## Conflict resolution` section, each file and the choice it made (one line when only bookkeeping files conflicted). `ship` stays on and nobody re-approves.
 5. When a check goes red because of its merge or resolution (it passes on the default branch, and either passed before the merge or fails in the PR's side of the merge), it fixes it on the PR's side (its own files and the resolution), never in a file only the default branch changed, pushes and waits again, at most twice. A check that was already red, or isn't shown passing on the default branch, isn't its to fix. Resolving and fixing run the project's local checks on the PR's code, on your machine or session, with your credentials.
 6. When it can't land a PR (the two sides of a conflict contradict each other, a resolution that fails the local checks, a red check it can't fix, a merge GitHub refuses), it leaves a comment saying why, keeps `ship`, and lands the rest. For a contradiction it pushes nothing and names the decision to make. The PRs stacked on it wait.
-7. Ends with one line per PR: merged (marked when it resolved a conflict or fixed a check), stopped or skipped, with the reason.
+7. After merging a `spec/<n>-…` PR, it closes spec #n and any of its tickets still open, with a comment naming the PR, reading only issue numbers and states.
+8. Ends with one line per PR: merged (marked when it resolved a conflict or fixed a check), stopped or skipped, with the reason.
 
 The label approves the PR, not a commit: pushes after it land with it. Remove `ship` before pushing more work to an approved PR.
 
@@ -189,7 +191,7 @@ The first open asks you to allow both for the page.
 ### `/ship:build-spec`
 
 What each cloud session runs. night-shift's builders pass `unattended`: nobody is asked anything, and a question only a person can settle marks the spec stuck. Run it yourself, without `unattended`, and it asks you that question instead (with its recommendation), records your answer under Decisions as "decided by the owner", and carries on.
-1. It builds the spec (`implement-spec`, tickets as commits on `spec/<n>-…`, draft PR). Implementers keep their ticket branches local; the builder merges each into the spec branch inline and pushes only that branch. A ticket that blocks others leaves handoff notes for the next implementer.
+1. It builds the spec (`implement-spec`, tickets as commits on `spec/<n>-…`, draft PR). The PR opens with one `Closes` line for the spec and one per ticket, so merging it closes them all. Implementers keep their ticket branches local; the builder merges each into the spec branch inline and pushes only that branch. A ticket that blocks others leaves handoff notes for the next implementer. A ticket that changes no executable code is built by the builder itself; a code ticket goes to an implementer with `tdd`. build-spec lists every `implement-spec` step it keeps, replaces or skips: `implement-spec`'s own code review and mark-ready don't run, because build-spec's review and finish steps do that. In a chain, new test cases go in a file of their own, so merging a parent into its child doesn't conflict.
 2. It runs the local checks `shipping.md` lists, at the scope it states, with anything that can run past 9 minutes in the background. While CI runs it ends its turn and lets the PR subscription (or a background wait loop) wake it.
 3. It runs `pr-review <pr> unattended`, which approves the blockers and majors and leaves the rest for you.
 4. It fixes them in at most two rounds. Minors and nits are fixed only inside a round, and nothing is pushed after the last round's review.
@@ -197,7 +199,7 @@ What each cloud session runs. night-shift's builders pass `unattended`: nobody i
 
 Every PR it finishes (ready, or stuck with code on its branch) gets a **Try it** section above Decisions: the preview link when the project's CD made one, the command that runs the branch (from `shipping.md`'s Try it section), and numbered hands-on steps, one per acceptance criterion a person can check by hand, each saying what to do and what you should see. It finds previews and never deploys.
 
-A review finding whose fix is a choice only a person can make, or would undo something the spec settles, is never fixed at night: it is named under Decisions and the spec ends stuck with that choice. Every choice the spec left open goes in the PR's Decisions section. The PR ends ready, or as a draft marked stuck with the reason. It never merges and never adds `ship`.
+A review finding whose fix is a choice only a person can make, or would undo something the spec settles, is never fixed at night: it is named under Decisions and the spec ends stuck with that choice. Every choice the spec left open goes in the PR's Decisions section; facts about how the build ran (where the skills came from, tools missing, pre-existing failures) go in Environment notes below it, so Decisions holds only what a reviewer could disagree with. The PR ends ready, or as a draft marked stuck with the reason. It never merges and never adds `ship`.
 
 Unattended, its last step unsubscribes the session from the PRs it opened or reviewed, so later PR events (CI finishing, a PR marked ready) don't wake a finished builder.
 

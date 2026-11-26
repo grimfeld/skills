@@ -41,7 +41,7 @@ Read first:
 
 ### 1. Start
 
-1. **Read the issue:** body, comments and labels. If it isn't `spec:building` or `spec:ready`, or it has no "Slicing" section, mark it stuck (step 6) with that reason and go to the next.
+1. **Read the issue:** body, comments and labels. If it isn't `spec:building` or `spec:ready`, or it has no "Slicing" section, mark it stuck (step 6) with that reason and go to the next. If its body has no `## Problem` heading, mark it stuck with the reason "spec body has no Problem section; restore it from the issue's edit history": a wiped body is never built. Either way, the next spec in the chain is handled as for any stuck spec.
 2. **Relabel it:** `spec:ready` → `spec:building`.
 3. **Choose the base:**
    - The spec's Depends on is in this chain: build on that spec's branch.
@@ -59,39 +59,60 @@ Run `implement-spec` on the spec issue, as `${CLAUDE_PLUGIN_ROOT}/references/run
   - **Check references.** Every `amends`, `amended-by` and `supersedes` must name an ADR that exists on the base or one numbered above. Fix a wrong one, with a Decisions line.
 - **Migrations:** when a ticket adds one and `CLAUDE.md`, `AGENTS.md` or `docs/agents/shipping.md` names the repo's migration-numbering command, number it with that command and push that commit at once, so a parallel builder sees the number taken. Without one, give it the number after the highest taken on the base and on every other open `spec/*` PR head, found the way ADRs are above.
 - **The branch:** what `implement-spec` calls the integration branch is the spec's branch, `spec/<n>-<slug>`, made from the base above.
-- **The PR:** it's a **draft**, targeting the base branch. Its body opens with `Closes #<n>` and one paragraph on what it delivers. Below that is the decisions section:
+- **The PR:** it's a **draft**, targeting the base branch. Its body opens with the Closes lines and one paragraph on what it delivers.
+  - **Closes lines:** one line per issue, each with its own keyword (GitHub links only the issue right after a keyword): `Closes #<spec>`, then `Closes #<ticket>` for each of the spec's sub-issues, then one for each absorbed spec the spec body asks for. Read the sub-issues again before marking the PR ready (step 6), and add a line for any ticket added mid-build. Never close an issue by hand: the Closes lines close them when the PR merges, and `land` closes any GitHub left open.
+
+  Below that is the decisions section, and directly below it the environment notes section:
 
 ```
 <!-- build:decisions:start -->
 ## Decisions made during the build
 - <Choice the spec left open>: <what you chose> — <why, in one line>.
 <!-- build:decisions:end -->
+
+<!-- build:notes:start -->
+## Environment notes
+- <A fact about how the build ran>.
+<!-- build:notes:end -->
 ```
 
-Append to that section every time you choose something the spec didn't say, and keep it up to date. It's what the reviewer reads to check your judgement. Write the section to a file and put it in the PR body with `uv run --no-project python ${CLAUDE_PLUGIN_ROOT}/skills/pr-review/scripts/update-pr-body.py --markers build:decisions <pr> <decisions.md>`. When `gh` can't edit the PR, use the "Splice a section into a PR body" row of `${CLAUDE_PLUGIN_ROOT}/references/github.md` (`--body-file`): one MCP read and one MCP update per change.
+A line goes under **Decisions** when a reviewer could disagree with it: a choice the spec left open, or a review finding left unfixed with the reason. It goes under **Environment notes** when it is a fact about how the build ran: where the skills came from ("ran from a clone of grimfeld/skills"), a tool missing or refused ("no `gh`: GitHub MCP used"), a check run, skipped or passing with a warning `main` also has, a pre-existing failure, which review lenses ran. Open the PR with both sections, the notes one empty if there is nothing to note yet, so a later note lands directly below Decisions.
+
+Append to Decisions every time you choose something the spec didn't say, and keep both sections up to date. Decisions is what the reviewer reads to check your judgement. Write each section to a file and put it in the PR body with `uv run --no-project python ${CLAUDE_PLUGIN_ROOT}/skills/pr-review/scripts/update-pr-body.py --markers build:decisions <pr> <decisions.md>` (`--markers build:notes` for the notes). When `gh` can't edit the PR, use the "Splice a section into a PR body" row of `${CLAUDE_PLUGIN_ROOT}/references/github.md` (`--body-file`): one MCP read and one MCP update per change.
 
 **A question the spec doesn't answer:** if the answer changes what a user sees or does, or changes data in a way that can't be undone, only a person can settle it. Otherwise, decide and record it.
 
 - **Unattended:** the spec is stuck.
 - **Without `unattended`:** ask the user one question (`AskUserQuestion`) naming the choices and which you recommend, and why. Record the answer under Decisions as "<question>: decided by the owner: <choice>", and go on.
 
-**Without the Agent tool:** build `implement-spec`'s tickets one after another in your own context, on the spec branch, instead of in implementer subagents. Record "no Agent tool: tickets built inline" under Decisions. Overrides that describe implementer worktrees, merger subagents or handoff notes don't apply on this path.
+**Without the Agent tool:** build `implement-spec`'s tickets one after another in your own context, on the spec branch, instead of in implementer subagents. Record "no Agent tool: tickets built inline" under Environment notes. Overrides that describe implementer worktrees, merger subagents or handoff notes don't apply on this path.
 
-**Overrides to `implement-spec`.** Where these replace one of its steps, they win:
-- **The notes dir:** `/tmp/build-spec-<n>/`, made before the first subagent. It is this skill's case of "Subagents' scratch folders" in `${CLAUDE_PLUGIN_ROOT}/references/running-skills.md`, kept at this path. It's the one folder outside the repo that `implement-spec`'s exploration subagent saves to, and it holds the handoff notes below. Give its absolute path in every brief.
-- **The implementer brief:** the implementer commits on its ticket branch in its own worktree and never pushes it. Its worktree shares your clone's object store, so you see the branch without a push.
-- **Handoff notes:** an implementer whose ticket blocks another writes `<notes dir>/<ticket>.md` before it reports done: the paths it touched and the seams the next ticket plugs into (functions, test helpers, where to extend), as pointers and decisions, never the diff. A ticket that blocks nothing writes none. Done when every ticket it unblocks has a notes file to point at.
-- **The merger step:** a finished ticket branch already holds the spec branch's tip (the implementer merged it before reporting). Merge it yourself, inline, in your clone, on the spec branch: `git merge --no-ff --no-commit <ticket branch>`, then `git commit` with the build's message conventions and attribution, then push the spec branch. Done when the spec branch on the remote holds the implementer's commit. Start a merger subagent only when that merge conflicts; it resolves in your clone the same way and pushes only the spec branch.
-- **The new-frontier step:** each newly unblocked ticket's brief points at its blockers' notes files.
-- **Nothing else is pushed:** after the build, `git ls-remote --heads origin` lists no ticket branch, only the branches that were there before and the spec branch.
+**Overrides to `implement-spec`.** Every step of `implement-spec`, by number and what it does, and what you do with it. Where this list replaces or skips a step, it wins (`running-skills.md`: the caller wins). A choice this list settles is not a Decision: don't record it in the PR's Decisions section.
+1. **Read the spec and tickets** (the task graph): kept.
+2. **Exploration subagent:** kept, optional. **The notes dir** is `/tmp/build-spec-<n>/`, made before the first subagent. It is this skill's case of "Subagents' scratch folders" in `${CLAUDE_PLUGIN_ROOT}/references/running-skills.md`, kept at this path. It is the one folder outside the repo the exploration subagent saves to, and the home of the handoff notes (step 4). Give its absolute path in every brief.
+3. **Integration branch and draft PR:** replaced. The branch is the spec's, `spec/<n>-<slug>`, made from the base step 1 chose; the PR is this skill's draft, with the body under "The PR" above, Closes lines included.
+4. **An implementer subagent per ticket:** kept, with these changes.
+   - **Inline tickets:** a ticket that changes no executable code (skill text, docs, config values) is built by you, inline, on its own ticket branch, with no subagent; merge it into the spec branch as step 5 says. A ticket that changes executable code goes to an implementer subagent, which builds it with `tdd`, as `implement-spec` says.
+   - **The implementer brief:** the implementer commits on its ticket branch in its own worktree and never pushes it. Its worktree shares your clone's object store, so you see the branch without a push.
+   - **Test files in a chain** (the spec has a parent or a child in this chain): the brief says to put the spec's new test cases in a new file named for the feature (following the repo's naming for test files), unless the repo's docs (`CLAUDE.md`, `AGENTS.md`, a test README) say cases for that area live in one named file. A file the repo requires to be edited in place (a registry or list, such as a screens table) is still edited in place; it is expected to conflict down the chain, and the conflict is resolved by keeping both sides. Existing cases in a shared file that the change breaks are still edited where they are: the rule is about where new cases go. When you keep new cases in a shared file because of a repo rule, record "new tests in <file>: <the repo rule>" under Decisions.
+   - **Handoff notes:** an implementer whose ticket blocks another writes `<notes dir>/<ticket>.md` before it reports done: the paths it touched and the seams the next ticket plugs into (functions, test helpers, where to extend), as pointers and decisions, never the diff. A ticket that blocks nothing writes none. Done when every ticket it unblocks has a notes file to point at.
+5. **Merger subagent:** replaced by an inline merge. A finished ticket branch already holds the spec branch's tip (the implementer merged it before reporting). Merge it yourself, in your clone, on the spec branch: `git merge --no-ff --no-commit <ticket branch>`, then `git commit` with the build's message conventions and attribution, then push the spec branch. Done when the spec branch on the remote holds the implementer's commit. Start a merger subagent only when that merge conflicts; it resolves in your clone the same way and pushes only the spec branch.
+6. **New frontier:** kept. Each newly unblocked ticket's brief points at its blockers' notes files.
+7. **`code-review` on the integration branch:** skipped. Step 4 below runs `pr-review`, whose `standards-and-spec` lens is `code-review`'s two axes, plus the other lenses and up to two fix rounds.
+8. **Mark the PR ready, or resolve the tickets:** skipped. Step 6 marks the PR ready only when the spec is Ready, after checks pass and `pr-review` has run. Tickets close through the PR's Closes lines when it merges, never by hand.
+9. **Clean up implementer worktrees:** kept (step 7, End, does it too).
 
-Done when every ticket is closed, or one can't be built, which makes the spec stuck.
+**Nothing else is pushed:** after the build, `git ls-remote --heads origin` lists no ticket branch, only the branches that were there before and the spec branch.
+
+**If `implement-spec`'s steps no longer match this list** (a step added, removed or renumbered upstream): match each step by what it does, not its number; follow `implement-spec` for any step the list doesn't name; and record that one mismatch under Decisions.
+
+Done when every ticket is built and merged into the spec branch, with its Closes line in the PR body, or one can't be built, which makes the spec stuck.
 
 ### 3. Check
 
 Run exactly the local checks `docs/agents/shipping.md` lists, at the scope it states (for example "the e2e specs the change touches"), then the project's own pre-push checks, waiting on long ones as Waiting says. Never run a whole e2e suite or a CI shard unless that file names it.
 - Fix failures that are your change's fault.
-- If a failure is also present on the base branch, it isn't your change's fault. Record it under Decisions ("pre-existing failure: …") and go on.
+- If a failure is also present on the base branch, it isn't your change's fault. Record it under Environment notes ("pre-existing failure: …") and go on.
 
 Push, then wait for CI on the PR as Waiting (above) says, including its 30-minute rule. The `ship` status stays pending until a person reviews the PR. That's expected, so never try to make it pass.
 
@@ -130,13 +151,13 @@ Skipped for a spec handed back at step 3 (no Agent tool): the caller runs it.
 **The head check, first.** Read the PR once (the "Read a PR" row) and take both values from that one read: its head SHA (`.head.sha`) and the head named in its body's review section footer (the `<sub>pr-review · head …` line, which prints a 7-character short SHA). Read the footer only between the `<!-- pr-review:start -->` and `<!-- pr-review:end -->` markers, and accept its head only when it is 7 to 40 hex characters; a missing or malformed head fails the check. Call it the reviewed head. The check passes when the reviewed head is a prefix of the head SHA.
 - **It fails** (a commit landed after the last review): run `pr-review <pr> unattended` once more, on the current head, and fix nothing. This confirming review isn't a round: it doesn't count toward the two, or toward `rounds` below. Read the PR once more. The spec can be Ready only if that review left no blocker or major open and its footer head is a prefix of the PR's head; otherwise it is stuck, and the Stuck section names the unreviewed commits (`git log --oneline <reviewed head>..<PR head>`, with the reviewed head from the first read).
 
-**Ready** (the head check passed, or the confirming review came back clean on the head; CI green apart from `ship`, and no blocker or major left open):
+**Ready** (the head check passed, or the confirming review came back clean on the head; the Closes lines cover every sub-issue; CI green apart from `ship`, and no blocker or major left open):
 - Mark the PR ready.
 - Relabel the spec issue `spec:building` → `spec:in-review`.
 
 **Stuck:**
 - Leave the PR as a draft, or open one with what exists, if anything was built.
-- Add a "Stuck" section to the PR body below Decisions: what blocks, what you tried, and what a person has to decide. For a `needs-person` finding, name the finding, the spec line it contradicts if any, and the choice: keep the spec and accept or document the finding, or change the spec (or pick one of its options).
+- Add a "Stuck" section to the PR body below Decisions and Environment notes: what blocks, what you tried, and what a person has to decide. For a `needs-person` finding, name the finding, the spec line it contradicts if any, and the choice: keep the spec and accept or document the finding, or change the spec (or pick one of its options).
 - Relabel the issue `spec:stuck`.
 
 **Try it,** on a ready PR, and on a stuck one whose branch holds built code (commits ahead of its base). A stuck spec with no PR or nothing built gets none. The section tells the owner how to try the branch before landing it:
@@ -162,7 +183,7 @@ Skipped for a spec handed back at step 3 (no Agent tool): the caller runs it.
    - No hand-checkable criterion: the list is the one line "Nothing to check by hand: the tests cover this spec."
 5. **Splice it** above Decisions: `uv run --no-project python ${CLAUDE_PLUGIN_ROOT}/skills/pr-review/scripts/update-pr-body.py --markers build:try-it --before build:decisions <pr> /tmp/build-spec-<n>/try-it.md`. Without `gh`, the "Splice a section into a PR body" row of `${CLAUDE_PLUGIN_ROOT}/references/github.md`, with the same `--markers build:try-it --before build:decisions`. A later run replaces the section in place.
 
-Ready or stuck, copy the spec's **Before ship** and **After merge** items to the top of the PR body, above the opening paragraph (below the `Closes` line), as unchecked boxes under `## Before ship` and `## After merge` headings. They are deferred to a person, so they don't count as unmet criteria for Ready. Leave out a section that reads "None", or that the spec doesn't have.
+Ready or stuck, copy the spec's **Before ship** and **After merge** items to the top of the PR body, above the opening paragraph (below the Closes lines), as unchecked boxes under `## Before ship` and `## After merge` headings. They are deferred to a person, so they don't count as unmet criteria for Ready. Leave out a section that reads "None", or that the spec doesn't have.
 
 Then comment on the spec issue with one line for the morning page:
 
@@ -171,7 +192,7 @@ Then comment on the spec issue with one line for the morning page:
 night-shift: <ready for review|stuck>: <PR link>. <one sentence>
 ```
 
-`rounds` counts fix rounds only, never the confirming review.
+`decisions` counts the items in the Decisions section only, never Environment notes. `rounds` counts fix rounds only, never the confirming review.
 
 A stuck spec stops only the specs whose Depends on names it, directly or through another spec in this chain. Mark each of those stuck, "depends on #N, which is stuck".
 

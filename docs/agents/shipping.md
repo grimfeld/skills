@@ -103,7 +103,7 @@ each night. Re-run `/ship:setup-ship` to change it.
 ## Spec labels
 
 Specs are GitHub issues moving through `spec:draft` → `spec:ready` → `spec:building` → `spec:in-review`, or
-`spec:stuck`, and close when their PR ships. To send a PR back instead of approving it, write what to change in its
+`spec:stuck`, and close with their tickets when their PR ships. To send a PR back instead of approving it, write what to change in its
 comments or a review and label it **`changes-requested`**: the next night shift adjusts it on its own branch
 (`/ship:build-spec #<pr> adjust`, which you can also run yourself). To rebuild it from scratch instead, close the PR
 and relabel its spec `spec:ready`.
