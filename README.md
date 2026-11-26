@@ -25,9 +25,9 @@ The flow:
 
 1. **Drift check**: each lens records the hash of the skill it was adapted from. If that skill has changed since, the run pauses and offers to re-sync the lens.
 2. **Prepare**: resolves the diff (in a temporary worktree for PRs that aren't checked out), the spec, CI status and any previous report.
-3. **Route**: skips lenses with nothing to review, first by file type (no front-end files: no web audit; docs-only: standards and spec only, plus security when a ship skill under `skills/` changes; a GitHub Actions workflow or workflow template gets quality and security with an Actions checklist), then by reading the hunks of smaller diffs (no data or loop changes: no performance review).
+3. **Route**: skips lenses with nothing to review, first by file type (no front-end files: no web audit; docs-only: standards and spec only, plus security when a ship skill under `skills/` changes; a GitHub Actions workflow or workflow template gets quality and security with an Actions checklist), then by size (under 200 changed code lines: only the standards, quality and security lenses, plus the web audit and design fidelity when they apply), then by reading the hunks of smaller diffs (no data or loop changes: no performance review).
 4. **Find a preview URL** for the web audit: GitHub deployments, the Vercel bot comment, the Vercel MCP, then a local dev server already running. Never starts or deploys anything.
-5. **Review** in parallel, one lightweight `pr-lens-reviewer` agent per lens. Every reviewer is report-only and returns findings in one shared format. In a session without the Agent tool (a subagent), it reviews nothing and says "not run: no Agent tool in this session": the context that wrote the code doesn't review it.
+5. **Review** in parallel, one lightweight `pr-lens-reviewer` agent per lens. Each prompt carries the lens's brief, the finding format and the whole spec, so a reviewer fetches none of them; it reads the saved diff once, in ranges of at most 400 lines. The orchestrator reads nothing while the lenses run, and verification reads only the lines a finding cites. Reviewers write probe files only under `/tmp`; the orchestrator compares `git status` before and after the review, removes anything a reviewer left in the repo (keeping a copy in a private folder under `/tmp`) and lists it as a lens failure. Every reviewer is report-only and returns findings in one shared format. In a session without the Agent tool (a subagent), it reviews nothing and says "not run: no Agent tool in this session": the context that wrote the code doesn't review it.
 6. **Dedupe** across lenses. A finding several lenses agree on ranks higher.
 7. **Verify** every blocker and major against the code; false positives are dropped.
 8. **Report**: findings are rewritten in plain language and kept in `.scratch/pr-review/<id>.json`; a script renders them into a readable report (`<id>.md`) that opens with the verdict and groups smaller findings by theme, plus a private Artifact page with the same content. Re-runs mark findings fixed, still open or new, and never resurface rejected ones. With `fix-round`, only the lenses that raised open approved findings, plus `quality`, re-check those findings and the fix diff, and a finding is marked fixed only when a lens confirms it.
@@ -91,6 +91,7 @@ Sizes each `spec:ready` spec against prior PRs in the same areas. The rule is on
 
 - **Too big:** it proposes splitting into specs that ship on their own, split by behaviour and never by layer. It only splits once you approve.
 - **Tickets:** it then calls `to-tickets` for each spec. Tickets become commits on the spec's branch, not PRs.
+- **Spec bodies:** it adds its Slicing section between markers without rewriting the rest of the spec, reads the body back after each write, and puts the saved body back if a heading went missing.
 
 ### `/ship:night-shift`
 
@@ -101,19 +102,43 @@ Sizes each `spec:ready` spec against prior PRs in the same areas. The rule is on
    - Specs that overlap but don't disagree are chained without asking: built in order in one session, each PR on top of the previous one.
    - Conflicting decisions go to you, in one round.
    - A design's place specs wait until its foundation and shell have merged.
-3. Once you approve the plan, it gives each session its prompt on a reused pool of builder routines (`ship-builder-<repo>-N`, since routines can't be deleted through the API) and starts them. The routines run in the cloud environment `docs/agents/shipping.md` names (its "Cloud environment" line); without one, the plan asks you to pick tonight's, never taking the default. Each builder runs `/ship:build-spec <specs> unattended`, so nothing is asked overnight.
+   - Open PRs labelled `changes-requested` become **adjust sessions**: `/ship:build-spec #<pr> adjust unattended` changes the PR on its own branch from your feedback on it. The conflict check treats an adjust like a spec whose Touches are the PR's changed files.
+3. Once you approve the plan, it gives each session its prompt on a reused pool of builder routines (`ship-builder-<repo>-N`, since routines can't be deleted through the API) and starts them. The routines run in the cloud environment `docs/agents/shipping.md` names (its "Cloud environment" line); without one, the plan asks you to pick tonight's, never taking the default. Each builder reads `build-spec` from the installed plugin (or from a clone when there is none; never through the Skill tool, which refuses ship skills) and runs it with `<specs> unattended`, so nothing is asked overnight.
+4. About two minutes after starting them, it checks each session is still running before reporting it as building. A session that already ended without reporting its specs is shown with the cause from its log, and offered one restart; specs of a session not restarted stay `spec:ready` with a `not-started` comment.
+5. The plan shows a **Load** line comparing tonight with the last recorded night, and warns when a night that size already stopped at the 5-hour limit.
 
 **`/ship:night-shift morning`** gathers the results into one page:
-- PRs ready to review, smallest first, each with its verdict, risks and the decisions to check
+- PRs ready to review, smallest first, each with its verdict, risks and the decisions to check, and how to try it: the preview link when there is one, and the command that runs the branch
 - for a PR built from a design, its fidelity grid: reference beside app in every look, theme and viewport, with the views the review flagged shown full size
 - designs whose specs have all merged are closed
 - stuck specs, and what each needs from you
 - specs still building, when builders are still running: their own section, no cost yet, never in the `/ship:land` line; run the morning again later and it updates the same page
-- under each decision, how to answer it: tell the morning session `#<pr>: <choice>`, and it comments the answer on the PR and keeps the PR in the `/ship:land` line or sends it back for another night
+- builder sessions stopped at the 5-hour limit, with their specs: open the session after the reset and send `Try again` (re-running the routine starts over). Each morning also records the night's size, cost and limit stops in `.scratch/night-shift/nights.jsonl`, for the evening's Load line
+- under each decision, how to answer it: tell the morning session `#<pr>: <choice>`, and it comments the answer on the PR and keeps the PR in the `/ship:land` line or sends it back (`changes-requested`) to be adjusted the next night
+- to change a PR you've tried: write the feedback on the PR and label it `changes-requested`; the next night adjusts it on its own branch. To rebuild it from scratch, close the PR and relabel its spec `spec:ready`
 - what each spec, each session and the whole night would have cost at API prices, counted by each builder from its own transcript (`scripts/token-usage.mjs`, prices in `scripts/prices.json`); builders mark each spec's start, so a chained session's tokens land on the spec being worked on, and a spec nothing was counted toward reads "cost not reported"
 - the `/ship:land` command to run once you've reviewed: it approves the PRs you name and lands every PR carrying `ship`
 
 Each collected spec gets a comment linking the morning page, marked `<!-- ship:morning-page -->`, so the page can be found from the spec. A spec whose newest such comment already names that URL gets no new one, so republishing the page to the same URL posts nothing.
+
+**Day builds.** `/ship:day-shift` builds on the same builder pool during the day, so the shifts never overlap: every dispatch comment says which shift wrote it (`"shift":"night"` or `"shift":"day"`; one without the field counts as night). The evening dispatches nothing while a day build is still `spec:building`: it names those specs and asks you to wait for them or stop them, and to stop the day loop. The morning page leaves out day builds, which the day shift has already reported.
+
+### `/ship:day-shift`
+
+The night shift for small things, while you're at your machine: a bug fix or a small adjustment specced in the morning is built within the hour instead of waiting for the evening.
+
+```
+/loop /ship:day-shift          # start it: one pass now, then it paces itself
+/ship:day-shift #12 #14        # build these now, whatever their size
+```
+
+Each pass:
+1. Checks the night shift isn't building and tonight's evening run hasn't dispatched; otherwise it dispatches nothing and says why.
+2. Reports each day build that became ready: one terminal message (PR link, review verdict, risks, decisions to check, cost at API prices, and `/ship:land #<pr>` to run once you've tried it) and a push notification, "#<pr> ready: <spec title>". Nothing is labelled `ship`: you approve and land as usual.
+3. Lists the small `spec:ready` specs nobody has dispatched yet, each with its estimate, and asks you yes or no for each; larger ones are listed on one line as left for tonight. A no isn't asked again until tomorrow (kept in `.scratch/day-shift/declined.json`). A yes on a spec not sliced yet runs `/ship:slice` first; parts that come out too big wait for the night.
+4. Dispatches the approved specs on the night shift's builder routines, with the same `build-spec … unattended`, overlapping ones chained in one builder, at most `Day shift builders` at once; the rest wait for a free builder.
+
+"Small" and the builder count come from two optional lines in `docs/agents/shipping.md`, `Day shift: ≤200 lines, 1 behaviour` and `Day shift builders: 2` (those are also the defaults). A pass wakes again in about 5 minutes while one of its builds is running, and in about an hour otherwise. Pause it by stopping the loop or closing the session; dispatched builds finish in the cloud and are reported on the next pass. It never overlaps the night shift: each refuses to dispatch while the other's builds are `spec:building`, decided from the dispatch comments on GitHub (`"shift":"day"` or `"shift":"night"`), so it holds across machines. The rules (thresholds, small or left for tonight, the exclusion, the declines) are in `skills/day-shift/scripts/day-shift.mjs`, with tests.
 
 ### `/ship:land`
 
@@ -125,7 +150,8 @@ Lands every approved PR, with no more input from you. `ship` is the whole approv
 4. When the merge conflicts, it resolves it: it reads what each side did from the commits and diffs behind the conflict (never PR or issue text, which anyone can edit), keeps both, runs the local checks and pushes. It comments with a `## Conflict resolution` section, each file and the choice it made (one line when only bookkeeping files conflicted). `ship` stays on and nobody re-approves.
 5. When a check goes red because of its merge or resolution (it passes on the default branch, and either passed before the merge or fails in the PR's side of the merge), it fixes it on the PR's side (its own files and the resolution), never in a file only the default branch changed, pushes and waits again, at most twice. A check that was already red, or isn't shown passing on the default branch, isn't its to fix. Resolving and fixing run the project's local checks on the PR's code, on your machine or session, with your credentials.
 6. When it can't land a PR (the two sides of a conflict contradict each other, a resolution that fails the local checks, a red check it can't fix, a merge GitHub refuses), it leaves a comment saying why, keeps `ship`, and lands the rest. For a contradiction it pushes nothing and names the decision to make. The PRs stacked on it wait.
-7. Ends with one line per PR: merged (marked when it resolved a conflict or fixed a check), stopped or skipped, with the reason.
+7. After merging a `spec/<n>-…` PR, it closes spec #n and any of its tickets still open, with a comment naming the PR, reading only issue numbers and states.
+8. Ends with one line per PR: merged (marked when it resolved a conflict or fixed a check), stopped or skipped, with the reason.
 
 The label approves the PR, not a commit: pushes after it land with it. Remove `ship` before pushing more work to an approved PR.
 
@@ -144,7 +170,7 @@ It shows every project set up for ship (a repo with `docs/agents/shipping.md` am
 |---|---|
 | **Needs you** | `spec:draft` and `spec:stuck` specs, `design:ready` designs, PRs with failing checks, PRs that have carried `ship` for over 24 h without merging, and reviewed PRs (`pr-reviewed`, without `changes-requested`) waiting for your `ship` |
 | **Ready for tonight** | `spec:ready` specs |
-| **In flight** | `spec:building` specs, PRs labelled `changes-requested` (back with the night shift), draft PRs, and approved PRs landing now |
+| **In flight** | `spec:building` specs, PRs labelled `changes-requested` (adjusting next), draft PRs, and approved PRs landing now |
 | **Landed** | specs closed and PRs merged in the last 7 days |
 
 An item that fits several buckets shows once, in the first. Each card says why it's there ("checks failing", "ship label on, no update for 31 h") and for how long. The page refreshes every 5 minutes while it's open, and on **Refresh**.
@@ -185,12 +211,21 @@ The first open asks you to allow both for the page.
 ### `/ship:build-spec`
 
 What each cloud session runs. night-shift's builders pass `unattended`: nobody is asked anything, and a question only a person can settle marks the spec stuck. Run it yourself, without `unattended`, and it asks you that question instead (with its recommendation), records your answer under Decisions as "decided by the owner", and carries on.
-1. It builds the spec (`implement-spec`, tickets as commits on `spec/<n>-…`, draft PR). Implementers keep their ticket branches local; the builder merges each into the spec branch inline and pushes only that branch. A ticket that blocks others leaves handoff notes for the next implementer.
-2. It runs the project's checks.
+1. It builds the spec (`implement-spec`, tickets as commits on `spec/<n>-…`, draft PR). The PR opens with one `Closes` line for the spec and one per ticket, so merging it closes them all. Implementers keep their ticket branches local; the builder merges each into the spec branch inline and pushes only that branch. A ticket that blocks others leaves handoff notes for the next implementer. A ticket that changes no executable code is built by the builder itself; a code ticket goes to an implementer with `tdd`. build-spec lists every `implement-spec` step it keeps, replaces or skips: `implement-spec`'s own code review and mark-ready don't run, because build-spec's review and finish steps do that. In a chain, new test cases go in a file of their own, so merging a parent into its child doesn't conflict.
+2. It runs the local checks `shipping.md` lists, at the scope it states, with anything that can run past 9 minutes in the background. While CI runs it ends its turn and lets the PR subscription (or a background wait loop) wake it.
 3. It runs `pr-review <pr> unattended`, which approves the blockers and majors and leaves the rest for you.
-4. It fixes them in at most two rounds.
+4. It fixes them in at most two rounds. Minors and nits are fixed only inside a round, and nothing is pushed after the last round's review.
+5. It marks the PR ready only when the head in the review section is the PR's head. If a commit slipped in after the last review, one more review that fixes nothing (not a round) must come back clean on that head; otherwise the spec ends stuck, naming the unreviewed commits.
 
-A review finding whose fix is a choice only a person can make, or would undo something the spec settles, is never fixed at night: it is named under Decisions and the spec ends stuck with that choice. Every choice the spec left open goes in the PR's Decisions section. The PR ends ready, or as a draft marked stuck with the reason. It never merges and never adds `ship`.
+Every PR it finishes (ready, or stuck with code on its branch) gets a **Try it** section above Decisions: the preview link when the project's CD made one, the command that runs the branch (from `shipping.md`'s Try it section), and numbered hands-on steps, one per acceptance criterion a person can check by hand, each saying what to do and what you should see. It finds previews and never deploys.
+
+A review finding whose fix is a choice only a person can make, or would undo something the spec settles, is never fixed at night: it is named under Decisions and the spec ends stuck with that choice. Every choice the spec left open goes in the PR's Decisions section; facts about how the build ran (where the skills came from, tools missing, pre-existing failures) go in Environment notes below it, so Decisions holds only what a reviewer could disagree with. The PR ends ready, or as a draft marked stuck with the reason. It never merges and never adds `ship`.
+
+Unattended, its last step unsubscribes the session from the PRs it opened or reviewed, so later PR events (CI finishing, a PR marked ready) don't wake a finished builder.
+
+**`/ship:build-spec #<pr> adjust`** changes a PR it built from your feedback, instead of rebuilding it. Try the PR, write what to change in its comments or a review, and label it `changes-requested`. The adjust reads the comments, review comments and review bodies posted since the last adjust (or since the PR was marked ready) by people with write access to the repository, and says how many others it ignored (`scripts/select-feedback.mjs`). It changes the code on the PR's own branch, runs `pr-review <pr> fix-round` (at most two rounds), refreshes Try it, removes `changes-requested` and leaves a `build:adjusted` marker comment. Feedback that contradicts the spec wins: it is recorded under Decisions as "changed from the spec by the owner", and the spec issue is edited to match. With no feedback since the last adjust, it changes nothing and the label stays on. Run it yourself and it asks its questions; the night shift runs it with `unattended`, and feedback that needs a decision leaves the PR stuck.
+
+**`resume`** finishes a stuck build instead of starting it again: `/ship:build-spec #<n> unattended resume`, on a `spec:stuck` spec with an open PR, relabels it `spec:building`, reads your answer from the spec's `## Owner decisions` section, and goes on from the step that stuck on the same branch and PR, keeping its commits, review and Decisions. It runs at most one more fix round, then ends ready or stuck as usual. Without an open PR, or on a spec that isn't `spec:stuck`, it refuses and says why. The night shift's builder prompt can pass it.
 
 In a session without the Agent tool (a subagent), it builds the tickets inline, stops after the checks, and hands the draft PR back: "review pending: run build-spec steps 4–6 from a session with the Agent tool". The caller runs those steps.
 
@@ -205,9 +240,10 @@ Run once per project. It works in an empty folder too: it creates the local repo
 - **Dependabot:** patch updates and GitHub Actions updates are labelled `ship` and land with the next `/ship:land`.
 - **Labels:** `ship`, `pr-reviewed`, `changes-requested`, and the `spec:*` and `design:*` labels the pipeline uses.
 - **`docs/agents/shipping.md`:** the rules, written down for people and for the other skills, including the cloud environment night-shift's builders run in (it lists your environments and asks). The skills read it, and `docs/agents/issue-tracker.md`, from the fetched default branch, never the working tree; without them they use the defaults in `references/project-docs.md` (GitHub issues, the `spec:*` labels, the project's own checks).
+- **Try it:** `shipping.md` records how a branch is tried: where previews come from (the project's own CD, or "none") and the command that runs a branch, with a `<branch>` placeholder (or "none"). Setup proposes both from what it finds (deployments on PRs, a Vercel or Netlify config, a `dev` or `start` script). `/ship:build-spec` fills each build PR's Try it section from them. With no preview deploys, the report says so and suggests turning them on in your CD; setup changes nothing to make them.
 - **The project's `.claude/settings.json`:** enables the plugin.
 
-Run it again in a project set up by an older version and it offers an upgrade: it re-renders `ship.yml` and `shipping.md` with the values already installed, keeps your own edits to them, and shows the diff first. Upgrading from version 2 also turns auto-merge off and retires the `conflicts` label. Upgrading from version 3 asks only for the cloud environment.
+Run it again in a project set up by an older version and it offers an upgrade: it re-renders `ship.yml` and `shipping.md` with the values already installed, keeps your own edits to them, and shows the diff first. Upgrading from version 2 also turns auto-merge off and retires the `conflicts` label. Upgrading from version 3 asks only for the cloud environment. Upgrading from version 4 asks only for the two Try it values.
 
 After adding a CI job, add it to the "Required on" line of `docs/agents/shipping.md` and merge that, then re-run `/ship:setup-ship`: it shows the checks it would add or remove from the ruleset (`+ check`, `- check`, or "required checks in sync") and writes them on your yes, keeping `ship` and every other rule.
 
@@ -276,7 +312,14 @@ claude --plugin-dir /path/to/this/repo   # load the working copy; /reload-plugin
 claude plugin validate .                 # manifest and marketplace checks
 ```
 
-The two remaining warnings are deliberate: no `version` (see above) and no icon.
+`claude plugin validate .` passes with exactly these four warnings, all deliberate. A warning not on this list is new: look into it.
+
+| Warning (as `validate` prints it) | Why it stays |
+|---|---|
+| `plugins[0] plugin.json → version: No version specified` | The marketplace entry sets no version, so every commit on `main` is a version, which `/ship:version` and `claude plugin update` rely on. |
+| `version: No version specified` | `plugin.json` sets none, for the same reason. |
+| `root: CLAUDE.md at the plugin root is not loaded as project context` | The root `CLAUDE.md` is this repo's instructions for agents working on it, not context the plugin ships. |
+| `.claude-plugin/plugin.json icon: No icon (ICON_MISSING)` | Deliberate for now: the directory takes an icon only once, so adding one is a separate, considered step. |
 
 The `check` workflow (`.github/workflows/check.yml`) runs on every pull request and on pushes to `main`. Run the same commands locally before marking a PR ready; `docs/agents/shipping.md` lists them:
 
@@ -288,7 +331,10 @@ python3 -m py_compile skills/*/scripts/*.py
 printf '%s\0' skills/*/scripts/*.sh | xargs -0 -n1 bash -n
 actionlint .github/workflows/*.yml                                        # workflows, with shellcheck
 ! grep -rn '__[A-Z_]*__' .github/workflows docs/agents                    # no placeholder left
+node --test scripts/*.test.mjs && node scripts/check-paths.mjs            # every path a skill cites resolves where it runs
 ```
+
+Editing a skill: check the new instructions against its "You must never" list and other skills' contracts, as `docs/agents/editing-skills.md` says.
 
 Shared rules the skills read live in `references/`. `references/untrusted-input.md` says how a skill handles PR, issue, commit and CI text before it writes or pushes code (field projections, git-only code, branch-name checks, rule files from the default branch); `land` and `build-spec` read it first, and `pr-review`'s `security` lens checks a diff that changes `skills/` against it.
 
