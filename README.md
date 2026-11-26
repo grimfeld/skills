@@ -120,6 +120,8 @@ Sizes each `spec:ready` spec against prior PRs in the same areas. The rule is on
 
 Each collected spec gets a comment linking that morning's page, marked `<!-- ship:morning-page -->`, so the page can be found from the spec.
 
+**Day builds.** `/ship:day-shift` builds on the same builder pool during the day, so the shifts never overlap: every dispatch comment says which shift wrote it (`"shift":"night"` or `"shift":"day"`; one without the field counts as night). The evening dispatches nothing while a day build is still `spec:building`: it names those specs and asks you to wait for them or stop them, and to stop the day loop. The morning page leaves out day builds, which the day shift has already reported.
+
 ### `/ship:land`
 
 Lands every approved PR, with no more input from you. `ship` is the whole approval: adding it means you have read the PR and its comments.
@@ -204,6 +206,8 @@ A review finding whose fix is a choice only a person can make, or would undo som
 Unattended, its last step unsubscribes the session from the PRs it opened or reviewed, so later PR events (CI finishing, a PR marked ready) don't wake a finished builder.
 
 **`/ship:build-spec #<pr> adjust`** changes a PR it built from your feedback, instead of rebuilding it. Try the PR, write what to change in its comments or a review, and label it `changes-requested`. The adjust reads the comments, review comments and review bodies posted since the last adjust (or since the PR was marked ready) by people with write access to the repository, and says how many others it ignored (`scripts/select-feedback.mjs`). It changes the code on the PR's own branch, runs `pr-review <pr> fix-round` (at most two rounds), refreshes Try it, removes `changes-requested` and leaves a `build:adjusted` marker comment. Feedback that contradicts the spec wins: it is recorded under Decisions as "changed from the spec by the owner", and the spec issue is edited to match. With no feedback since the last adjust, it changes nothing and the label stays on. Run it yourself and it asks its questions; the night shift runs it with `unattended`, and feedback that needs a decision leaves the PR stuck.
+
+**`resume`** finishes a stuck build instead of starting it again: `/ship:build-spec #<n> unattended resume`, on a `spec:stuck` spec with an open PR, relabels it `spec:building`, reads your answer from the spec's `## Owner decisions` section, and goes on from the step that stuck on the same branch and PR, keeping its commits, review and Decisions. It runs at most one more fix round, then ends ready or stuck as usual. Without an open PR, or on a spec that isn't `spec:stuck`, it refuses and says why. The night shift's builder prompt can pass it.
 
 In a session without the Agent tool (a subagent), it builds the tickets inline, stops after the checks, and hands the draft PR back: "review pending: run build-spec steps 4–6 from a session with the Agent tool". The caller runs those steps.
 

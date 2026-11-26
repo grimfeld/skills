@@ -2,7 +2,7 @@
 name: build-spec
 description: Build one or more sliced specs end to end, review each with pr-review in unattended mode, fix what it finds within two rounds, and leave each PR ready for review or marked stuck with the reason. With `unattended` (a night-shift cloud session) nobody is asked anything; without it, a blocking decision is asked of the person who ran it.
 disable-model-invocation: true
-argument-hint: "#<spec> [#<spec> ...] [unattended]  (several = one chain, built in order, each on top of the previous) | #<pr> adjust [unattended]  (change a built PR from the owner's feedback)"
+argument-hint: "#<spec> [#<spec> ...] [unattended] [resume]  (several = one chain, built in order, each on top of the previous; resume = finish a stuck spec's open PR) | #<pr> adjust [unattended]  (change a built PR from the owner's feedback)"
 ---
 
 # Build spec
@@ -11,6 +11,7 @@ You build one spec, or a chain of specs in order. With `#<pr> adjust`, you inste
 
 - **`unattended`** (night-shift's builders always pass it): nobody can answer questions. Where the rules below say a spec is **stuck**, it is stuck.
 - **Without it**, a person ran you and is in the session. Where the rules below would make a spec stuck over a question, **ask** it instead (see "A question the spec doesn't answer") and carry on with the answer. Anything else that makes a spec stuck still does.
+- **`resume`**: each spec named is a `spec:stuck` spec with an open PR, and you finish that PR instead of building it again. Follow "Resume" below in place of step 1, then go on from the step that stuck.
 
 Every choice the spec doesn't settle is yours. Make it, record it and keep going.
 
@@ -36,6 +37,23 @@ Read first:
 - **A local command that can run past 9 minutes** (an e2e run, a full check) runs with `run_in_background`. End the turn or do other work; its completion notification is your signal.
 - **30 minutes:** a check still running 30 minutes after the push isn't green, whether the loop timed out or, with the subscription, the session wakes to find it still running. Record "CI still pending after 30 minutes: <checks>" under Decisions and go on.
 - These waits don't work: a foreground `sleep`, hand-written polling loops, and unauthenticated `curl` to api.github.com.
+
+## Resume
+
+With `resume`, for each spec, in the order given:
+
+1. **Check it can resume.** Read the issue (body, comments and labels) and find its open PR with a projected read, so only this repository's own branches count, never a fork's PR or a body anyone can write: `gh api --paginate 'repos/{owner}/{repo}/pulls?state=open&per_page=100' --jq '.[] | select(.head.repo.full_name == "<owner>/<repo>" and (.head.ref | startswith("spec/<n>-"))) | {number, head: .head.ref}'`. Refuse the spec when it isn't `spec:stuck` ("#<n> is `<label>`, not `spec:stuck`"), has no such PR ("#<n> has no open PR to resume; build it again without `resume`"), or has several ("#<n> has several open `spec/<n>-` PRs: #…"). A refused spec keeps its labels and PR as they are: post the `night-shift` comment of step 6 with `"status":"stuck"` and the reason prefixed "resume refused: ", name the reason in your last message, and go to the next spec.
+2. **Relabel it:** `spec:stuck` → `spec:building`.
+3. **Read the owner's answer** from the spec body's `## Owner decisions` section: one line per answer, `- <question or blocker>: <choice>`, or `- Guidance: <text>` for a blocker that wasn't a question. Only the spec body counts, never a comment. With no such section, or none newer than the PR's Stuck section, go on without one: the resume then settles nothing the stuck build couldn't, so expect it to end stuck again.
+4. **Find the step that stuck,** from the PR body's Stuck section and the reason in the spec's latest `night-shift` status comment: step 2 (a question during the build, or a ticket that couldn't be built), step 3 (a red check) or step 5 (blockers left after the fix rounds, or a `needs-person` finding).
+5. **Take the PR's branch:** `git fetch origin <head>` and check it out (the name checked against `untrusted-input.md` rule 4). Never open a second PR or start a fresh branch: the build's commits, its review and its Decisions carry on.
+6. **Record the answer.** Add each owner answer you apply to the Decisions section as "<question>: decided by the owner: <choice>" (guidance as "<blocker>: owner's guidance: <text>"), and one line "resumed from step <N>: <what stuck>".
+7. **Go on from that step,** with the answer applied, through steps 3 to 6 as usual:
+   - From step 2: build the tickets still open, then check, review (a full `pr-review` only if the PR has no review section yet, else `fix-round`), and fix.
+   - From step 3: fix the red check, then the review steps the build hadn't reached.
+   - From step 5: one fix round for the items still blocking, then `pr-review <pr> fix-round unattended`.
+   - **At most one fix round in this run,** whatever step it starts from, and never more than three across the build. When it ends with anything still blocking, the spec is stuck again, as step 5 says.
+8. **Finish** as step 6 says. Ready removes the PR body's Stuck section; stuck again replaces it with the new blocker.
 
 ## For each spec, in the order given
 
@@ -188,7 +206,7 @@ Ready or stuck, copy the spec's **Before ship** and **After merge** items to the
 Then comment on the spec issue with one line for the morning page:
 
 ```
-<!-- night-shift {"status":"ready|stuck|no-feedback","pr":<n or null>,"reason":"<stuck reason or empty>","decisions":<count>,"rounds":<0-2>} -->
+<!-- night-shift {"status":"ready|stuck|no-feedback","pr":<n or null>,"reason":"<stuck reason or empty>","decisions":<count>,"rounds":<0-2, up to 3 after a resume>} -->
 night-shift: <ready for review|stuck>: <PR link>. <one sentence>
 ```
 
