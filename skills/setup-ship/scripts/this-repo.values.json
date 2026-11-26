@@ -12,6 +12,7 @@
     "printf '%s\\0' skills/*/scripts/*.sh | xargs -0 -n1 bash -n",
     "actionlint .github/workflows/*.yml",
     "! grep -rn '__[A-Z_]*__' .github/workflows docs/agents",
+    "node --test scripts/*.test.mjs && node scripts/check-paths.mjs",
     "claude plugin validate ."
   ],
   "CD_SUMMARY": "Nothing deploys on merge. Plugin users pick up `main` through the `grimfeld` marketplace on their next plugin update.",

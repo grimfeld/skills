@@ -75,7 +75,7 @@ Required on `main`: `check`, and `ship`.
 
 After changing that list here and merging it, re-run `/ship:setup-ship`: it syncs the ruleset to it.
 
-Run locally before marking a PR ready: `node --test skills/*/scripts/*.test.mjs`, `find skills -path '*/scripts/test_*.py' -execdir python3 -m unittest {} +`, `printf '%s\0' skills/*/scripts/*.mjs | xargs -0 -n1 node --check`, `python3 -m py_compile skills/*/scripts/*.py`, `printf '%s\0' skills/*/scripts/*.sh | xargs -0 -n1 bash -n`, `actionlint .github/workflows/*.yml`, `! grep -rn '__[A-Z_]*__' .github/workflows docs/agents`, `claude plugin validate .`
+Run locally before marking a PR ready: `node --test skills/*/scripts/*.test.mjs`, `find skills -path '*/scripts/test_*.py' -execdir python3 -m unittest {} +`, `printf '%s\0' skills/*/scripts/*.mjs | xargs -0 -n1 node --check`, `python3 -m py_compile skills/*/scripts/*.py`, `printf '%s\0' skills/*/scripts/*.sh | xargs -0 -n1 bash -n`, `actionlint .github/workflows/*.yml`, `! grep -rn '__[A-Z_]*__' .github/workflows docs/agents`, `node --test scripts/*.test.mjs && node scripts/check-paths.mjs`, `claude plugin validate .`
 
 ## After merge
 

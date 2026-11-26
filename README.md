@@ -287,7 +287,14 @@ claude --plugin-dir /path/to/this/repo   # load the working copy; /reload-plugin
 claude plugin validate .                 # manifest and marketplace checks
 ```
 
-The two remaining warnings are deliberate: no `version` (see above) and no icon.
+`claude plugin validate .` passes with exactly these four warnings, all deliberate. A warning not on this list is new: look into it.
+
+| Warning (as `validate` prints it) | Why it stays |
+|---|---|
+| `plugins[0] plugin.json → version: No version specified` | The marketplace entry sets no version, so every commit on `main` is a version, which `/ship:version` and `claude plugin update` rely on. |
+| `version: No version specified` | `plugin.json` sets none, for the same reason. |
+| `root: CLAUDE.md at the plugin root is not loaded as project context` | The root `CLAUDE.md` is this repo's instructions for agents working on it, not context the plugin ships. |
+| `.claude-plugin/plugin.json icon: No icon (ICON_MISSING)` | Deliberate for now: the directory takes an icon only once, so adding one is a separate, considered step. |
 
 The `check` workflow (`.github/workflows/check.yml`) runs on every pull request and on pushes to `main`. Run the same commands locally before marking a PR ready; `docs/agents/shipping.md` lists them:
 
@@ -299,7 +306,10 @@ python3 -m py_compile skills/*/scripts/*.py
 printf '%s\0' skills/*/scripts/*.sh | xargs -0 -n1 bash -n
 actionlint .github/workflows/*.yml                                        # workflows, with shellcheck
 ! grep -rn '__[A-Z_]*__' .github/workflows docs/agents                    # no placeholder left
+node --test scripts/*.test.mjs && node scripts/check-paths.mjs            # every path a skill cites resolves where it runs
 ```
+
+Editing a skill: check the new instructions against its "You must never" list and other skills' contracts, as `docs/agents/editing-skills.md` says.
 
 Shared rules the skills read live in `references/`. `references/untrusted-input.md` says how a skill handles PR, issue, commit and CI text before it writes or pushes code (field projections, git-only code, branch-name checks, rule files from the default branch); `land` and `build-spec` read it first, and `pr-review`'s `security` lens checks a diff that changes `skills/` against it.
 
