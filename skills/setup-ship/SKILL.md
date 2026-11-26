@@ -118,7 +118,7 @@ The user's part is the to-dos the "Versions" list gives for each version passed.
     - `spec:stuck`
     - `design:ready`: "A Claude Design artifact, marked done"
     - `design:specced`: "Turned into specs by /ship:design-me"
-    - `changes-requested`: "Sent back for a rebuild: move its spec to spec:ready"
+    - `changes-requested`: "Feedback on the PR to adjust: /ship:build-spec #<pr> adjust"
     - `retro`: "Filed by /ship:retro-issues from a session retro"
 
     Create them with `gh label create --force`, which keeps a label's other PRs and issues.
@@ -228,6 +228,7 @@ Each entry also gives what rendering that version needs beyond the current rules
 - **4:** `shipping.md` names the cloud environment `/ship:night-shift` creates its builder routines in (its "Night builds" section, `__CLOUD_ENVIRONMENT__`). `ship.yml` changes only its version line.
   - Rendering: version 3's base renders with the current rules (`scripts/render.mjs`); it has no `__CLOUD_ENVIRONMENT__`.
   - Ask only for the cloud environment (step 1.8), recommending the one named like the repository. Nothing else changes: no labels, ruleset changes, upgrade steps or user to-dos.
-- **5:** `shipping.md` has a `## Try it` section: where previews come from (`__TRY_PREVIEWS__`) and the command that runs a branch (`__TRY_RUN__`). `/ship:build-spec` fills each build PR's "Try it" section from them. `ship.yml` changes only its version line.
+- **5:** `shipping.md` has a `## Try it` section: where previews come from (`__TRY_PREVIEWS__`) and the command that runs a branch (`__TRY_RUN__`). `/ship:build-spec` fills each build PR's "Try it" section from them. Its "Spec labels" section says a PR sent back with `changes-requested` is adjusted on its own branch, and a full rebuild is closing the PR and relabelling the spec `spec:ready`. `ship.yml` changes only its version line.
   - Rendering: version 4's base renders with the current rules (`scripts/render.mjs`); it has no `__TRY_PREVIEWS__` or `__TRY_RUN__`.
-  - Ask only for the two Try it values (step 1.4's Previews and Run a branch findings), each with your proposal. No labels, ruleset changes, upgrade steps or user to-dos.
+  - Ask only for the two Try it values (step 1.4's Previews and Run a branch findings), each with your proposal. No new labels, ruleset changes or user to-dos.
+  - Upgrade step: update the `changes-requested` label's description (`gh label create changes-requested --force`, with the description above).

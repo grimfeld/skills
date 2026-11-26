@@ -101,6 +101,7 @@ Sizes each `spec:ready` spec against prior PRs in the same areas. The rule is on
    - Specs that overlap but don't disagree are chained without asking: built in order in one session, each PR on top of the previous one.
    - Conflicting decisions go to you, in one round.
    - A design's place specs wait until its foundation and shell have merged.
+   - Open PRs labelled `changes-requested` become **adjust sessions**: `/ship:build-spec #<pr> adjust unattended` changes the PR on its own branch from your feedback on it. The conflict check treats an adjust like a spec whose Touches are the PR's changed files.
 3. Once you approve the plan, it gives each session its prompt on a reused pool of builder routines (`ship-builder-<repo>-N`, since routines can't be deleted through the API) and starts them. The routines run in the cloud environment `docs/agents/shipping.md` names (its "Cloud environment" line); without one, the plan asks you to pick tonight's, never taking the default. Each builder runs `/ship:build-spec <specs> unattended`, so nothing is asked overnight.
 
 **`/ship:night-shift morning`** gathers the results into one page:
@@ -108,7 +109,8 @@ Sizes each `spec:ready` spec against prior PRs in the same areas. The rule is on
 - for a PR built from a design, its fidelity grid: reference beside app in every look, theme and viewport, with the views the review flagged shown full size
 - designs whose specs have all merged are closed
 - stuck specs, and what each needs from you
-- under each decision, how to answer it: tell the morning session `#<pr>: <choice>`, and it comments the answer on the PR and keeps the PR in the `/ship:land` line or sends it back for another night
+- under each decision, how to answer it: tell the morning session `#<pr>: <choice>`, and it comments the answer on the PR and keeps the PR in the `/ship:land` line or sends it back (`changes-requested`) to be adjusted the next night
+- to change a PR you've tried: write the feedback on the PR and label it `changes-requested`; the next night adjusts it on its own branch. To rebuild it from scratch, close the PR and relabel its spec `spec:ready`
 - what each spec, each session and the whole night would have cost at API prices, counted by each builder from its own transcript (`scripts/token-usage.mjs`, prices in `scripts/prices.json`)
 - the `/ship:land` command to run once you've reviewed: it approves the PRs you name and lands every PR carrying `ship`
 
@@ -143,7 +145,7 @@ It shows every project set up for ship (a repo with `docs/agents/shipping.md` am
 |---|---|
 | **Needs you** | `spec:draft` and `spec:stuck` specs, `design:ready` designs, PRs with failing checks, PRs that have carried `ship` for over 24 h without merging, and reviewed PRs (`pr-reviewed`, without `changes-requested`) waiting for your `ship` |
 | **Ready for tonight** | `spec:ready` specs |
-| **In flight** | `spec:building` specs, PRs labelled `changes-requested` (back with the night shift), draft PRs, and approved PRs landing now |
+| **In flight** | `spec:building` specs, PRs labelled `changes-requested` (adjusting next), draft PRs, and approved PRs landing now |
 | **Landed** | specs closed and PRs merged in the last 7 days |
 
 An item that fits several buckets shows once, in the first. Each card says why it's there ("checks failing", "ship label on, no update for 31 h") and for how long. The page refreshes every 5 minutes while it's open, and on **Refresh**.
@@ -192,6 +194,8 @@ What each cloud session runs. night-shift's builders pass `unattended`: nobody i
 Every PR it finishes (ready, or stuck with code on its branch) gets a **Try it** section above Decisions: the preview link when the project's CD made one, the command that runs the branch (from `shipping.md`'s Try it section), and numbered hands-on steps, one per acceptance criterion a person can check by hand, each saying what to do and what you should see. It finds previews and never deploys.
 
 A review finding whose fix is a choice only a person can make, or would undo something the spec settles, is never fixed at night: it is named under Decisions and the spec ends stuck with that choice. Every choice the spec left open goes in the PR's Decisions section. The PR ends ready, or as a draft marked stuck with the reason. It never merges and never adds `ship`.
+
+**`/ship:build-spec #<pr> adjust`** changes a PR it built from your feedback, instead of rebuilding it. Try the PR, write what to change in its comments or a review, and label it `changes-requested`. The adjust reads the comments, review comments and review bodies posted since the last adjust (or since the PR was marked ready) by people with write access to the repository, and says how many others it ignored (`scripts/select-feedback.mjs`). It changes the code on the PR's own branch, runs `pr-review <pr> fix-round` (at most two rounds), refreshes Try it, removes `changes-requested` and leaves a `build:adjusted` marker comment. Feedback that contradicts the spec wins: it is recorded under Decisions as "changed from the spec by the owner", and the spec issue is edited to match. With no feedback since the last adjust, it changes nothing and the label stays on. Run it yourself and it asks its questions; the night shift runs it with `unattended`, and feedback that needs a decision leaves the PR stuck.
 
 In a session without the Agent tool (a subagent), it builds the tickets inline, stops after the checks, and hands the draft PR back: "review pending: run build-spec steps 4–6 from a session with the Agent tool". The caller runs those steps.
 
