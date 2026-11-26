@@ -122,6 +122,23 @@ Each collected spec gets a comment linking that morning's page, marked `<!-- shi
 
 **Day builds.** `/ship:day-shift` builds on the same builder pool during the day, so the shifts never overlap: every dispatch comment says which shift wrote it (`"shift":"night"` or `"shift":"day"`; one without the field counts as night). The evening dispatches nothing while a day build is still `spec:building`: it names those specs and asks you to wait for them or stop them, and to stop the day loop. The morning page leaves out day builds, which the day shift has already reported.
 
+### `/ship:day-shift`
+
+The night shift for small things, while you're at your machine: a bug fix or a small adjustment specced in the morning is built within the hour instead of waiting for the evening.
+
+```
+/loop /ship:day-shift          # start it: one pass now, then it paces itself
+/ship:day-shift #12 #14        # build these now, whatever their size
+```
+
+Each pass:
+1. Checks the night shift isn't building and tonight's evening run hasn't dispatched; otherwise it dispatches nothing and says why.
+2. Reports each day build that became ready: one terminal message (PR link, review verdict, risks, decisions to check, cost at API prices, and `/ship:land #<pr>` to run once you've tried it) and a push notification, "#<pr> ready: <spec title>". Nothing is labelled `ship`: you approve and land as usual.
+3. Lists the small `spec:ready` specs nobody has dispatched yet, each with its estimate, and asks you yes or no for each; larger ones are listed on one line as left for tonight. A no isn't asked again until tomorrow (kept in `.scratch/day-shift/declined.json`). A yes on a spec not sliced yet runs `/ship:slice` first; parts that come out too big wait for the night.
+4. Dispatches the approved specs on the night shift's builder routines, with the same `build-spec … unattended`, overlapping ones chained in one builder, at most `Day shift builders` at once; the rest wait for a free builder.
+
+"Small" and the builder count come from two optional lines in `docs/agents/shipping.md`, `Day shift: ≤200 lines, 1 behaviour` and `Day shift builders: 2` (those are also the defaults). A pass wakes again in about 5 minutes while one of its builds is running, and in about an hour otherwise. Pause it by stopping the loop or closing the session; dispatched builds finish in the cloud and are reported on the next pass. It never overlaps the night shift: each refuses to dispatch while the other's builds are `spec:building`, decided from the dispatch comments on GitHub (`"shift":"day"` or `"shift":"night"`), so it holds across machines. The rules (thresholds, small or left for tonight, the exclusion, the declines) are in `skills/day-shift/scripts/day-shift.mjs`, with tests.
+
 ### `/ship:land`
 
 Lands every approved PR, with no more input from you. `ship` is the whole approval: adding it means you have read the PR and its comments.

@@ -232,3 +232,6 @@ Each entry also gives what rendering that version needs beyond the current rules
   - Rendering: version 4's base renders with the current rules (`scripts/render.mjs`); it has no `__TRY_PREVIEWS__` or `__TRY_RUN__`.
   - Ask only for the two Try it values (step 1.4's Previews and Run a branch findings), each with your proposal. No new labels, ruleset changes or user to-dos.
   - Upgrade step: update the `changes-requested` label's description (`gh label create changes-requested --force`, with the description above).
+- **6:** `shipping.md` gains a "Day builds" section holding the two optional lines `/ship:day-shift` reads, `Day shift: ≤<lines> lines, <k> behaviour(s)` and `Day shift builders: <n>`, written with their defaults (≤200 lines, 1 behaviour; 2 builders). `ship.yml` changes only its version line.
+  - Rendering: version 5's base renders with the current rules (`scripts/render.mjs`); it has no "Day builds" section. The section has no placeholders: a project changes its limits by editing the two lines, and an upgrade keeps those edits.
+  - Nothing to ask. Nothing else changes: no labels, ruleset changes, upgrade steps or user to-dos.

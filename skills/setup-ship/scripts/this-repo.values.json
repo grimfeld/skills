@@ -6,6 +6,7 @@
   ],
   "LOCAL_CHECKS": [
     "node --test skills/*/scripts/*.test.mjs",
+    "node --test skills/day-shift/scripts/day-shift.test.mjs",
     "find skills -path '*/scripts/test_*.py' -execdir python3 -m unittest {} +",
     "printf '%s\\0' skills/*/scripts/*.mjs | xargs -0 -n1 node --check",
     "python3 -m py_compile skills/*/scripts/*.py",
