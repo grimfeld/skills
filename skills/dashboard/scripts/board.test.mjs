@@ -129,9 +129,9 @@ test("ago reads in minutes, then hours up to two days, then days", () => {
   assert.deepEqual([ago(20 * 60e3), ago(31 * 3600e3), ago(47.5 * 3600e3), ago(50 * 3600e3), ago(-5)], ["20 min", "31 h", "47 h", "2 d", "1 min"]);
 });
 
-test("a changes-requested PR is back with the night shift, not waiting on you", () => {
+test("a changes-requested PR is being adjusted next, not waiting on you", () => {
   const prs = [pr(60, ["pr-reviewed", "changes-requested"])];
-  assert.deepEqual(pick(toCards("acme/app", [], prs, {}, NOW)), [[60, "pr", "in-flight", "changes requested, back to the night shift"]]);
+  assert.deepEqual(pick(toCards("acme/app", [], prs, {}, NOW)), [[60, "pr", "in-flight", "changes requested: adjusting next"]]);
 });
 
 test("a PR closed without merging gets no card, whatever its labels", () => {
