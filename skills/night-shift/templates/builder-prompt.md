@@ -4,6 +4,8 @@ Build these specs, in this order, each on top of the one before: {{SPECS}}.
 
 Run `/ship:build-spec {{SPECS}} unattended` and follow it to the end.
 
+When the line above reads `#<pr> adjust`, this is an adjust session: you change that PR from the feedback on it, as build-spec's "Adjust a PR" says, rather than building specs. Its spec is {{SPEC}}.
+
 If that skill isn't available, the plugin isn't installed in this session. In that case:
 1. `git clone --depth 1 https://github.com/grimfeld/skills /tmp/ship`
 2. Read `/tmp/ship/skills/build-spec/SKILL.md` and follow it as run with the arguments `{{SPECS}} unattended`. Wherever a skill says `${CLAUDE_PLUGIN_ROOT}`, use `/tmp/ship`. Wherever it says `${CLAUDE_SKILL_DIR}`, use that skill's folder under `/tmp/ship/skills/`. Wherever it calls `ship:pr-review`, read and follow `/tmp/ship/skills/pr-review/SKILL.md` the same way.
@@ -16,7 +18,7 @@ If that skill isn't available, the plugin isn't installed in this session. In th
 The morning page shows what tonight cost. Only you can count it, because your transcript leaves with this session. Count it after `build-spec`'s End step. Count it again at the end of every later turn that did work, for example when a CI result or a notification woke you and you acted on it:
 
 1. If `/tmp/ship` doesn't exist, run `git clone --depth 1 https://github.com/grimfeld/skills /tmp/ship`.
-2. Run `node /tmp/ship/skills/night-shift/scripts/token-usage.mjs count --specs "{{SPECS}}"`.
+2. Run `node /tmp/ship/skills/night-shift/scripts/token-usage.mjs count --specs "{{SPEC}}"`.
    - It prints tokens by spec and by model. A subagent counts toward the spec it was started for. `shared` holds work outside every spec.
    - Don't add up or estimate tokens yourself.
    - If the script fails, write `"tokens": null` and give its error in one line under the comment.
